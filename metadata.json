@@ -1,0 +1,6 @@
+{
+  "name": "Moztechwave Education Platform",
+  "description": "Sistema de Gestão Escolar e Académica Integrada (SaaS, SIGAR, SIVEC, Financeiro, Document Studio, Portaria e IA) para instituições de ensino e formação técnico-profissional.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

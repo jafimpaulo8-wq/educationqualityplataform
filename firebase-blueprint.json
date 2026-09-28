@@ -1,0 +1,287 @@
+{
+  "entities": {
+    "Institution": {
+      "title": "Institution",
+      "description": "Educational institution or technical training center operating on Moztechwave platform",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "code": { "type": "string", "maxLength": 64 },
+        "name": { "type": "string", "maxLength": 200 },
+        "type": { "type": "string", "maxLength": 50 },
+        "nuit": { "type": "string", "maxLength": 30 },
+        "licenseNumber": { "type": "string", "maxLength": 50 },
+        "representativeName": { "type": "string", "maxLength": 150 },
+        "representativeRole": { "type": "string", "maxLength": 100 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "email": { "type": "string", "maxLength": 100 },
+        "province": { "type": "string", "maxLength": 50 },
+        "city": { "type": "string", "maxLength": 50 },
+        "address": { "type": "string", "maxLength": 250 },
+        "plan": { "type": "string", "maxLength": 50 },
+        "status": { "type": "string", "maxLength": 30 },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "code", "name", "email", "status"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile with role-based access control and tenant isolation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 150 },
+        "email": { "type": "string", "maxLength": 100 },
+        "role": { "type": "string", "maxLength": 50 },
+        "institutionId": { "type": "string", "maxLength": 128 },
+        "branchId": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "maxLength": 30 },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "name", "email", "role", "institutionId", "status"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Student record strictly scoped to an institution and branch",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "institutionId": { "type": "string", "maxLength": 128 },
+        "branchId": { "type": "string", "maxLength": 128 },
+        "code": { "type": "string", "maxLength": 64 },
+        "fullName": { "type": "string", "maxLength": 200 },
+        "documentType": { "type": "string", "maxLength": 30 },
+        "documentNumber": { "type": "string", "maxLength": 50 },
+        "birthDate": { "type": "string", "maxLength": 30 },
+        "gender": { "type": "string", "maxLength": 20 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "email": { "type": "string", "maxLength": 100 },
+        "province": { "type": "string", "maxLength": 50 },
+        "city": { "type": "string", "maxLength": 50 },
+        "address": { "type": "string", "maxLength": 250 },
+        "courseId": { "type": "string", "maxLength": 128 },
+        "courseName": { "type": "string", "maxLength": 200 },
+        "classGroupId": { "type": "string", "maxLength": 128 },
+        "classGroupName": { "type": "string", "maxLength": 200 },
+        "regime": { "type": "string", "maxLength": 50 },
+        "status": { "type": "string", "maxLength": 50 },
+        "enrollmentDate": { "type": "string", "maxLength": 50 },
+        "paymentStatus": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "institutionId", "code", "fullName", "documentNumber", "status"]
+    },
+    "Course": {
+      "title": "Course",
+      "description": "Curricular course or professional training module",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "institutionId": { "type": "string", "maxLength": 128 },
+        "branchId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 200 },
+        "category": { "type": "string", "maxLength": 50 },
+        "duration": { "type": "string", "maxLength": 50 },
+        "regime": { "type": "string", "maxLength": 50 },
+        "level": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "institutionId", "name", "category", "duration"]
+    },
+    "ClassGroup": {
+      "title": "ClassGroup",
+      "description": "Academic class group or cohort for a given course",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "institutionId": { "type": "string", "maxLength": 128 },
+        "branchId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 200 },
+        "courseId": { "type": "string", "maxLength": 128 },
+        "courseName": { "type": "string", "maxLength": 200 },
+        "period": { "type": "string", "maxLength": 100 },
+        "shift": { "type": "string", "maxLength": 50 },
+        "schedule": { "type": "string", "maxLength": 100 },
+        "room": { "type": "string", "maxLength": 100 },
+        "teacherName": { "type": "string", "maxLength": 150 },
+        "capacity": { "type": "integer" },
+        "startDate": { "type": "string", "maxLength": 50 },
+        "endDate": { "type": "string", "maxLength": 50 },
+        "status": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "institutionId", "name", "courseId", "capacity", "status"]
+    },
+    "StudentClassTransfer": {
+      "title": "StudentClassTransfer",
+      "description": "Historical audit record of student transfer between class groups",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "institutionId": { "type": "string", "maxLength": 128 },
+        "branchId": { "type": "string", "maxLength": 128 },
+        "studentId": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 200 },
+        "studentCode": { "type": "string", "maxLength": 64 },
+        "fromClassId": { "type": "string", "maxLength": 128 },
+        "fromClassName": { "type": "string", "maxLength": 200 },
+        "toClassId": { "type": "string", "maxLength": 128 },
+        "toClassName": { "type": "string", "maxLength": 200 },
+        "transferDate": { "type": "string", "maxLength": 50 },
+        "reason": { "type": "string", "maxLength": 250 },
+        "authorizedBy": { "type": "string", "maxLength": 150 },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "institutionId", "studentId", "fromClassId", "toClassId", "transferDate", "reason", "authorizedBy"]
+    },
+    "ClassScheduleSlot": {
+      "title": "ClassScheduleSlot",
+      "description": "Calendar timetable class slot with teacher, room, class, discipline and duration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "institutionId": { "type": "string", "maxLength": 128 },
+        "branchId": { "type": "string", "maxLength": 128 },
+        "classGroupId": { "type": "string", "maxLength": 128 },
+        "classGroupName": { "type": "string", "maxLength": 200 },
+        "courseId": { "type": "string", "maxLength": 128 },
+        "courseName": { "type": "string", "maxLength": 200 },
+        "disciplineId": { "type": "string", "maxLength": 128 },
+        "disciplineName": { "type": "string", "maxLength": 200 },
+        "teacherName": { "type": "string", "maxLength": 200 },
+        "room": { "type": "string", "maxLength": 100 },
+        "dayOfWeek": { "type": "integer", "minimum": 0, "maximum": 6 },
+        "startTime": { "type": "string", "maxLength": 10 },
+        "endTime": { "type": "string", "maxLength": 10 },
+        "durationMinutes": { "type": "integer", "minimum": 15 },
+        "status": { "type": "string", "maxLength": 50 },
+        "recurrence": { "type": "string", "maxLength": 50 },
+        "color": { "type": "string", "maxLength": 20 }
+      },
+      "required": ["id", "institutionId", "classGroupId", "courseId", "disciplineName", "teacherName", "room", "dayOfWeek", "startTime", "endTime", "durationMinutes"]
+    },
+    "CashRegisterSession": {
+      "title": "CashRegisterSession",
+      "description": "Cash register session for tuition and fee collection",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "institutionId": { "type": "string", "maxLength": 128 },
+        "branchId": { "type": "string", "maxLength": 128 },
+        "operator": { "type": "string", "maxLength": 150 },
+        "openedAt": { "type": "string", "maxLength": 50 },
+        "closedAt": { "type": "string", "maxLength": 50 },
+        "status": { "type": "string", "maxLength": 30 }
+      },
+      "required": ["id", "institutionId", "operator", "openedAt", "status"]
+    },
+    "ClassLesson": {
+      "title": "ClassLesson",
+      "description": "Lesson entry in the digital class diary",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "institutionId": { "type": "string", "maxLength": 128 },
+        "branchId": { "type": "string", "maxLength": 128 },
+        "classGroupId": { "type": "string", "maxLength": 128 },
+        "classGroupName": { "type": "string", "maxLength": 200 },
+        "disciplineName": { "type": "string", "maxLength": 150 },
+        "teacherName": { "type": "string", "maxLength": 150 },
+        "date": { "type": "string", "maxLength": 50 },
+        "title": { "type": "string", "maxLength": 250 },
+        "description": { "type": "string", "maxLength": 1000 }
+      },
+      "required": ["id", "institutionId", "classGroupId", "disciplineName", "teacherName", "date", "title"]
+    },
+    "GateAccessLog": {
+      "title": "GateAccessLog",
+      "description": "Turnstile and gate access logs for student entry and exit with notifications",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "institutionId": { "type": "string", "maxLength": 128 },
+        "branchId": { "type": "string", "maxLength": 128 },
+        "studentId": { "type": "string", "maxLength": 128 },
+        "studentCode": { "type": "string", "maxLength": 64 },
+        "studentName": { "type": "string", "maxLength": 200 },
+        "courseName": { "type": "string", "maxLength": 200 },
+        "guardianPhone": { "type": "string", "maxLength": 30 },
+        "guardianName": { "type": "string", "maxLength": 150 },
+        "timestamp": { "type": "string", "maxLength": 50 },
+        "type": { "type": "string", "maxLength": 20 },
+        "operator": { "type": "string", "maxLength": 150 },
+        "whatsappStatus": { "type": "string", "maxLength": 30 }
+      },
+      "required": ["id", "institutionId", "studentId", "studentCode", "studentName", "timestamp", "type"]
+    },
+    "Teacher": {
+      "title": "Teacher",
+      "description": "Teacher and instructor profile scoped to institution with assigned classes, courses, and documents",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "institutionId": { "type": "string", "maxLength": 128 },
+        "branchId": { "type": "string", "maxLength": 128 },
+        "code": { "type": "string", "maxLength": 64 },
+        "fullName": { "type": "string", "maxLength": 200 },
+        "photoUrl": { "type": "string", "maxLength": 500 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "email": { "type": "string", "maxLength": 100 },
+        "academicDegree": { "type": "string", "maxLength": 150 },
+        "specialty": { "type": "string", "maxLength": 150 },
+        "status": { "type": "string", "maxLength": 30 },
+        "biNumber": { "type": "string", "maxLength": 50 },
+        "hireDate": { "type": "string", "maxLength": 50 },
+        "biography": { "type": "string", "maxLength": 1000 },
+        "courseIds": { "type": "array", "items": { "type": "string" } },
+        "disciplineNames": { "type": "array", "items": { "type": "string" } },
+        "classGroupIds": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "institutionId", "fullName", "phone", "email", "status"]
+    }
+  },
+  "firestore": {
+    "/institutions/{institutionId}": {
+      "schema": "Institution",
+      "description": "Registered institutions and technical training centers"
+    },
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profiles with institution tenancy and role definitions"
+    },
+    "/students/{studentId}": {
+      "schema": "Student",
+      "description": "Student records belonging to institutions and branches"
+    },
+    "/courses/{courseId}": {
+      "schema": "Course",
+      "description": "Course catalog partitioned by institution"
+    },
+    "/classes/{classId}": {
+      "schema": "ClassGroup",
+      "description": "Class groups partitioned by institution and branch"
+    },
+    "/teachers/{teacherId}": {
+      "schema": "Teacher",
+      "description": "Teachers and trainers partitioned by institution and branch"
+    },
+    "/transfers/{transferId}": {
+      "schema": "StudentClassTransfer",
+      "description": "Student class transfer logs per institution"
+    },
+    "/schedules/{scheduleId}": {
+      "schema": "ClassScheduleSlot",
+      "description": "Class timetable slots and scheduled calendar lessons per institution"
+    },
+    "/cashSessions/{sessionId}": {
+      "schema": "CashRegisterSession",
+      "description": "Cash register sessions partitioned by institution"
+    },
+    "/lessons/{lessonId}": {
+      "schema": "ClassLesson",
+      "description": "Class diary and attendance logs per institution"
+    },
+    "/accessLogs/{logId}": {
+      "schema": "GateAccessLog",
+      "description": "Physical gate access logs per institution"
+    }
+  }
+}

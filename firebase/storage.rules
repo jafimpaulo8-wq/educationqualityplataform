@@ -1,0 +1,36 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isSuperAdmin() {
+      return isSignedIn() && request.auth.token.email == 'jafimpaulo8@gmail.com';
+    }
+
+    // Student profile photos
+    match /institutions/{instId}/students/{studentId}/photos/{fileName} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    // Official Certificates & Diplomas (PDFs)
+    match /institutions/{instId}/certificates/{certId}/{fileName} {
+      allow read: if true; // Publicly verifiable via QR code
+      allow write: if isSignedIn();
+    }
+
+    // Financial Invoices & Receipts
+    match /institutions/{instId}/finance/{receiptId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Default deny for all other files
+    match /{allPaths=**} {
+      allow read, write: if isSuperAdmin();
+    }
+  }
+}
