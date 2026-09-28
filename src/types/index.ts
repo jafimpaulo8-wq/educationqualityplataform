@@ -1301,6 +1301,7 @@ export type AppRoute =
   | 'moztechwave_core'
   | 'public_portal'
   | 'inscricao_publica'
+  | 'inscricao_privada'
   | 'candidatos_gestao'
   | 'cursos_gestao'
   | 'super_admin'

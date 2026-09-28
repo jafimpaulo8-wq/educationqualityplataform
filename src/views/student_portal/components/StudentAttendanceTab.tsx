@@ -147,6 +147,68 @@ export const StudentAttendanceTab: React.FC<StudentAttendanceTabProps> = ({
 
       </div>
 
+      {/* Taxa de Frequência por Disciplina (%) */}
+      <div className="bg-white rounded-2xl border border-slate-200/90 p-6 shadow-2xs space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+          <div>
+            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <Check className="w-4 h-4 text-emerald-600" />
+              Frequência por Disciplina (%)
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Assiduidade discriminada por cadeira no 2º semestre letivo (Mínimo obrigatório: 75%)
+            </p>
+          </div>
+          <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 font-mono text-xs font-bold rounded-lg border border-emerald-200">
+            Média Geral: {attendancePercentage}%
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+          {[
+            { name: 'Informática Aplicada & Redes', total: 18, presences: 17, absences: 1, percent: 94 },
+            { name: 'Inglês Técnico para Negócios', total: 14, presences: 13, absences: 1, percent: 93 },
+            { name: 'Matemática Financeira & Lógica', total: 16, presences: 14, absences: 2, percent: 88 },
+            { name: 'Programação de Sistemas & BD', total: 24, presences: 23, absences: 1, percent: 96 },
+            { name: 'Gestão de Sistemas de Informação', total: 12, presences: 11, absences: 1, percent: 92 },
+            { name: 'Cibersegurança & Auditoria', total: 16, presences: 15, absences: 1, percent: 94 }
+          ].map((item, idx) => {
+            const isRegular = item.percent >= 75;
+            return (
+              <div 
+                key={idx} 
+                className="p-4 rounded-xl border border-slate-100 bg-slate-50/70 hover:bg-white hover:border-slate-200 transition-all space-y-2"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <h4 className="text-xs font-bold text-slate-900 leading-snug line-clamp-1" title={item.name}>
+                    {item.name}
+                  </h4>
+                  <span className={`text-xs font-black font-mono shrink-0 ${isRegular ? 'text-emerald-700' : 'text-rose-600'}`}>
+                    {item.percent}%
+                  </span>
+                </div>
+
+                <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                  <div 
+                    className={`h-full rounded-full transition-all ${
+                      item.percent >= 90 ? 'bg-emerald-500' : item.percent >= 75 ? 'bg-blue-500' : 'bg-rose-500'
+                    }`} 
+                    style={{ width: `${item.percent}%` }}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] text-slate-500 font-mono pt-1">
+                  <span>{item.presences} presenças / {item.total} aulas</span>
+                  <span className={item.absences === 0 ? 'text-emerald-600' : 'text-slate-400'}>
+                    {item.absences} {item.absences === 1 ? 'falta' : 'faltas'}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Tabela de Histórico de Frequência Aula a Aula */}
       <div className="bg-white rounded-2xl border border-slate-200/90 p-6 shadow-2xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">

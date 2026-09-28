@@ -21,6 +21,7 @@ import { soundManager } from '../../utils/audio';
 interface PublicPortalLandingProps {
   onOpenAuthModal: () => void;
   onOpenPublicVerify: () => void;
+  onOpenOnlineRegistration?: () => void;
   onOpenRegisterInstitution: () => void;
   onOpenHelp: () => void;
 }
@@ -28,6 +29,7 @@ interface PublicPortalLandingProps {
 export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
   onOpenAuthModal,
   onOpenPublicVerify,
+  onOpenOnlineRegistration,
   onOpenRegisterInstitution,
   onOpenHelp,
 }) => {
@@ -63,6 +65,18 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
 
           {/* Primary Action Buttons (PARTE 3) */}
           <div className="flex flex-wrap items-center justify-center gap-3.5 mt-8">
+            {onOpenOnlineRegistration && (
+              <button
+                type="button"
+                onClick={onOpenOnlineRegistration}
+                className="flex items-center gap-2.5 px-6 py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-black text-sm shadow-xl shadow-emerald-950/50 transition-all cursor-pointer hover:scale-[1.02] active:scale-95"
+              >
+                <GraduationCap className="w-5 h-5 text-slate-950" />
+                <span>Inscrição Online (Candidaturas)</span>
+                <span className="w-2 h-2 rounded-full bg-slate-950 animate-pulse" />
+              </button>
+            )}
+
             <button
               type="button"
               onClick={onOpenAuthModal}
@@ -136,14 +150,26 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             
-            <div className="p-6 rounded-2xl bg-slate-900/70 border border-slate-800 space-y-3">
-              <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
-                <FileText className="w-5 h-5" />
+            <div className="p-6 rounded-2xl bg-slate-900/70 border border-slate-800 space-y-3 flex flex-col justify-between">
+              <div className="space-y-3">
+                <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <h3 className="text-base font-bold text-white">Inscrições &amp; Matrículas Digitais</h3>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Recepção e triagem de candidaturas online, envio de documentos e gestão de turmas com redução de filas.
+                </p>
               </div>
-              <h3 className="text-base font-bold text-white">Inscrições &amp; Matrículas Digitais</h3>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Recepção e triagem de candidaturas online, envio de documentos e gestão de turmas com redução de filas.
-              </p>
+              {onOpenOnlineRegistration && (
+                <button
+                  type="button"
+                  onClick={onOpenOnlineRegistration}
+                  className="mt-3 w-full py-2 px-3 rounded-xl bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 text-sky-400 hover:text-sky-300 text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <span>Fazer Inscrição Agora</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
 
             <div className="p-6 rounded-2xl bg-slate-900/70 border border-slate-800 space-y-3">

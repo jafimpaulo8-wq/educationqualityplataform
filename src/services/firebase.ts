@@ -15,11 +15,16 @@ import {
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
-// Initialize Firebase App
+// Initialize Firebase App for SIVERC (siverc-94da3)
 export const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-// CRITICAL: Initialize Firestore with the provisioned databaseId
-export const db: Firestore = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// Initialize Firestore for project siverc-94da3
+const targetDbId = firebaseConfig.firestoreDatabaseId;
+export const db: Firestore = (targetDbId && targetDbId !== '(default)' && targetDbId.trim() !== '')
+  ? getFirestore(app, targetDbId)
+  : getFirestore(app);
+
+export { firebaseConfig };
 
 // Auth
 export const auth = getAuth(app);

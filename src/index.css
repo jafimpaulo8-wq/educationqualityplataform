@@ -1,5 +1,22 @@
 @import "tailwindcss";
 
+:root {
+  --mtw-primary: #1E40AF;
+  --mtw-primary-dark: #0A1220;
+  --mtw-secondary: #2563EB;
+  --mtw-accent: #3B82F6;
+  --mtw-background: #F1F5F9;
+  --mtw-surface: #FFFFFF;
+  --mtw-surface-dark: #09121F;
+  --mtw-text: #0F172A;
+  --mtw-text-muted: #64748B;
+  --mtw-border: #E2E8F0;
+  --mtw-border-dark: #1E293B;
+  --mtw-success: #10B981;
+  --mtw-warning: #F59E0B;
+  --mtw-danger: #EF4444;
+}
+
 @layer base {
   html {
     scroll-behavior: smooth;

@@ -695,7 +695,17 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentRoute, setCurrentRoute] = useState<AppRoute>('public_portal');
+  const [currentRoute, setCurrentRoute] = useState<AppRoute>(() => {
+    if (typeof window !== 'undefined') {
+      const searchParams = new URLSearchParams(window.location.search);
+      const urlRoute = searchParams.get('route');
+      if (urlRoute) return urlRoute as AppRoute;
+      const path = window.location.pathname;
+      if (path.includes('/inscricao') || path.includes('/candidatura')) return 'inscricao_publica';
+      if (path.includes('/verify')) return 'public_verify';
+    }
+    return 'public_portal';
+  });
   const [routeParams, setRouteParams] = useState<Record<string, any>>({});
   const [activeRole, setActiveRoleState] = useState<UserRole>('visitante');
   const [authorizedRoles, setAuthorizedRoles] = useState<UserRole[]>(['VISITANTE']);
@@ -1853,6 +1863,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentRoute(route);
     setRouteParams(params);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    try {
+      if (typeof window !== 'undefined' && window.history) {
+        const url = new URL(window.location.href);
+        if (route === 'public_portal') {
+          url.searchParams.delete('route');
+        } else {
+          url.searchParams.set('route', route);
+        }
+        if (params.inst) url.searchParams.set('inst', params.inst);
+        if (params.course) url.searchParams.set('course', params.course);
+        window.history.pushState(null, '', url.toString());
+      }
+    } catch (e) {
+      // Ignore URL state errors
+    }
   };
 
   // Switch Institution with strict Multi-Tenant Permission check

@@ -121,6 +121,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
       case 'SECRETARIA':
         return [
           { label: 'Dashboard Secretaria', route: 'candidatos_gestao', icon: <ClipboardList className="w-4 h-4 text-sky-400" /> },
+          { label: 'Inscrição Privada / Balcão', route: 'inscricao_privada', icon: <Lock className="w-4 h-4 text-amber-400" />, badge: 'Balcão' },
+          { label: 'Inscrição Pública (Portal)', route: 'inscricao_publica', icon: <Globe className="w-4 h-4 text-emerald-400" /> },
           { label: 'Alunos', route: 'alunos_list', icon: <Users className="w-4 h-4 text-blue-400" /> },
           { label: 'Matrículas / Inscrições', route: 'alunos_cadastrar', icon: <PlusCircle className="w-4 h-4 text-emerald-400" />, badge: 'Novo' },
           { label: 'Turmas', route: 'turmas_gestao', icon: <Layers className="w-4 h-4 text-indigo-400" /> },
@@ -154,6 +156,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
       case 'ADMIN_INSTITUICAO':
         return [
           { label: 'Dashboard Geral', route: 'centro_dashboard', icon: <School className="w-4 h-4 text-blue-400" /> },
+          { label: 'Inscrições & Candidaturas', route: 'candidatos_gestao', icon: <ClipboardList className="w-4 h-4 text-sky-400" /> },
+          { label: 'Inscrição Privada / Links', route: 'inscricao_privada', icon: <Lock className="w-4 h-4 text-amber-400" /> },
           { label: 'Visão Académica', route: 'relatorios_academicos', icon: <BookOpen className="w-4 h-4 text-sky-400" /> },
           { label: 'Visão Financeira', route: 'relatorios_financeiros', icon: <DollarSign className="w-4 h-4 text-emerald-400" /> },
           { label: 'Professores', route: 'professores_gestao', icon: <Users className="w-4 h-4 text-indigo-400" /> },

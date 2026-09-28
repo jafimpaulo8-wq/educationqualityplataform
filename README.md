@@ -122,14 +122,13 @@ O sistema integra a suíte Firebase v12 utilizando o SDK modular em `src/firebas
 ### Arquivo de Configuração (`firebase-applet-config.json`)
 ```json
 {
-  "projectId": "gothic-composition-scbh2",
+  "projectId": "siverc-94da3",
   "appId": "1:830264966313:web:08af6f106e5d6dc7333db8",
   "apiKey": "AIzaSyB54CYrkKo2oa7LDFDECoDmoTJMdaS3utI",
-  "authDomain": "gothic-composition-scbh2.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-sigarportaldeins-1fdac797-191d-478c-aca0-3985fe1df60b",
-  "storageBucket": "gothic-composition-scbh2.firebasestorage.app",
-  "messagingSenderId": "830264966313",
-  "oAuthClientId": "830264966313-335670n00jkmhidp6bilnbm046dmsk39.apps.googleusercontent.com"
+  "authDomain": "siverc-94da3.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "siverc-94da3.firebasestorage.app",
+  "messagingSenderId": "830264966313"
 }
 ```
 

@@ -38,7 +38,8 @@ import {
   Globe,
   Sliders,
   History,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Lock
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useApp } from '../../context/AppContext';
@@ -627,6 +628,15 @@ export const CandidatesManagementView: React.FC = () => {
           >
             <Plus className="w-4 h-4" />
             Inscrever Candidato
+          </button>
+
+          <button
+            onClick={() => navigate('inscricao_privada')}
+            className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-xs font-bold text-slate-950 flex items-center gap-1.5 transition-all cursor-pointer shadow-sm shadow-amber-500/20"
+            title="Abrir plataforma de inscrição privada, balcão e links institucionais"
+          >
+            <Lock className="w-3.5 h-3.5 text-slate-950" />
+            <span>Inscrição Privada &amp; Links</span>
           </button>
 
           <button

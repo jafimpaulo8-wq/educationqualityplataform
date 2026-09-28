@@ -281,10 +281,18 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
       }
     } catch (err: any) {
       console.error('Google login error:', err);
-      setFeedback({
-        success: false,
-        message: err.message || 'Falha ao autenticar com o Google. Verifique a sua conexão.'
-      });
+      const isDomainError = err?.code === 'auth/unauthorized-domain' || (err?.message && (err.message.includes('unauthorized domain') || err.message.includes('authorized domain')));
+      if (isDomainError) {
+        setFeedback({
+          success: false,
+          message: 'Domínio educationqualityplataform.vercel.app pendente de autorização no Firebase Auth. Configure em: Firebase Console -> Authentication -> Settings -> Authorized Domains. Pode também usar o login por Código MTW ou Email/Senha.'
+        });
+      } else {
+        setFeedback({
+          success: false,
+          message: err.message || 'Falha ao autenticar com o Google. Verifique a sua conexão.'
+        });
+      }
       soundManager.playError();
     } finally {
       setLoading(false);

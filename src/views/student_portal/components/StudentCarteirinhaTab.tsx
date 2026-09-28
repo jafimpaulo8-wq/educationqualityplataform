@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Student } from '../../../types';
 import { useApp } from '../../../context/AppContext';
+import { RealQRCode } from '../../../components/common/RealQRCode';
 import { 
   CreditCard, 
   Printer, 
@@ -152,8 +153,16 @@ export const StudentCarteirinhaTab: React.FC<StudentCarteirinhaTabProps> = ({ cu
                 </p>
               </div>
 
-              <div className="p-2 bg-white rounded-xl shadow-md shrink-0">
-                <QrCode className="w-16 h-16 text-slate-950" />
+              <div className="p-1.5 bg-white rounded-xl shadow-md shrink-0">
+                <RealQRCode
+                  value={JSON.stringify({
+                    uid: currentStudent.userId || currentStudent.id,
+                    numAluno: currentStudent.code,
+                    institutionId: activeInstitution?.id || 'moztechwave-core',
+                    validade: '31/12/2026'
+                  })}
+                  size={76}
+                />
               </div>
             </div>
 

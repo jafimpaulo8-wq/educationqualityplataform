@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   GraduationCap, 
   CheckCircle2, 
@@ -49,6 +49,21 @@ export const PublicRegistrationView: React.FC = () => {
     navigate,
     openWhatsAppMessage
   } = useApp();
+
+  // Parse URL search parameters on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const courseParam = params.get('course');
+      if (courseParam) {
+        setSelectedCourseId(courseParam);
+      }
+      const tabParam = params.get('tab');
+      if (tabParam === 'consultar') {
+        setActiveTab('consultar');
+      }
+    }
+  }, []);
 
   // Active Main View Tab: 'formulario' | 'consultar'
   const [activeTab, setActiveTab] = useState<'formulario' | 'consultar'>('formulario');
@@ -263,6 +278,14 @@ export const PublicRegistrationView: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate('public_portal')}
+              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer border border-slate-700/80"
+              title="Voltar ao Portal Principal SIGAR PRO"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Portal Principal</span>
+            </button>
             <button
               onClick={() => { setActiveTab('formulario'); soundManager.playClick(); }}
               className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${

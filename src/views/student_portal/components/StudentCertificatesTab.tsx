@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Student } from '../../../types';
 import { useApp } from '../../../context/AppContext';
+import { RealQRCode } from '../../../components/common/RealQRCode';
 import { 
   Award, 
   Download, 
@@ -150,6 +151,19 @@ export const StudentCertificatesTab: React.FC<StudentCertificatesTabProps> = ({
                 <Award className="w-3.5 h-3.5 text-emerald-400" />
                 <span>Ver Certificado</span>
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (typeof window !== 'undefined') {
+                    window.open(`/verify/${cert.code}`, '_blank');
+                  }
+                }}
+                className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shrink-0"
+                title="Verificar autenticidade no SIVEC"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Verificar</span>
+              </button>
             </div>
           </div>
         ))}
@@ -223,8 +237,11 @@ export const StudentCertificatesTab: React.FC<StudentCertificatesTabProps> = ({
               {/* Autenticação e QR Code */}
               <div className="pt-6 border-t border-amber-900/20 flex items-center justify-between text-left text-[11px] text-slate-600">
                 <div className="flex items-center gap-3">
-                  <div className="w-14 h-14 bg-white border border-amber-800/30 rounded p-1 flex items-center justify-center">
-                    <QrCode className="w-12 h-12 text-slate-900" />
+                  <div className="p-1 bg-white border border-amber-800/30 rounded flex items-center justify-center">
+                    <RealQRCode
+                      value={selectedCert.validationUrl || `https://sigar.moztechwave.co.mz/verify/${selectedCert.code}`}
+                      size={54}
+                    />
                   </div>
                   <div className="font-mono text-[10px] space-y-0.5">
                     <p className="font-bold text-slate-900">{selectedCert.code}</p>

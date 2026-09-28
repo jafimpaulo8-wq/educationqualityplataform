@@ -15,6 +15,7 @@ import { useLanguage } from '../i18n/LanguageContext';
 interface NavbarProps {
   onNavigateToPlatform: () => void;
   onOpenPublicVerify: () => void;
+  onOpenOnlineRegistration?: () => void;
   onOpenRegisterInstitution: () => void;
   onOpenHelp: () => void;
 }
@@ -22,6 +23,7 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({
   onNavigateToPlatform,
   onOpenPublicVerify,
+  onOpenOnlineRegistration,
   onOpenRegisterInstitution,
   onOpenHelp,
 }) => {
@@ -59,6 +61,19 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Desktop Public Navigation (PARTE 3) */}
           <nav className="hidden lg:flex items-center gap-2">
             
+            {/* Inscrição Online */}
+            {onOpenOnlineRegistration && (
+              <button
+                type="button"
+                onClick={onOpenOnlineRegistration}
+                className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 transition-all cursor-pointer shadow-sm shadow-emerald-950/40"
+              >
+                <GraduationCap className="w-4 h-4 text-emerald-400" />
+                <span>Inscrição Online</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              </button>
+            )}
+
             {/* Verificação pública */}
             <button
               type="button"
@@ -153,6 +168,17 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* Mobile Dropdown */}
         {mobileMenuOpen && (
           <div className="lg:hidden py-4 border-t border-slate-800 space-y-2 animate-fadeIn">
+            {onOpenOnlineRegistration && (
+              <button
+                type="button"
+                onClick={() => { onOpenOnlineRegistration(); setMobileMenuOpen(false); }}
+                className="w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20"
+              >
+                <GraduationCap className="w-4 h-4 text-emerald-400" />
+                <span>Inscrição Online (Candidatos)</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => { onOpenPublicVerify(); setMobileMenuOpen(false); }}

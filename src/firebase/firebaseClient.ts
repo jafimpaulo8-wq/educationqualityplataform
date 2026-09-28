@@ -2,7 +2,7 @@
  * Firebase Client & Connection Status Monitor
  * 
  * Provides validated Firestore & Auth instances configured for the
- * provisioned database: ai-studio-sigarportaldeins-1fdac797-191d-478c-aca0-3985fe1df60b
+ * project: siverc-94da3 (SIVERC)
  */
 
 import { app, db, auth, OperationType, handleFirestoreError } from '../services/firebase';

@@ -42,6 +42,11 @@ export const ROUTE_POLICIES: Partial<Record<AppRoute, RouteSecurityPolicy>> = {
     category: 'Public',
     isPublic: true
   },
+  inscricao_privada: {
+    allowedRoles: ['SECRETARIA', 'DIRETOR', 'ADMIN_INSTITUICAO', 'SUPER_ADMIN', 'VISITANTE'],
+    title: 'Inscrição Privada & Balcão',
+    category: 'Secretaria'
+  },
 
   // Super Admin Exclusive Modules
   moztechwave_core: {

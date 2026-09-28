@@ -137,6 +137,85 @@ export const StudentEvaluationsPautasTab: React.FC<StudentEvaluationsPautasTabPr
             </div>
           </div>
 
+          {/* Personal Pauta with Formula T1*30% + Trab*30% + Exame*40% */}
+          <div className="bg-white rounded-2xl border border-slate-200/90 overflow-hidden shadow-2xs space-y-3 p-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+              <div>
+                <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                  Pauta Pessoal de Aproveitamento (Fórmula Ponderada Oficial)
+                </h4>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Fórmula regulamentar: <span className="font-mono font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded">Média = (T1 × 30%) + (Trab × 30%) + (Exame × 40%)</span>
+                </p>
+              </div>
+              <span className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-bold font-mono self-start sm:self-auto">
+                Ano 2026 • 2º Semestre
+              </span>
+            </div>
+
+            <div className="overflow-x-auto border border-slate-200 rounded-xl">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-700 font-semibold">
+                  <tr>
+                    <th className="px-4 py-3">Disciplina</th>
+                    <th className="px-4 py-3 text-center">T1 (30%)</th>
+                    <th className="px-4 py-3 text-center">Trabalho (30%)</th>
+                    <th className="px-4 py-3 text-center">Exame (40%)</th>
+                    <th className="px-4 py-3 text-center">Fórmula Ponderada</th>
+                    <th className="px-4 py-3 text-right">Média Final</th>
+                    <th className="px-4 py-3 text-center">Situação</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium">
+                  {[
+                    { disc: 'Informática Aplicada & Redes', t1: 15.5, trab: 16.0, exame: 16.5 },
+                    { disc: 'Inglês Técnico para Negócios', t1: 13.0, trab: 14.5, exame: 14.5 },
+                    { disc: 'Matemática Financeira & Lógica', t1: 11.0, trab: 12.0, exame: 13.0 },
+                    { disc: 'Programação de Sistemas & Banco de Dados', t1: 16.0, trab: 15.0, exame: 14.5 },
+                    { disc: 'Gestão de Sistemas de Informação', t1: 14.0, trab: 13.5, exame: 13.0 },
+                    { disc: 'Cibersegurança & Auditoria Digital', t1: 14.5, trab: 14.0, exame: 13.5 },
+                  ].map((row, idx) => {
+                    const finalVal = Number(((row.t1 * 0.3) + (row.trab * 0.3) + (row.exame * 0.4)).toFixed(1));
+                    const isApproved = finalVal >= 10;
+                    return (
+                      <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="px-4 py-3.5 font-bold text-slate-900">{row.disc}</td>
+                        <td className="px-4 py-3.5 text-center font-mono text-slate-700 font-semibold">
+                          {row.t1.toFixed(1)}
+                        </td>
+                        <td className="px-4 py-3.5 text-center font-mono text-slate-700 font-semibold">
+                          {row.trab.toFixed(1)}
+                        </td>
+                        <td className="px-4 py-3.5 text-center font-mono text-slate-700 font-semibold">
+                          {row.exame.toFixed(1)}
+                        </td>
+                        <td className="px-4 py-3.5 text-center font-mono text-[11px] text-slate-500">
+                          ({row.t1.toFixed(1)}×0.3) + ({row.trab.toFixed(1)}×0.3) + ({row.exame.toFixed(1)}×0.4)
+                        </td>
+                        <td className="px-4 py-3.5 text-right font-mono font-black text-sm">
+                          <span className={isApproved ? 'text-emerald-700' : 'text-rose-600'}>
+                            {finalVal.toFixed(1)}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-normal"> / 20</span>
+                        </td>
+                        <td className="px-4 py-3.5 text-center">
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                            isApproved 
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                              : 'bg-rose-50 text-rose-700 border border-rose-200'
+                          }`}>
+                            {isApproved ? '✓ Aprovado' : '⚠ Reprovado'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           {/* Tabela de Avaliações */}
           <div className="bg-white rounded-2xl border border-slate-200/90 overflow-hidden shadow-2xs">
             <div className="p-4 bg-slate-50/70 border-b border-slate-100 flex items-center justify-between">

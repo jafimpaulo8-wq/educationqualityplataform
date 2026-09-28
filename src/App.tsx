@@ -58,6 +58,7 @@ import { MoztechwaveAIView } from './views/ai/MoztechwaveAIView';
 import { WhatsAppCenterView } from './views/communication/WhatsAppCenterView';
 import { RBACMatrixView } from './views/admin/RBACMatrixView';
 import { CandidatesManagementView } from './views/secretariat/CandidatesManagementView';
+import { PrivateRegistrationView } from './views/secretariat/PrivateRegistrationView';
 import { PublicRegistrationView } from './views/public/PublicRegistrationView';
 import { PublicSivecVerifyPage } from './views/sivec/PublicSivecVerifyPage';
 import { CoursesManagementView } from './views/courses/CoursesManagementView';
@@ -203,6 +204,7 @@ const MainAppContent: React.FC = () => {
         <Navbar
           onNavigateToPlatform={() => setAuthModalOpen(true)}
           onOpenPublicVerify={() => navigate('public_verify')}
+          onOpenOnlineRegistration={() => navigate('inscricao_publica')}
           onOpenRegisterInstitution={() => setAuthModalOpen(true)}
           onOpenHelp={() => setAuthModalOpen(true)}
         />
@@ -212,6 +214,7 @@ const MainAppContent: React.FC = () => {
           <PublicPortalLanding
             onOpenAuthModal={() => setAuthModalOpen(true)}
             onOpenPublicVerify={() => navigate('public_verify')}
+            onOpenOnlineRegistration={() => navigate('inscricao_publica')}
             onOpenRegisterInstitution={() => setAuthModalOpen(true)}
             onOpenHelp={() => setAuthModalOpen(true)}
           />
@@ -374,6 +377,8 @@ const MainAppContent: React.FC = () => {
         return <CoursesManagementView />;
       case 'inscricao_publica':
         return <PublicRegistrationView />;
+      case 'inscricao_privada':
+        return <PrivateRegistrationView />;
       case 'configuracoes_instituicao':
         return <InstitutionSettingsView />;
       case 'configuracoes_financeiras':
