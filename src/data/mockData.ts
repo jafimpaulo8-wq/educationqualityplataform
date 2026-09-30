@@ -1,3 +1,4 @@
+import { CEU_AZUL_INSTITUTION, CEU_AZUL_STUDENTS } from './ceuAzulData';
 import { 
   Course, 
   RegistrationApplication, 
@@ -149,6 +150,7 @@ export const DEFAULT_ONLINE_REGISTRATION_CONFIG: OnlineRegistrationConfig = {
 };
 
 export const INITIAL_INSTITUTIONS: Institution[] = [
+  CEU_AZUL_INSTITUTION as Institution,
   {
     id: 'inst-1',
     code: 'MTW-CF-0001',
@@ -1611,6 +1613,7 @@ export const INITIAL_TRANSFERS: StudentClassTransfer[] = [
 ];
 
 export const INITIAL_STUDENTS: Student[] = [
+  ...CEU_AZUL_STUDENTS,
   {
     id: 'std-01',
     institutionId: 'inst-1',

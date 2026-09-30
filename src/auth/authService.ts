@@ -28,7 +28,7 @@ export interface AuthenticatedUser {
   hasSigarProfile?: boolean;
 }
 
-export const SUPERADMIN_EMAIL = 'jafimpaulo8@gmail.com';
+export const SUPERADMIN_EMAIL = 'admin-core@moztechwave.co.mz';
 
 export class AuthService {
   private static instance: AuthService;
@@ -100,16 +100,61 @@ export class AuthService {
           this.notify();
         } else {
           // Document does not exist yet in Firestore
-          if (isSuper) {
+          if (email === 'jafimpaulo8@gmail.com') {
+            try {
+              const directorProfile = {
+                id: uid,
+                uid: uid,
+                name: 'Jafim Paulo Rupia',
+                displayName: 'Jafim Paulo Rupia (Diretor)',
+                email: 'jafimpaulo8@gmail.com',
+                role: 'DIRETOR' as UserRole,
+                roles: ['DIRETOR' as UserRole],
+                institutionId: 'ceu-azul-nacala',
+                institutionIds: ['ceu-azul-nacala'],
+                status: 'aprovado',
+                codigoAcesso: 'CEU-AZUL-DIR-001',
+                branchId: 'branch-ceu-azul-main',
+                createdAt: serverTimestamp(),
+                lastLoginAt: new Date().toISOString()
+              };
+              await setDoc(userDocRef, directorProfile, { merge: true });
+            } catch (e) {
+              console.warn('Director profile bootstrap warning:', e);
+            }
+          } else if (email === 'andradaalfred02308@gmail.com') {
+            try {
+              const ceoProfile = {
+                id: uid,
+                uid: uid,
+                name: 'Alfredo Andrade',
+                displayName: 'Alfredo Andrade (CEO)',
+                email: 'andradaalfred02308@gmail.com',
+                role: 'CEO' as UserRole,
+                roles: ['CEO' as UserRole],
+                institutionId: 'ceu-azul-nacala',
+                institutionIds: ['ceu-azul-nacala'],
+                ownedInstitutions: ['ceu-azul-nacala'],
+                status: 'aprovado',
+                codigoAcesso: 'CEU-AZUL-CEO-001',
+                branchId: 'branch-ceu-azul-main',
+                createdAt: serverTimestamp(),
+                lastLoginAt: new Date().toISOString()
+              };
+              await setDoc(userDocRef, ceoProfile, { merge: true });
+            } catch (e) {
+              console.warn('CEO profile bootstrap warning:', e);
+            }
+          } else if (isSuper) {
             try {
               const rootProfile = {
                 id: uid,
                 uid: uid,
-                name: 'Jafim Paulo Rupia',
-                displayName: 'Jafim Paulo Rupia (Super Admin)',
-                email: SUPERADMIN_EMAIL,
-                role: 'SUPER_ADMIN',
-                roles: ['SUPER_ADMIN'],
+                name: fbUser.displayName || 'Super Administrador',
+                displayName: fbUser.displayName || 'Super Administrador',
+                email: email,
+                role: 'SUPER_ADMIN' as UserRole,
+                roles: ['SUPER_ADMIN' as UserRole],
                 institutionId: '',
                 branchId: 'todas',
                 estado: 'ativo',
@@ -119,7 +164,7 @@ export class AuthService {
               };
               await setDoc(userDocRef, rootProfile, { merge: true });
               await setDoc(doc(db, 'admins', uid), {
-                email: SUPERADMIN_EMAIL,
+                email: email,
                 role: 'SUPER_ADMIN',
                 grantedAt: serverTimestamp()
               }, { merge: true });
@@ -128,7 +173,6 @@ export class AuthService {
             }
           } else {
             // User authenticated in Firebase Auth, but does not have a SIGAR profile in Firestore!
-            // Mandate: "NÃO inventar perfil. NÃO atribuir Diretor automaticamente."
             this.currentUser = {
               id: uid,
               name: fbUser.displayName || email.split('@')[0] || 'Utilizador',
@@ -196,7 +240,7 @@ export class AuthService {
 
   /**
    * Updates user role.
-   * SECURITY ENFORCEMENT: Only Super Admin (jafimpaulo8@gmail.com) can change role or impersonate.
+   * SECURITY ENFORCEMENT: Only verified Super Admin can change role or impersonate.
    * Regular users are strictly bound to their Firestore /users/{uid} document.
    */
   public async setUserRole(role: UserRole): Promise<void> {

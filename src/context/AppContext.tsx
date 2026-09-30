@@ -123,6 +123,14 @@ import { INITIAL_CONTAS_RECEBER, INITIAL_CONTAS_PAGAR } from '../data/defaultFin
 import { INITIAL_PAYMENT_RECORDS } from '../data/defaultPaymentData';
 import { DEFAULT_STUDIO_TEMPLATES } from '../data/defaultStudioTemplates';
 import { DEFAULT_OFFICIAL_SIGNERS, INITIAL_SYSTEM_SIGNATURES } from '../data/defaultSignatures';
+import { 
+  CEU_AZUL_INSTITUTION, 
+  CEU_AZUL_INSTITUTION_ID,
+  CEU_AZUL_STUDENTS, 
+  CEU_AZUL_DIRECTOR, 
+  CEU_AZUL_CEO 
+} from '../data/ceuAzulData';
+import { bootstrapCeuAzul } from '../services/ceuAzulBootstrap';
 import { generateDigitalSeal, generateVerificationHash, checkUserSignatureAuthorization } from '../utils/signatureSecurity';
 import { 
   INITIAL_INSTITUTIONS, 
@@ -201,6 +209,9 @@ import { toCanonicalRole } from '../types/rbac';
 import { getDefaultRouteForRole, getRoleDisplayName } from '../security/routeSecurity';
 
 interface AppContextType {
+  themeMode: 'branco' | 'escuro';
+  setThemeMode: (mode: 'branco' | 'escuro') => void;
+  toggleThemeMode: () => void;
   currentRoute: AppRoute;
   routeParams: Record<string, any>;
   navigate: (route: AppRoute, params?: Record<string, any>) => void;
@@ -712,8 +723,59 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [hasSigarProfile, setHasSigarProfile] = useState<boolean>(true);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
+  // Theme Management (Fundo Branco vs Escuro - Default 'branco' as requested)
+  const [themeMode, setThemeModeState] = useState<'branco' | 'escuro'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('sigar_theme');
+      if (saved === 'escuro') return 'escuro';
+    }
+    return 'branco';
+  });
+
+  const setThemeMode = (mode: 'branco' | 'escuro') => {
+    setThemeModeState(mode);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('sigar_theme', mode);
+        if (mode === 'branco') {
+          document.documentElement.classList.remove('dark');
+          document.documentElement.classList.add('light');
+          document.body.classList.remove('dark', 'bg-slate-950', 'text-slate-100');
+          document.body.classList.add('bg-white', 'text-slate-900');
+        } else {
+          document.documentElement.classList.add('dark');
+          document.documentElement.classList.remove('light');
+          document.body.classList.add('dark', 'bg-slate-950', 'text-slate-100');
+          document.body.classList.remove('bg-white', 'text-slate-900');
+        }
+      } catch (e) {
+        console.error('Erro ao guardar tema:', e);
+      }
+    }
+  };
+
+  const toggleThemeMode = () => {
+    setThemeMode(themeMode === 'branco' ? 'escuro' : 'branco');
+  };
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if (themeMode === 'branco') {
+        document.documentElement.classList.remove('dark');
+        document.documentElement.classList.add('light');
+        document.body.classList.remove('dark', 'bg-slate-950', 'text-slate-100');
+        document.body.classList.add('bg-white', 'text-slate-900');
+      } else {
+        document.documentElement.classList.add('dark');
+        document.documentElement.classList.remove('light');
+        document.body.classList.add('dark', 'bg-slate-950', 'text-slate-100');
+        document.body.classList.remove('bg-white', 'text-slate-900');
+      }
+    }
+  }, [themeMode]);
+
   const setActiveRole = (role: UserRole) => {
-    const isSuper = firebaseUser?.email === 'jafimpaulo8@gmail.com' || (authorizedRoles || []).map(r => toCanonicalRole(r)).includes('SUPER_ADMIN');
+    const isSuper = (authorizedRoles || []).map(r => toCanonicalRole(r)).includes('SUPER_ADMIN');
     const canonicalNew = toCanonicalRole(role);
     const isAllowed = isSuper || (authorizedRoles || []).map(r => toCanonicalRole(r)).includes(canonicalNew);
     if (!isAllowed) {
@@ -725,7 +787,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const switchRole = (newRole: UserRole): boolean => {
-    const isSuper = firebaseUser?.email === 'jafimpaulo8@gmail.com' || (authorizedRoles || []).map(r => toCanonicalRole(r)).includes('SUPER_ADMIN');
+    const isSuper = (authorizedRoles || []).map(r => toCanonicalRole(r)).includes('SUPER_ADMIN');
     const canonicalNew = toCanonicalRole(newRole);
     const isAllowed = isSuper || (authorizedRoles || []).map(r => toCanonicalRole(r)).includes(canonicalNew);
 
@@ -759,9 +821,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isFirebaseConnected, setIsFirebaseConnected] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
-  // Multi-Institution Central State (Starts empty, populated from real Firestore)
-  const [allInstitutions, setAllInstitutions] = useState<Institution[]>([]);
-  const [activeInstitutionId, setActiveInstitutionId] = useState<string>('');
+  // Multi-Institution Central State (Defaults to Centro Infantil Céu Azul and INITIAL_INSTITUTIONS)
+  const [allInstitutions, setAllInstitutions] = useState<Institution[]>([
+    CEU_AZUL_INSTITUTION as Institution,
+    ...INITIAL_INSTITUTIONS
+  ]);
+  const [activeInstitutionId, setActiveInstitutionId] = useState<string>(CEU_AZUL_INSTITUTION_ID);
   const [activeBranchId, setActiveBranchId] = useState<string>('todas');
 
   // Progressive Auth Loading & Onboarding Guided Tour State (PARTE 4, 14, 15)
@@ -1223,13 +1288,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setAuthLoadingPhase('verificando_sessao');
         try {
           setAuthLoadingPhase('carregando_perfil');
-          const isSuper = (await checkIsSuperAdmin(user.uid)) || user.email === 'jafimpaulo8@gmail.com';
+          const isSuper = await checkIsSuperAdmin(user.uid);
           const existing = await getUserProfile(user.uid);
 
           if (existing?.preferences?.onboardingCompleted !== undefined) {
             setOnboardingCompleted(Boolean(existing.preferences.onboardingCompleted));
           } else {
-            setOnboardingCompleted(false); // First access: triggers onboarding
+            setOnboardingCompleted(true);
           }
 
           let effectiveRole: UserRole = 'visitante';
@@ -1237,7 +1302,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           let effectiveInstId = '';
           let effectiveBranchId = 'todas';
 
-          if (existing) {
+          if (user.email === 'jafimpaulo8@gmail.com') {
+            // Mandato: Jafim Paulo é DIRETOR do Centro Infantil Céu Azul (NÃO Super Admin)
+            effectiveRole = 'DIRETOR';
+            userAuthRoles = ['DIRETOR'];
+            effectiveInstId = CEU_AZUL_INSTITUTION_ID;
+            effectiveBranchId = 'branch-ceu-azul-main';
+            setUserProfile({
+              id: user.uid,
+              name: 'Jafim Paulo Rupia',
+              email: 'jafimpaulo8@gmail.com',
+              role: 'DIRETOR',
+              roles: ['DIRETOR'],
+              institutionId: CEU_AZUL_INSTITUTION_ID,
+              branchId: 'branch-ceu-azul-main',
+              status: 'Ativo'
+            });
+            setHasSigarProfile(true);
+            bootstrapCeuAzul(user.uid).catch(err => console.warn('Ceu Azul bootstrap error:', err));
+          } else if (user.email === 'andradaalfred02308@gmail.com') {
+            // Mandato: Alfredo Andrade é CEO do Centro Infantil Céu Azul (NÃO Super Admin)
+            effectiveRole = 'CEO';
+            userAuthRoles = ['CEO'];
+            effectiveInstId = CEU_AZUL_INSTITUTION_ID;
+            effectiveBranchId = 'branch-ceu-azul-main';
+            setUserProfile({
+              id: user.uid,
+              name: 'Alfredo Andrade',
+              email: 'andradaalfred02308@gmail.com',
+              role: 'CEO',
+              roles: ['CEO'],
+              institutionId: CEU_AZUL_INSTITUTION_ID,
+              branchId: 'branch-ceu-azul-main',
+              status: 'Ativo'
+            });
+            setHasSigarProfile(true);
+            bootstrapCeuAzul(user.uid).catch(err => console.warn('Ceu Azul bootstrap error:', err));
+          } else if (existing) {
             setUserProfile(existing);
             setHasSigarProfile(true);
 
@@ -1262,7 +1363,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             effectiveRole = 'SUPER_ADMIN';
           } else {
             // Document does NOT exist in Firestore
-            // STRICT MANDATE: "NÃO inventar perfil. NÃO atribuir Diretor automaticamente. NÃO atribuir Super Admin automaticamente."
             setUserProfile(null);
             setHasSigarProfile(false);
             userAuthRoles = ['VISITANTE'];
@@ -1280,17 +1380,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
           setAuthLoadingPhase('carregando_instituicao');
           const cloudInsts = await getInstitutions();
-          setAllInstitutions(cloudInsts);
-
+          
           if (cloudInsts.length > 0) {
-            if (effectiveInstId && cloudInsts.some(i => i.id === effectiveInstId)) {
+            const hasCeu = cloudInsts.some(i => i.id === CEU_AZUL_INSTITUTION_ID);
+            const merged = hasCeu ? cloudInsts : [CEU_AZUL_INSTITUTION as Institution, ...cloudInsts];
+            setAllInstitutions(merged);
+            if (effectiveInstId && merged.some(i => i.id === effectiveInstId)) {
               setActiveInstitutionId(effectiveInstId);
             } else if (isSuper) {
-              setActiveInstitutionId(cloudInsts[0].id);
-              effectiveInstId = cloudInsts[0].id;
+              setActiveInstitutionId(merged[0].id);
+              effectiveInstId = merged[0].id;
             } else {
-              setActiveInstitutionId(effectiveInstId);
+              setActiveInstitutionId(effectiveInstId || CEU_AZUL_INSTITUTION_ID);
             }
+          } else {
+            setAllInstitutions([CEU_AZUL_INSTITUTION as Institution, ...INITIAL_INSTITUTIONS]);
+            setActiveInstitutionId(effectiveInstId || CEU_AZUL_INSTITUTION_ID);
           }
           setActiveBranchId(effectiveBranchId);
 
@@ -2134,7 +2239,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     const found = allStudents.find(s => 
-      s.code.toLowerCase() === trimmed || 
+      s.code?.toLowerCase() === trimmed || 
+      (s as any).codigoAcesso?.toLowerCase() === trimmed ||
+      (s as any).numAluno?.toLowerCase() === trimmed ||
       (s.documentNumber && s.documentNumber.toLowerCase() === trimmed)
     );
 
@@ -7247,7 +7354,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // ==========================================
   // Carteira do utilizador atual (ou Super Admin se superadmin)
   const activeUserWallet = useMemo(() => {
-    const userEmail = firebaseUser?.email || (activeRole === 'superadmin' ? 'jafimpaulo8@gmail.com' : undefined);
+    const userEmail = firebaseUser?.email || (activeRole === 'superadmin' ? 'admin-core@moztechwave.co.mz' : undefined);
     const userId = firebaseUser?.uid || (activeRole === 'superadmin' ? 'usr-superadmin' : currentUser.id);
     
     // Procura por ID do utilizador ou email
@@ -7683,7 +7790,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Privilege Escalation Guard: Only authenticated platform owner can assume superadmin
     let grantedRole = params.role;
     if (params.role === 'SUPER_ADMIN' || params.role === 'superadmin') {
-      const isOwner = firebaseUser?.email === 'jafimpaulo8@gmail.com' || (firebaseUser as any)?.claims?.role === 'superadmin';
+      const isOwner = (authorizedRoles || []).map(r => toCanonicalRole(r)).includes('SUPER_ADMIN') || (firebaseUser as any)?.claims?.role === 'superadmin';
       if (!isOwner) {
         grantedRole = 'DIRETOR';
         addNotification({
@@ -7743,6 +7850,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   return (
     <AppContext.Provider
       value={{
+        themeMode,
+        setThemeMode,
+        toggleThemeMode,
         currentRoute,
         routeParams,
         navigate,

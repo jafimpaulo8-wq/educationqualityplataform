@@ -121,6 +121,17 @@ export const DEFAULT_AI_PERMISSIONS_MATRIX: AiRolePermissionsMatrix = {
     'ai.analyze_pautas': true,
     'ai.deep_link_browser': true
   },
+  CEO: {
+    'ai.query_financial': true,
+    'ai.query_academic': true,
+    'ai.create_student_from_doc': true,
+    'ai.manage_grades': true,
+    'ai.generate_notices': true,
+    'ai.generate_declarations': true,
+    'ai.analyze_certificates': true,
+    'ai.analyze_pautas': true,
+    'ai.deep_link_browser': true
+  },
   SECRETARIA: {
     'ai.query_financial': true,
     'ai.query_academic': true,

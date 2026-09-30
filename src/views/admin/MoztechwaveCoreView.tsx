@@ -57,6 +57,8 @@ import { MozcoinWallet, MozcoinTransaction, MozcoinPurchaseRequest } from '../..
 import { PlanDefinition, PlanLimits } from '../../types/plans';
 import { AuditLogEntry } from '../../types/audit';
 import { soundManager } from '../../utils/audio';
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from '../../services/firebase';
 
 export type CoreTab = 
   | 'dashboard' 
@@ -206,6 +208,20 @@ export const MoztechwaveCoreView: React.FC = () => {
   const [showUserModal, setShowUserModal] = useState(false);
   const [userSearchTerm, setUserSearchTerm] = useState('');
   const [userOtpNotice, setUserOtpNotice] = useState<string | null>(null);
+
+  // User Profile Creation with MTW Code (Admin / CEO IAM)
+  const [showCreateUserModal, setShowCreateUserModal] = useState(false);
+  const [newUserInstId, setNewUserInstId] = useState('');
+  const [newUserRole, setNewUserRole] = useState<UserRole>('DIRETOR');
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserPhone, setNewUserPhone] = useState('+258 84 ');
+  const [createdProfileInfo, setCreatedProfileInfo] = useState<{
+    code: string;
+    name: string;
+    role: string;
+    instName: string;
+  } | null>(null);
 
   // 90.5 Mozcoin Admin Ledger operation modal
   const [showMozcoinOpModal, setShowMozcoinOpModal] = useState(false);
@@ -448,6 +464,40 @@ export const MoztechwaveCoreView: React.FC = () => {
       ]
     });
 
+    // Auto-generate and save initial Director access code for this new Center
+    try {
+      const dirCode = created.code; // e.g. MTW-CF-0004
+      setDoc(doc(db, 'access_codes', dirCode), {
+        code: dirCode,
+        role: 'DIRETOR',
+        name: created.representativeName || created.name,
+        email: created.email,
+        institutionId: created.id,
+        institutionName: created.name,
+        branchId: 'todas',
+        status: 'ativo',
+        createdAt: new Date().toISOString()
+      }, { merge: true });
+
+      const dirUid = `usr-dir-${created.id}`;
+      setDoc(doc(db, 'users', dirUid), {
+        id: dirUid,
+        uid: dirUid,
+        name: created.representativeName || 'Diretor Geral',
+        displayName: created.representativeName || 'Diretor Geral',
+        email: created.email,
+        role: 'DIRETOR',
+        roles: ['DIRETOR'],
+        codigo: dirCode,
+        institutionId: created.id,
+        branchId: 'todas',
+        estado: 'ativo',
+        createdAt: new Date().toISOString()
+      }, { merge: true });
+    } catch (e) {
+      console.warn('Firestore director code bootstrap warning:', e);
+    }
+
     soundManager.playSuccess();
     setShowCreateInstModal(false);
     setNewInstName('');
@@ -455,7 +505,85 @@ export const MoztechwaveCoreView: React.FC = () => {
     setNewInstRepName('');
     addNotification({
       title: 'Nova Instituição Credenciada',
-      message: `${created.name} (${created.code}) integrada com sucesso ao ecossistema.`,
+      message: `${created.name} credenciada com sucesso! Código de Acesso do Diretor: ${created.code}.`,
+      type: 'registration'
+    });
+  };
+
+  // Handle new User profile creation with auto-generated MTW Code
+  const handleCreateUserProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newUserName.trim()) return;
+
+    const targetInst = allInstitutions.find(i => i.id === newUserInstId) || allInstitutions[0];
+    const rolePrefix = newUserRole === 'DIRETOR' ? 'ADM' :
+                       newUserRole === 'SECRETARIA' ? 'SEC' :
+                       newUserRole === 'PROFESSOR' || newUserRole === 'FORMADOR' ? 'PRO' :
+                       newUserRole === 'FINANCEIRO' ? 'FIN' :
+                       newUserRole === 'ALUNO' ? 'ALU' : 'USR';
+    const randCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const mtwCode = `MTW-${rolePrefix}-${randCode}`;
+
+    // Save to Firestore access_codes & users
+    try {
+      await setDoc(doc(db, 'access_codes', mtwCode), {
+        code: mtwCode,
+        name: newUserName.trim(),
+        email: newUserEmail.trim(),
+        phone: newUserPhone.trim(),
+        role: newUserRole,
+        institutionId: targetInst?.id || '',
+        institutionName: targetInst?.name || '',
+        branchId: 'todas',
+        status: 'ativo',
+        createdAt: new Date().toISOString()
+      }, { merge: true });
+
+      const newUid = `usr-${Date.now()}`;
+      await setDoc(doc(db, 'users', newUid), {
+        id: newUid,
+        uid: newUid,
+        name: newUserName.trim(),
+        displayName: newUserName.trim(),
+        email: newUserEmail.trim(),
+        role: newUserRole,
+        roles: [newUserRole],
+        codigo: mtwCode,
+        institutionId: targetInst?.id || '',
+        branchId: 'todas',
+        estado: 'ativo',
+        createdAt: new Date().toISOString()
+      }, { merge: true });
+    } catch (err) {
+      console.warn('Firestore user creation warning:', err);
+    }
+
+    const newUser: ManagedUser = {
+      id: `usr-${Date.now()}`,
+      name: newUserName.trim(),
+      email: newUserEmail.trim() || `${mtwCode.toLowerCase()}@sigar.mz`,
+      role: newUserRole,
+      institutionId: targetInst?.id || '',
+      institutionName: targetInst?.name || 'Centro de Formação',
+      status: 'Ativo',
+      lastLogin: 'Nunca (Código Emitido)',
+      device: 'Pendente de Primeiro Acesso',
+      mfaEnabled: false,
+      permissionsCount: 25,
+      sessionsCount: 0
+    };
+
+    setManagedUsers(prev => [newUser, ...prev]);
+    setCreatedProfileInfo({
+      code: mtwCode,
+      name: newUserName.trim(),
+      role: newUserRole,
+      instName: targetInst?.name || 'Centro'
+    });
+    soundManager.playSuccess();
+    addNotification({
+      title: 'Perfil Cadastrado com Sucesso',
+      message: `Código ${mtwCode} gerado para ${newUserName.trim()} (${newUserRole}).`,
       type: 'registration'
     });
   };
@@ -543,8 +671,7 @@ export const MoztechwaveCoreView: React.FC = () => {
 
   const isAuthorizedOwner = 
     activeRole === 'superadmin' || 
-    activeRole === 'SUPER_ADMIN' || 
-    firebaseUser?.email === 'jafimpaulo8@gmail.com';
+    activeRole === 'SUPER_ADMIN';
 
   if (!isAuthorizedOwner) {
     return (
@@ -559,7 +686,7 @@ export const MoztechwaveCoreView: React.FC = () => {
             </div>
             <h2 className="text-xl font-black text-white">ACESSO RESTRITO — MOZTECHWAVE CORE</h2>
             <p className="text-xs text-slate-400">
-              Esta suite soberana é de acesso exclusivo do Proprietário da Plataforma (<strong className="text-slate-200">jafimpaulo8@gmail.com</strong>). O seu papel atual (<strong className="text-amber-300 font-mono">{activeRole}</strong>) não possui credenciais suficientes.
+              Esta suite soberana é de acesso exclusivo da Governança Central Super Admin. O seu papel atual (<strong className="text-amber-300 font-mono">{activeRole}</strong>) não possui credenciais suficientes.
             </p>
           </div>
           <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] font-mono text-slate-400 text-left space-y-1">
@@ -981,8 +1108,25 @@ export const MoztechwaveCoreView: React.FC = () => {
               />
             </div>
 
-            <div className="text-xs text-slate-400 font-mono">
-              Total Gerenciado: <strong className="text-white">{managedUsers.length} utilizadores</strong>
+            <div className="flex items-center gap-3">
+              <div className="text-xs text-slate-400 font-mono hidden md:block">
+                Total: <strong className="text-white">{managedUsers.length}</strong>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setNewUserInstId(allInstitutions[0]?.id || '');
+                  setNewUserName('');
+                  setNewUserEmail('');
+                  setCreatedProfileInfo(null);
+                  setShowCreateUserModal(true);
+                }}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition cursor-pointer shadow-md"
+              >
+                <KeyRound className="w-4 h-4" />
+                <span>Cadastrar Perfil &amp; Emitir Código MTW</span>
+              </button>
             </div>
           </div>
 
@@ -1885,6 +2029,181 @@ export const MoztechwaveCoreView: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CADASTRAR PERFIL & GERAR CÓDIGO MTW (PEDIDO DO USUÁRIO) */}
+      {showCreateUserModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="font-bold text-white text-base flex items-center gap-2">
+                <KeyRound className="w-5 h-5 text-amber-400" />
+                Cadastrar Perfil &amp; Emitir Código MTW
+              </h3>
+              <button onClick={() => setShowCreateUserModal(false)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateUserProfile} className="space-y-4 text-xs">
+              <div className="space-y-1">
+                <label className="text-slate-300 font-semibold">Instituição / Centro de Formação</label>
+                <select
+                  value={newUserInstId || allInstitutions[0]?.id || ''}
+                  onChange={e => setNewUserInstId(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                >
+                  {allInstitutions.map(inst => (
+                    <option key={inst.id} value={inst.id}>
+                      {inst.name} ({inst.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-300 font-semibold">Perfil de Acesso (Cargo)</label>
+                <select
+                  value={newUserRole}
+                  onChange={e => setNewUserRole(e.target.value as UserRole)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold"
+                >
+                  <option value="DIRETOR">Diretor / Administrador do Centro (MTW-ADM-...)</option>
+                  <option value="SECRETARIA">Secretaria Académica (MTW-SEC-...)</option>
+                  <option value="PROFESSOR">Professor / Formador (MTW-PRO-...)</option>
+                  <option value="FINANCEIRO">Responsável Financeiro (MTW-FIN-...)</option>
+                  <option value="ALUNO">Estudante / Aluno (MTW-ALU-...)</option>
+                </select>
+                <p className="text-[11px] text-slate-500">
+                  O código gerado terá o prefixo institucional oficial e será validado pelo Firebase Authentication.
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-300 font-semibold">Nome Completo</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Manuel dos Santos Sitoe"
+                  value={newUserName}
+                  onChange={e => setNewUserName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-slate-300 font-semibold">E-mail do Utilizador</label>
+                  <input
+                    type="email"
+                    placeholder="manuel.sitoe@gmail.com"
+                    value={newUserEmail}
+                    onChange={e => setNewUserEmail(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-slate-300 font-semibold">Telefone / WhatsApp</label>
+                  <input
+                    type="text"
+                    value={newUserPhone}
+                    onChange={e => setNewUserPhone(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] leading-relaxed">
+                Este cadastro salvará a credencial na coleção <strong className="text-white">access_codes</strong> do Firestore, permitindo que a pessoa aceda imediatamente usando o seu código oficial.
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateUserModal(false)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black uppercase tracking-wider shadow-md"
+                >
+                  Gerar Código MTW &amp; Ativar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* CREDENCIAL GERADA MODAL */}
+      {createdProfileInfo && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-slate-900 border border-amber-500/40 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl text-center">
+            <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-400">
+              <CheckCircle2 className="w-8 h-8" />
+            </div>
+
+            <div>
+              <h3 className="text-lg font-black text-white">Código de Acesso Emitido!</h3>
+              <p className="text-xs text-slate-300 mt-1">
+                A credencial de <strong>{createdProfileInfo.name}</strong> para o centro <strong>{createdProfileInfo.instName}</strong> está ativa no Firebase.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+              <div className="text-[11px] uppercase tracking-wider text-slate-400 font-mono">
+                Código de Entrada SIGAR ({createdProfileInfo.role})
+              </div>
+              <div className="font-mono text-2xl font-black text-amber-400 tracking-wider">
+                {createdProfileInfo.code}
+              </div>
+            </div>
+
+            <div className="space-y-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard?.writeText(createdProfileInfo.code);
+                  soundManager.playSuccess();
+                  addNotification({
+                    title: 'Código Copiado',
+                    message: `Código ${createdProfileInfo.code} copiado com sucesso.`,
+                    type: 'system'
+                  });
+                }}
+                className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition cursor-pointer flex items-center justify-center gap-2"
+              >
+                <span>Copiar Código de Acesso</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const msg = encodeURIComponent(
+                    `Olá ${createdProfileInfo.name}, o seu acesso ao SIGAR PRO para o ${createdProfileInfo.instName} (${createdProfileInfo.role}) foi ativado com sucesso!\n\nO seu Código de Acesso Oficial é: *${createdProfileInfo.code}*\n\nAceda ao sistema, selecione a aba 'Código de Acesso' e informe este código para entrar no seu painel.`
+                  );
+                  window.open(`https://wa.me/?text=${msg}`, '_blank');
+                }}
+                className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition cursor-pointer flex items-center justify-center gap-2"
+              >
+                <span>Enviar Credencial via WhatsApp</span>
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setCreatedProfileInfo(null);
+                setShowCreateUserModal(false);
+              }}
+              className="text-xs text-slate-400 hover:text-white pt-2 cursor-pointer"
+            >
+              Fechar
+            </button>
           </div>
         </div>
       )}

@@ -18,7 +18,9 @@ import {
   Globe,
   Settings,
   DollarSign,
-  Coins
+  Coins,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/LanguageContext';
@@ -49,13 +51,16 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
     loginWithGoogle,
     logout,
     activeInstitutionWallet,
-    activeUserWallet
+    activeUserWallet,
+    themeMode,
+    toggleThemeMode
   } = useApp();
 
   const { language, setLanguage, t } = useTranslation();
+  const isLight = themeMode === 'branco';
 
   const canonicalActive = toCanonicalRole(activeRole);
-  const isSuper = firebaseUser?.email === 'jafimpaulo8@gmail.com' || canonicalActive === 'SUPER_ADMIN';
+  const isSuper = canonicalActive === 'SUPER_ADMIN';
 
   const getRouteBreadcrumb = () => {
     switch (currentRoute) {
@@ -100,24 +105,34 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-30 bg-[#090d16]/95 backdrop-blur-md border-b border-slate-800 px-4 sm:px-6 py-3 flex items-center justify-between">
+    <header className={`sticky top-0 z-30 backdrop-blur-md px-4 sm:px-6 py-3 flex items-center justify-between transition-colors ${
+      isLight 
+        ? 'bg-white/95 border-b border-slate-200 text-slate-800 shadow-xs' 
+        : 'bg-[#090d16]/95 border-b border-slate-800 text-white'
+    }`}>
       {/* Left: Mobile Toggle & Breadcrumbs */}
       <div className="flex items-center gap-3">
         <button
           onClick={onOpenMobileMenu}
           aria-label="Abrir Menu de Navegação"
-          className="p-2 rounded-xl bg-[#0d1527] border border-slate-800 text-slate-400 hover:text-white lg:hidden cursor-pointer"
+          className={`p-2 rounded-xl border lg:hidden cursor-pointer transition-colors ${
+            isLight ? 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200' : 'bg-[#0d1527] border-slate-800 text-slate-400 hover:text-white'
+          }`}
         >
           <Menu className="w-5 h-5" />
         </button>
 
         <div className="flex items-center gap-2">
-          <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#0d1527] border border-slate-800 text-xs text-slate-300 font-mono">
-            <Building2 className="w-3.5 h-3.5 text-blue-400" />
-            <span className="font-bold text-white">{activeInstitution.code}</span>
+          <div className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-mono ${
+            isLight ? 'bg-slate-100 border-slate-200 text-slate-700' : 'bg-[#0d1527] border-slate-800 text-slate-300'
+          }`}>
+            <Building2 className="w-3.5 h-3.5 text-blue-500" />
+            <span className={`font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>{activeInstitution.code}</span>
           </div>
 
-          <span className="text-xs sm:text-sm font-semibold text-white tracking-tight line-clamp-1">
+          <span className={`text-xs sm:text-sm font-semibold tracking-tight line-clamp-1 ${
+            isLight ? 'text-slate-900' : 'text-white'
+          }`}>
             {getRouteBreadcrumb()}
           </span>
         </div>
@@ -129,30 +144,34 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         <div 
           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs border font-mono ${
             isFirebaseConnected 
-              ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-400' 
-              : 'bg-amber-950/40 border-amber-800/60 text-amber-400'
+              ? isLight ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'bg-emerald-950/40 border-emerald-800/60 text-emerald-400' 
+              : isLight ? 'bg-amber-50 border-amber-300 text-amber-700' : 'bg-amber-950/40 border-amber-800/60 text-amber-400'
           }`}
           title={isFirebaseConnected ? 'Banco Firestore sincronizado e ativo' : 'A ligar à Cloud...'}
         >
-          <span className={`w-2 h-2 rounded-full ${isFirebaseConnected ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+          <span className={`w-2 h-2 rounded-full ${isFirebaseConnected ? 'bg-emerald-500' : 'bg-amber-500'}`} />
           <span className="text-[10px] font-bold tracking-wider">FIRESTORE</span>
         </div>
 
         {currentRoute !== 'public_portal' && (
-          <div className="flex items-center gap-2 bg-[#0d1527] border border-slate-800 px-2.5 py-1 rounded-xl">
-            <MapPin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-            <span className="text-[11px] text-slate-400 font-semibold">Filial:</span>
+          <div className={`flex items-center gap-2 border px-2.5 py-1 rounded-xl ${
+            isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#0d1527] border-slate-800'
+          }`}>
+            <MapPin className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+            <span className={`text-[11px] font-semibold ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Filial:</span>
             <select
               value={activeBranchId}
               onChange={(e) => setActiveBranchId(e.target.value)}
               aria-label="Selecionar Filial"
-              className="bg-transparent text-xs text-amber-400 font-bold focus:outline-hidden cursor-pointer"
+              className={`bg-transparent text-xs font-bold focus:outline-hidden cursor-pointer ${
+                isLight ? 'text-slate-800' : 'text-amber-400'
+              }`}
             >
-              <option value="todas" className="bg-[#090d16] text-white">
+              <option value="todas" className={isLight ? 'bg-white text-slate-900' : 'bg-[#090d16] text-white'}>
                 Todas ({activeInstitution.branches?.length || 0})
               </option>
               {activeInstitution.branches?.map((b) => (
-                <option key={b.id} value={b.id} className="bg-[#090d16] text-white">
+                <option key={b.id} value={b.id} className={isLight ? 'bg-white text-slate-900' : 'bg-[#090d16] text-white'}>
                   {b.name} ({b.code})
                 </option>
               ))}
@@ -282,11 +301,29 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           </button>
         )}
 
+        {/* Theme Mode Toggle (Fundo Branco vs Escuro) */}
+        <button
+          onClick={toggleThemeMode}
+          aria-label="Alternar Tema"
+          className={`p-2 rounded-xl border cursor-pointer transition-all flex items-center justify-center ${
+            isLight
+              ? 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100 shadow-xs'
+              : 'bg-[#0d1527] border-slate-800 text-slate-300 hover:text-white'
+          }`}
+          title={isLight ? 'Fundo Branco Ativo (Clique para Escuro)' : 'Fundo Escuro Ativo (Clique para Branco)'}
+        >
+          {isLight ? <Sun className="w-4 h-4 text-amber-600" /> : <Moon className="w-4 h-4 text-sky-400" />}
+        </button>
+
         {/* Notification Bell */}
         <button
           onClick={onOpenNotificationCenter}
           aria-label="Notificações"
-          className="relative p-2 rounded-xl bg-[#0d1527] border border-slate-800 text-slate-300 hover:text-white cursor-pointer transition-all"
+          className={`relative p-2 rounded-xl border cursor-pointer transition-all ${
+            isLight
+              ? 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
+              : 'bg-[#0d1527] border-slate-800 text-slate-300 hover:text-white'
+          }`}
           title="Central de Notificações SIVERC"
         >
           <Bell className="w-4 h-4" />

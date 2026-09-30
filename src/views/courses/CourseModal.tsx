@@ -166,6 +166,7 @@ export const CourseModal: React.FC<CourseModalProps> = ({
   const [monthlyFee, setMonthlyFee] = useState<number>(3750);
   const [certificate, setCertificate] = useState('Certificado de Capacitação Técnico-Profissional');
   const [status, setStatus] = useState<CourseStatus>('Ativo');
+  const [image, setImage] = useState('');
   const [activeTab, setActiveTab] = useState<'geral' | 'financeiro' | 'requisitos' | 'certificado'>('geral');
 
   useEffect(() => {
@@ -174,6 +175,7 @@ export const CourseModal: React.FC<CourseModalProps> = ({
       setCode(courseToEdit.code || '');
       setCategory(courseToEdit.category || 'Profissional');
       setDescription(courseToEdit.description || '');
+      setImage(courseToEdit.image || '');
       setDuration(courseToEdit.duration || '6 Meses');
       setWorkloadHours(courseToEdit.workloadHours || 360);
       setTheoryHours(courseToEdit.theoryHours || 120);
@@ -193,6 +195,7 @@ export const CourseModal: React.FC<CourseModalProps> = ({
       setCode('');
       setCategory('Profissional');
       setDescription('');
+      setImage('');
       setDuration('6 Meses');
       setWorkloadHours(360);
       setTheoryHours(120);
@@ -247,6 +250,7 @@ export const CourseModal: React.FC<CourseModalProps> = ({
       code: code.trim() || `CUR-${Date.now().toString().slice(-4)}`,
       category,
       description: description.trim(),
+      image: image.trim() || undefined,
       duration: duration.trim() || '6 Meses',
       workloadHours: Number(workloadHours) || (Number(theoryHours) + Number(practiceHours)),
       theoryHours: Number(theoryHours) || 0,
@@ -473,6 +477,86 @@ export const CourseModal: React.FC<CourseModalProps> = ({
                     className="w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm text-slate-800 placeholder-slate-400 focus:border-blue-500 outline-hidden transition resize-none"
                   />
                 </div>
+              </div>
+
+              {/* Imagem de Capa do Curso para a Vitrine Pública */}
+              <div className="space-y-2.5 p-4 rounded-xl border border-slate-200 bg-slate-50/80">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                    Foto de Capa do Curso (Vitrine da Página Principal)
+                  </label>
+                  <span className="text-[11px] text-slate-500">Aparece nos cards da página inicial</span>
+                </div>
+                
+                <input
+                  type="url"
+                  value={image}
+                  onChange={e => setImage(e.target.value)}
+                  placeholder="https://images.unsplash.com/... (Cole a URL da foto ou selecione abaixo)"
+                  className="w-full rounded-xl border border-slate-300 px-3.5 py-2 text-xs text-slate-800 placeholder-slate-400 bg-white focus:border-blue-500 outline-hidden transition font-mono"
+                />
+
+                <div className="flex items-center gap-1.5 overflow-x-auto py-1 text-[11px] text-slate-600">
+                  <span className="font-semibold text-slate-700 shrink-0">Fotos Sugeridas:</span>
+                  <button
+                    type="button"
+                    onClick={() => setImage('https://images.unsplash.com/photo-1517694712202-14dd9538aa97?auto=format&fit=crop&w=800&q=80')}
+                    className="px-2 py-0.5 rounded-md border border-slate-300 bg-white hover:bg-blue-50 hover:text-blue-700 shrink-0 cursor-pointer"
+                  >
+                    Tecnologia / TI
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImage('https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80')}
+                    className="px-2 py-0.5 rounded-md border border-slate-300 bg-white hover:bg-blue-50 hover:text-blue-700 shrink-0 cursor-pointer"
+                  >
+                    Redes / Cisco
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImage('https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?auto=format&fit=crop&w=800&q=80')}
+                    className="px-2 py-0.5 rounded-md border border-slate-300 bg-white hover:bg-blue-50 hover:text-blue-700 shrink-0 cursor-pointer"
+                  >
+                    Gestão / Contab.
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImage('https://images.unsplash.com/photo-1579273166657-1901844bca03?auto=format&fit=crop&w=800&q=80')}
+                    className="px-2 py-0.5 rounded-md border border-slate-300 bg-white hover:bg-blue-50 hover:text-blue-700 shrink-0 cursor-pointer"
+                  >
+                    Máquinas Pesadas
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImage('https://images.unsplash.com/photo-1486006920555-c77dce18193b?auto=format&fit=crop&w=800&q=80')}
+                    className="px-2 py-0.5 rounded-md border border-slate-300 bg-white hover:bg-blue-50 hover:text-blue-700 shrink-0 cursor-pointer"
+                  >
+                    Mecânica Automotiva
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImage('https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=800&q=80')}
+                    className="px-2 py-0.5 rounded-md border border-slate-300 bg-white hover:bg-blue-50 hover:text-blue-700 shrink-0 cursor-pointer"
+                  >
+                    Eletricidade Industrial
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImage('https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=800&q=80')}
+                    className="px-2 py-0.5 rounded-md border border-slate-300 bg-white hover:bg-blue-50 hover:text-blue-700 shrink-0 cursor-pointer"
+                  >
+                    Aduaneiro / JÚE
+                  </button>
+                </div>
+
+                {image && (
+                  <div className="relative h-28 w-full rounded-xl overflow-hidden border border-slate-300 bg-slate-100">
+                    <img src={image} alt="Pré-visualização da Capa" className="w-full h-full object-cover" />
+                    <span className="absolute bottom-2 right-2 px-2 py-0.5 bg-black/70 text-white text-[10px] rounded">
+                      Pré-visualização da Capa
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           )}

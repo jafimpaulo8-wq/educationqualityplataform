@@ -30,6 +30,7 @@ import { SIVEC_LEGAL_MANDATE } from './mockSivecData';
 import { getSivecRegistry, findSivecCertificate, maskPrivateDocument } from './sivecStorage';
 import { QrCodeScannerModal } from './components/QrCodeScannerModal';
 import { normalizeSivecStatus } from './components/SivecRegistryTab';
+import { useApp } from '../../context/AppContext';
 
 interface PublicSivecVerifyPageProps {
   initialId?: string;
@@ -67,6 +68,9 @@ export const PublicSivecVerifyPage: React.FC<PublicSivecVerifyPageProps> = ({
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [hasSearched, setHasSearched] = useState(true);
+
+  const { themeMode } = useApp();
+  const isLight = themeMode === 'branco';
 
   // Sincronizar com mudanças externas no localStorage
   useEffect(() => {
@@ -120,35 +124,53 @@ export const PublicSivecVerifyPage: React.FC<PublicSivecVerifyPageProps> = ({
     : 'ATIVO';
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
+    <div className={`min-h-screen flex flex-col font-sans transition-colors ${
+      isLight 
+        ? 'bg-slate-50 text-slate-900 selection:bg-emerald-600 selection:text-white' 
+        : 'bg-slate-950 text-slate-100 selection:bg-emerald-500 selection:text-slate-950'
+    }`}>
       
       {/* TOPO PÚBLICO OFICIAL SIVEC */}
-      <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md sticky top-0 z-40">
+      <header className={`border-b sticky top-0 z-40 backdrop-blur-md transition-colors ${
+        isLight ? 'border-slate-200 bg-white/95' : 'border-slate-800 bg-slate-900/90'
+      }`}>
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 sm:h-20 flex items-center justify-between gap-4">
           
           <div className="flex items-center gap-3">
             {onNavigateHome && (
               <button
                 onClick={onNavigateHome}
-                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition cursor-pointer"
+                className={`p-2 rounded-xl transition cursor-pointer ${
+                  isLight 
+                    ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' 
+                    : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white'
+                }`}
                 title="Voltar ao portal"
               >
                 <ArrowLeft className="w-4 h-4" />
               </button>
             )}
 
-            <div className="p-2.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+            <div className={`p-2.5 rounded-2xl border ${
+              isLight ? 'bg-emerald-50 border-emerald-200 text-emerald-600' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+            }`}>
               <ShieldCheck className="w-6 h-6" />
             </div>
 
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-black tracking-widest text-white uppercase">SIVEC</span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30">
+                <span className={`text-xs font-black tracking-widest uppercase ${
+                  isLight ? 'text-slate-900' : 'text-white'
+                }`}>SIVEC</span>
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-bold border ${
+                  isLight ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                }`}>
                   PORTAL PÚBLICO NOTARIAL
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400 truncate max-w-[280px] sm:max-w-md">
+              <p className={`text-[11px] truncate max-w-[280px] sm:max-w-md ${
+                isLight ? 'text-slate-500' : 'text-slate-400'
+              }`}>
                 Sistema Integrado de Verificação e Emissão de Credenciais Digitais
               </p>
             </div>

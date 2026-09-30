@@ -68,8 +68,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
     activeBranchId, 
     setActiveBranchId,
     addBranch, 
-    firebaseUser 
+    firebaseUser,
+    themeMode 
   } = useApp();
+
+  const isLight = themeMode === 'branco';
 
   const [showAddBranchModal, setShowAddBranchModal] = useState(false);
   const [showRBACModal, setShowRBACModal] = useState(false);
@@ -79,7 +82,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
   const [newBranchPhone, setNewBranchPhone] = useState('');
 
   const canonicalActive = toCanonicalRole(activeRole);
-  const isSuper = firebaseUser?.email === 'jafimpaulo8@gmail.com' || canonicalActive === 'SUPER_ADMIN';
+  const isSuper = canonicalActive === 'SUPER_ADMIN';
 
   const handleNav = (route: AppRoute, params?: Record<string, any>) => {
     navigate(route, params);
@@ -152,6 +155,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
           { label: 'Histórico do Dia', route: 'portaria_acesso', icon: <Calendar className="w-4 h-4 text-indigo-400" /> }
         ];
 
+      case 'CEO':
       case 'DIRETOR':
       case 'ADMIN_INSTITUICAO':
         return [
@@ -213,22 +217,28 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
 
       {/* Main Sidebar Element */}
       <aside 
-        className={`fixed top-0 bottom-0 left-0 w-72 bg-[#090d16] border-r border-slate-800 flex flex-col z-50 transition-transform duration-300 ease-in-out lg:translate-x-0 ${
+        className={`fixed top-0 bottom-0 left-0 w-72 flex flex-col z-50 transition-transform duration-300 ease-in-out lg:translate-x-0 ${
+          isLight ? 'bg-white border-r border-slate-200 text-slate-800 shadow-sm' : 'bg-[#090d16] border-r border-slate-800 text-slate-100'
+        } ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
         {/* Brand & Institution Header */}
-        <div className="p-4 border-b border-slate-800 bg-[#0d1527]/90 flex items-center justify-between">
+        <div className={`p-4 border-b flex items-center justify-between transition-colors ${
+          isLight ? 'border-slate-200 bg-slate-50' : 'border-slate-800 bg-[#0d1527]/90'
+        }`}>
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-black text-sm shadow-md shadow-blue-600/30">
               S
             </div>
             <div>
               <div className="flex items-center gap-1.5">
-                <span className="font-black text-sm text-white tracking-wider">SIGAR</span>
-                <span className="text-[10px] px-1 rounded bg-blue-500/20 text-blue-400 font-bold border border-blue-500/30">PRO</span>
+                <span className={`font-black text-sm tracking-wider ${isLight ? 'text-slate-900' : 'text-white'}`}>SIGAR</span>
+                <span className={`text-[10px] px-1 rounded font-bold border ${
+                  isLight ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                }`}>PRO</span>
               </div>
-              <p className="text-[10px] text-slate-400 truncate max-w-[145px]">
+              <p className={`text-[10px] truncate max-w-[145px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                 {activeInstitution.name}
               </p>
             </div>
@@ -236,7 +246,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
           
           <button 
             onClick={onCloseMobile}
-            className="p-1 rounded-lg text-slate-400 hover:text-white lg:hidden"
+            className={`p-1 rounded-lg lg:hidden transition-colors ${
+              isLight ? 'text-slate-500 hover:text-slate-900' : 'text-slate-400 hover:text-white'
+            }`}
             aria-label="Fechar navegação móvel"
           >
             <X className="w-5 h-5" />
@@ -244,10 +256,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
         </div>
 
         {/* Institution / Filial Context Banner */}
-        <div className="px-4 py-2 bg-[#070b12] border-b border-slate-800/80 flex items-center justify-between text-xs">
+        <div className={`px-4 py-2 border-b flex items-center justify-between text-xs transition-colors ${
+          isLight ? 'bg-slate-100/80 border-slate-200' : 'bg-[#070b12] border-slate-800/80'
+        }`}>
           <div className="flex items-center gap-2 truncate">
-            <MapPin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-            <span className="text-[11px] text-slate-400 font-semibold truncate">
+            <MapPin className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+            <span className={`text-[11px] font-semibold truncate ${isLight ? 'text-slate-700' : 'text-slate-400'}`}>
               {activeBranchId === 'todas' ? 'Todas as Filiais' : (activeInstitution.branches?.find(b => b.id === activeBranchId)?.name || 'Filial Principal')}
             </span>
           </div>
@@ -256,7 +270,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
             <button
               onClick={() => setShowAddBranchModal(true)}
               title="Adicionar Nova Filial / Delegação"
-              className="p-1 rounded-md text-amber-400 hover:text-amber-300 hover:bg-slate-800 transition-all cursor-pointer"
+              className={`p-1 rounded-md text-amber-500 transition-all cursor-pointer ${
+                isLight ? 'hover:bg-slate-200' : 'hover:bg-slate-800'
+              }`}
             >
               <Plus className="w-3.5 h-3.5" />
             </button>
@@ -264,12 +280,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
         </div>
 
         {/* Role Identity Tag */}
-        <div className="px-4 py-2 bg-slate-900/60 border-b border-slate-800/80 flex items-center justify-between">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-            <Lock className="w-3 h-3 text-amber-400" />
+        <div className={`px-4 py-2 border-b flex items-center justify-between transition-colors ${
+          isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-slate-800/80'
+        }`}>
+          <span className={`text-[10px] font-mono font-bold uppercase tracking-wider flex items-center gap-1.5 ${
+            isLight ? 'text-slate-600' : 'text-slate-400'
+          }`}>
+            <Lock className="w-3 h-3 text-amber-500" />
             Painel Autorizado:
           </span>
-          <span className="text-[10px] font-mono font-bold text-amber-300 px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20">
+          <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${
+            isLight ? 'text-amber-800 bg-amber-50 border-amber-200' : 'text-amber-300 bg-amber-500/10 border-amber-500/20'
+          }`}>
             {canonicalActive}
           </span>
         </div>
@@ -286,7 +308,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
                 className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer text-left ${
                   isActive
                     ? 'bg-blue-600 text-white font-bold shadow-md shadow-blue-600/30'
-                    : 'text-slate-300 hover:text-white hover:bg-[#111c35]'
+                    : isLight
+                      ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                      : 'text-slate-300 hover:text-white hover:bg-[#111c35]'
                 }`}
               >
                 <div className="flex items-center gap-2.5 truncate">
@@ -296,7 +320,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
 
                 {item.badge && (
                   <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold uppercase shrink-0 ${
-                    isActive ? 'bg-amber-400 text-slate-950 font-black' : 'bg-slate-800 text-slate-400'
+                    isActive 
+                      ? 'bg-amber-400 text-slate-950 font-black' 
+                      : isLight 
+                        ? 'bg-slate-200 text-slate-700' 
+                        : 'bg-slate-800 text-slate-400'
                   }`}>
                     {item.badge}
                   </span>
@@ -307,15 +335,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
         </div>
 
         {/* Bottom Section: Multi-Role Switcher or Fixed Identity Badge (Section 7) */}
-        <div className="p-3.5 border-t border-slate-800 bg-[#0d1527]/90 space-y-2">
+        <div className={`p-3.5 border-t space-y-2 transition-colors ${
+          isLight ? 'border-slate-200 bg-slate-50' : 'border-slate-800 bg-[#0d1527]/90'
+        }`}>
           {hasMultipleRoles ? (
             <div className="space-y-1.5">
               <div className="flex items-center justify-between text-[11px]">
-                <span className="text-slate-400 flex items-center gap-1.5 font-medium">
-                  <RefreshCw className="w-3.5 h-3.5 text-blue-400" />
+                <span className={`flex items-center gap-1.5 font-medium ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+                  <RefreshCw className="w-3.5 h-3.5 text-blue-500" />
                   Alternar Perfil:
                 </span>
-                <span className="text-[9px] font-mono font-bold text-emerald-400 uppercase">
+                <span className="text-[9px] font-mono font-bold text-emerald-600 uppercase">
                   {userAuthorizedRolesList.length} Autorizados
                 </span>
               </div>
@@ -323,10 +353,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
               <select
                 value={canonicalActive}
                 onChange={(e) => switchRole(e.target.value as UserRole)}
-                className="w-full bg-[#090d16] border border-slate-700 text-xs text-amber-300 font-bold rounded-lg px-2.5 py-1.5 focus:outline-hidden cursor-pointer"
+                className={`w-full border text-xs font-bold rounded-lg px-2.5 py-1.5 focus:outline-hidden cursor-pointer ${
+                  isLight 
+                    ? 'bg-white border-slate-300 text-slate-800' 
+                    : 'bg-[#090d16] border-slate-700 text-amber-300'
+                }`}
               >
                 {userAuthorizedRolesList.map((r) => (
-                  <option key={r} value={toCanonicalRole(r)} className="bg-slate-900 text-white">
+                  <option key={r} value={toCanonicalRole(r)} className={isLight ? 'bg-white text-slate-800' : 'bg-slate-900 text-white'}>
                     {getRoleDisplayName(r)}
                   </option>
                 ))}
@@ -334,11 +368,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
             </div>
           ) : (
             <div className="flex items-center justify-between text-[11px]">
-              <span className="text-slate-400 flex items-center gap-1.5 font-medium">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+              <span className={`flex items-center gap-1.5 font-medium ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
                 Perfil Ativo:
               </span>
-              <span className="text-[10px] font-mono font-bold text-amber-300 px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20">
+              <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${
+                isLight ? 'text-amber-800 bg-amber-50 border-amber-200' : 'text-amber-300 bg-amber-500/10 border-amber-500/20'
+              }`}>
                 {getRoleDisplayName(activeRole)}
               </span>
             </div>

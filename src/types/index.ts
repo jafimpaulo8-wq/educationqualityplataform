@@ -133,8 +133,11 @@ export interface UserProfile {
   roles?: UserRole[]; // Support for multiple authorized roles
   institutionId: string;
   branchId?: string; // undefined means access to all branches of the institution
-  status: 'Ativo' | 'Inativo';
+  status: 'Ativo' | 'Inativo' | 'aprovado' | 'pendente' | string;
   permissions?: string[];
+  codigoAcesso?: string;
+  institutionIds?: string[];
+  ownedInstitutions?: string[];
   preferences?: {
     onboardingCompleted?: boolean;
     theme?: string;
@@ -997,12 +1000,13 @@ export interface Student {
   branchId?: string;
   code: string; // e.g. MTW-AL-2026-1042
   fullName: string;
+  name?: string;
   socialName?: string;
-  documentType: 'BI' | 'Passaporte' | 'DIRE';
+  documentType: 'BI' | 'Passaporte' | 'DIRE' | 'BI/Cédula' | string;
   documentNumber: string;
   nuit?: string;
   birthDate: string; // YYYY-MM-DD
-  gender: 'Masculino' | 'Feminino' | 'Outro';
+  gender: 'Masculino' | 'Feminino' | 'Outro' | 'Misto' | string;
   phone: string;
   whatsapp?: string;
   email: string;
@@ -1012,7 +1016,7 @@ export interface Student {
   address: string;
   guardianName?: string;
   guardianPhone?: string;
-  emergencyContact: string;
+  emergencyContact?: string;
   notes?: string;
   courseId: string;
   courseName: string;
@@ -1021,12 +1025,12 @@ export interface Student {
   regime: string;
   status: StudentStatus;
   enrollmentDate: string;
-  photoUrl: string;
-  paymentStatus: 'Pago' | 'Pendente' | 'Atrasado';
-  balanceOwing: number; // in MZN
-  attendancePercentage: number;
-  averageGrade: number; // 0-20
-  assessments: AssessmentRecord[];
+  photoUrl?: string;
+  paymentStatus: 'Pago' | 'Pendente' | 'Atrasado' | 'Regularizado' | string;
+  balanceOwing?: number; // in MZN
+  attendancePercentage?: number;
+  averageGrade?: number; // 0-20
+  assessments?: AssessmentRecord[];
   internship?: InternshipRecord;
   termination?: StudentTermination;
   attachedDocuments?: StudentAttachedDocument[];
@@ -1040,6 +1044,19 @@ export interface Student {
   createdAt?: string;
   documents?: any[];
   userId?: string;
+  numLista?: number;
+  numAluno?: string;
+  codigoAcesso?: string;
+  codigo?: string;
+  dataNascimento?: string;
+  lugarNascimento?: string;
+  contactos?: string[];
+  morada?: string | null;
+  turma?: string;
+  roles?: string[];
+  role?: string;
+  estado?: string;
+  updatedAt?: string;
   finalGrade?: number;
   gradeAverage?: number;
   attendanceRate?: number;

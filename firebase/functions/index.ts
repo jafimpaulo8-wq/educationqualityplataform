@@ -1,21 +1,34 @@
-<!doctype html>
-<html lang="pt">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Moztechwave Education Platform</title>
-    <meta name="description" content="Sistema de Gestão Escolar e Académica Integrada (SaaS, SIGAR, SIVEC, Financeiro, Document Studio, Portaria e IA) para instituições de ensino e formação técnico-profissional." />
-    <meta property="og:title" content="Moztechwave Education Platform" />
-    <meta property="og:description" content="Sistema de Gestão Escolar e Académica Integrada (SaaS, SIGAR, SIVEC, Financeiro, Document Studio, Portaria e IA) para instituições de ensino e formação técnico-profissional." />
-    <meta property="og:type" content="website" />
-    <meta name="twitter:card" content="summary_large_image" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
-  </head>
-  <body class="bg-slate-950 text-slate-100 antialiased selection:bg-emerald-500 selection:text-white font-sans">
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
-</html>
+/**
+ * Firebase Cloud Functions (SIGAR / MozTechWave Architecture)
+ * 
+ * Scheduled triggers, payment webhooks, certificate hashing, and SIVEC synchronization.
+ */
 
+export interface CloudFunctionDefinition {
+  name: string;
+  type: 'https.onRequest' | 'firestore.onWrite' | 'pubsub.schedule';
+  description: string;
+}
+
+export const functionsManifest: CloudFunctionDefinition[] = [
+  {
+    name: 'generateStudentCredentialHash',
+    type: 'firestore.onWrite',
+    description: 'Calcula SHA-256 e QR Code de verificação ao emitir certificado ou carteira de estudante.'
+  },
+  {
+    name: 'mpesaWebhookHandler',
+    type: 'https.onRequest',
+    description: 'Processa pagamentos de propinas via M-Pesa / E-Mola e atualiza faturas no Firestore.'
+  },
+  {
+    name: 'syncWithSIVECGovernmentBus',
+    type: 'pubsub.schedule',
+    description: 'Sincroniza notas, turmas e certificações com o barramento governamental SIVEC / ANEP.'
+  },
+  {
+    name: 'dailyAttendanceAndDropoutAudit',
+    type: 'pubsub.schedule',
+    description: 'Rotina noturna que calcula assiduidade e sinaliza alunos em risco de evasão para intervenção pedagógica.'
+  }
+];

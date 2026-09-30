@@ -120,7 +120,8 @@ const MainAppContent: React.FC = () => {
     firebaseUser,
     activeRole,
     hasSigarProfile,
-    logout
+    logout,
+    themeMode
   } = useApp();
 
   const [activeToast, setActiveToast] = useState<LiveNotification | null>(null);
@@ -137,6 +138,12 @@ const MainAppContent: React.FC = () => {
   const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authModalMode, setAuthModalMode] = useState<'google' | 'credentials' | 'code'>('google');
+
+  const handleOpenAuth = (mode: 'google' | 'credentials' | 'code' = 'google') => {
+    setAuthModalMode(mode);
+    setAuthModalOpen(true);
+  };
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
@@ -150,23 +157,31 @@ const MainAppContent: React.FC = () => {
     }[authLoadingPhase] || 'Carregando dados...';
 
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center select-none">
+      <div className={`min-h-screen flex flex-col items-center justify-center p-6 text-center select-none ${
+        themeMode === 'branco' ? 'bg-white text-slate-900' : 'bg-slate-950 text-slate-100'
+      }`}>
         <div className="relative mb-6">
-          <div className="w-16 h-16 rounded-3xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center">
-            <Loader2 className="w-8 h-8 text-sky-400 animate-spin" />
+          <div className={`w-16 h-16 rounded-3xl flex items-center justify-center ${
+            themeMode === 'branco' 
+              ? 'bg-sky-50 border border-sky-200' 
+              : 'bg-sky-500/10 border border-sky-500/30'
+          }`}>
+            <Loader2 className={`w-8 h-8 animate-spin ${themeMode === 'branco' ? 'text-sky-600' : 'text-sky-400'}`} />
           </div>
-          <Sparkles className="w-4 h-4 text-emerald-400 absolute -top-1 -right-1 animate-pulse" />
+          <Sparkles className="w-4 h-4 text-emerald-500 absolute -top-1 -right-1 animate-pulse" />
         </div>
 
-        <h2 className="text-xl font-bold text-white tracking-tight">
+        <h2 className={`text-xl font-bold tracking-tight ${themeMode === 'branco' ? 'text-slate-900' : 'text-white'}`}>
           {loadingMessage}
         </h2>
-        <p className="text-xs text-slate-400 mt-1.5 font-mono">
+        <p className={`text-xs mt-1.5 font-mono ${themeMode === 'branco' ? 'text-slate-500' : 'text-slate-400'}`}>
           SIGAR PRO • Comunicação Segura com o Firestore
         </p>
 
-        <div className="w-48 bg-slate-900 h-1.5 rounded-full mt-6 overflow-hidden border border-slate-800">
-          <div className="bg-gradient-to-r from-sky-500 to-emerald-400 h-full w-2/3 animate-pulse rounded-full" />
+        <div className={`w-48 h-1.5 rounded-full mt-6 overflow-hidden border ${
+          themeMode === 'branco' ? 'bg-slate-100 border-slate-200' : 'bg-slate-900 border-slate-800'
+        }`}>
+          <div className="bg-gradient-to-r from-sky-500 to-emerald-500 h-full w-2/3 animate-pulse rounded-full" />
         </div>
       </div>
     );
@@ -199,24 +214,26 @@ const MainAppContent: React.FC = () => {
   // If the user is browsing the Public Portal (PARTE 3 - ZERO DADOS PRIVADOS)
   if (currentRoute === 'public_portal') {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-sky-500 selection:text-white">
+      <div className={`min-h-screen flex flex-col font-sans selection:bg-blue-600 selection:text-white ${
+        themeMode === 'branco' ? 'bg-white text-slate-900' : 'bg-slate-950 text-slate-100'
+      }`}>
         {/* Public Top Navbar strictly conforming to PARTE 3 */}
         <Navbar
-          onNavigateToPlatform={() => setAuthModalOpen(true)}
+          onNavigateToPlatform={(mode) => handleOpenAuth((mode as any) || 'google')}
           onOpenPublicVerify={() => navigate('public_verify')}
           onOpenOnlineRegistration={() => navigate('inscricao_publica')}
-          onOpenRegisterInstitution={() => setAuthModalOpen(true)}
-          onOpenHelp={() => setAuthModalOpen(true)}
+          onOpenRegisterInstitution={() => handleOpenAuth('new_inst' as any)}
+          onOpenHelp={() => handleOpenAuth('google')}
         />
 
         {/* Public Landing (Zero private data) */}
         <main className="flex-1">
           <PublicPortalLanding
-            onOpenAuthModal={() => setAuthModalOpen(true)}
+            onOpenAuthModal={(mode) => handleOpenAuth(mode || 'google')}
             onOpenPublicVerify={() => navigate('public_verify')}
-            onOpenOnlineRegistration={() => navigate('inscricao_publica')}
-            onOpenRegisterInstitution={() => setAuthModalOpen(true)}
-            onOpenHelp={() => setAuthModalOpen(true)}
+            onOpenOnlineRegistration={(courseName) => navigate('inscricao_publica')}
+            onOpenRegisterInstitution={() => handleOpenAuth('new_inst' as any)}
+            onOpenHelp={() => handleOpenAuth('google')}
           />
         </main>
 
@@ -224,6 +241,7 @@ const MainAppContent: React.FC = () => {
         <SigarAuthModal
           isOpen={authModalOpen}
           onClose={() => setAuthModalOpen(false)}
+          defaultMode={authModalMode}
         />
       </div>
     );
@@ -271,7 +289,7 @@ const MainAppContent: React.FC = () => {
       );
     }
 
-    const isSuper = firebaseUser?.email === 'jafimpaulo8@gmail.com' || (activeRole as string) === 'SUPER_ADMIN' || (activeRole as string) === 'superadmin';
+    const isSuper = (activeRole as string) === 'SUPER_ADMIN' || (activeRole as string) === 'superadmin';
     const isAllowed = isRouteAllowed(currentRoute, activeRole, isSuper);
 
     if (!isAllowed) {
@@ -434,7 +452,9 @@ const MainAppContent: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#090d16] text-slate-100 flex font-sans selection:bg-blue-600 selection:text-white">
+    <div className={`min-h-screen flex font-sans selection:bg-blue-600 selection:text-white ${
+      themeMode === 'branco' ? 'bg-slate-50 text-slate-900' : 'bg-[#090d16] text-slate-100'
+    }`}>
       {/* Enterprise Left Sidebar */}
       <Sidebar
         mobileOpen={mobileSidebarOpen}
@@ -450,7 +470,9 @@ const MainAppContent: React.FC = () => {
         />
 
         {/* Dynamic Route View (with safe bottom padding for MobileBottomNav) */}
-        <main className="flex-1 overflow-y-auto bg-[#090d16] pb-20 lg:pb-6">
+        <main className={`flex-1 overflow-y-auto pb-20 lg:pb-6 ${
+          themeMode === 'branco' ? 'bg-slate-50 text-slate-900' : 'bg-[#090d16] text-slate-100'
+        }`}>
           {renderActiveView()}
         </main>
       </div>
@@ -473,6 +495,7 @@ const MainAppContent: React.FC = () => {
       <SigarAuthModal
         isOpen={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
+        defaultMode={authModalMode}
       />
 
       {/* Real-Time Notification Center Drawer */}

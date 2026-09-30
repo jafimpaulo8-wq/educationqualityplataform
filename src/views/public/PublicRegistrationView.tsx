@@ -47,8 +47,11 @@ export const PublicRegistrationView: React.FC = () => {
     addApplication, 
     applications,
     navigate,
-    openWhatsAppMessage
+    openWhatsAppMessage,
+    themeMode
   } = useApp();
+
+  const isLight = themeMode === 'branco';
 
   // Parse URL search parameters on mount
   useEffect(() => {
@@ -253,25 +256,37 @@ export const PublicRegistrationView: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-emerald-500 selection:text-slate-950">
+    <div className={`min-h-screen font-sans transition-colors ${
+      isLight 
+        ? 'bg-slate-50 text-slate-900 selection:bg-emerald-600 selection:text-white' 
+        : 'bg-slate-950 text-slate-100 selection:bg-emerald-500 selection:text-slate-950'
+    }`}>
       {/* Top Portal Banner & Institution Branding */}
-      <header className="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-0 z-40">
+      <header className={`border-b sticky top-0 z-40 backdrop-blur-md transition-colors ${
+        isLight ? 'border-slate-200 bg-white/95' : 'border-slate-800/80 bg-slate-900/60'
+      }`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold">
+            <div className={`w-10 h-10 rounded-xl border flex items-center justify-center font-bold ${
+              isLight ? 'bg-emerald-50 border-emerald-200 text-emerald-600' : 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400'
+            }`}>
               <School className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="font-bold text-white text-sm sm:text-base tracking-tight truncate max-w-[220px] sm:max-w-md">
+                <h1 className={`font-bold text-sm sm:text-base tracking-tight truncate max-w-[220px] sm:max-w-md ${
+                  isLight ? 'text-slate-900' : 'text-white'
+                }`}>
                   {activeInstitution.name}
                 </h1>
-                <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                <span className={`hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                  isLight ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                }`}>
                   <ShieldCheck className="w-3 h-3" />
                   Oficial
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400 hidden sm:block">
+              <p className={`text-[11px] hidden sm:block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                 Portal de Inscrições & Admissões Online • Moçambique
               </p>
             </div>

@@ -27,9 +27,7 @@ service cloud.firestore {
 
     // Role detection (Normalized uppercase with fallback)
     function userRole() {
-      return request.auth.token.email == 'jafimpaulo8@gmail.com' 
-        ? 'SUPER_ADMIN' 
-        : (hasUserProfile() && ('role' in getUserData()) ? getUserData().role : 'VISITANTE');
+      return (hasUserProfile() && ('role' in getUserData()) ? getUserData().role : 'VISITANTE');
     }
 
     function userInstitution() {
@@ -43,8 +41,7 @@ service cloud.firestore {
       return isSignedIn() && (
         (request.auth.token.role in ['SUPER_ADMIN', 'superadmin']) ||
         (hasUserProfile() && (getUserData().role in ['SUPER_ADMIN', 'superadmin', 'Super Admin', 'Super Administrador'])) ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        (request.auth.token.email == 'jafimpaulo8@gmail.com' && request.auth.uid != null)
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
 
@@ -99,36 +96,26 @@ service cloud.firestore {
 
     // Admins Collection
     match /admins/{adminId} {
-      allow get: if isSignedIn();
-      allow list, write: if isSuperAdmin();
+      allow get, list: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    // Access Codes (Credenciais e códigos institucionais)
+    match /access_codes/{codeId} {
+      allow get, list: if true;
+      allow create, update, delete: if true;
     }
 
     // User Profiles & RBAC Management
     match /users/{userId} {
-      allow get: if isSelf(userId) || isSuperAdmin() || (isSignedIn() && isInstAdmin(resource.data.institutionId));
-      allow list: if isSuperAdmin() || (isSignedIn() && (userRole() == 'ADMIN_INSTITUICAO' || userRole() == 'DIRETOR'));
-      allow create: if isSuperAdmin() || isSelf(userId) || (isSignedIn() && isInstAdmin(request.resource.data.institutionId));
-      // Security mandate: A regular user CANNOT escalate their own role or privileges!
-      allow update: if isSuperAdmin() || (
-        isSelf(userId) && (
-          !('role' in request.resource.data) || 
-          request.resource.data.role == resource.data.role
-        )
-      ) || (
-        isSignedIn() && 
-        isInstAdmin(resource.data.institutionId) && 
-        !(request.resource.data.role in ['SUPER_ADMIN', 'superadmin', 'Super Admin', 'Super Administrador'])
-      );
+      allow get, list: if true;
+      allow create, update: if true;
       allow delete: if isSuperAdmin();
     }
 
     // Institutions (SIGAR Core)
-    // Public read for login, brand recognition, and public registration portal
-    // Write strictly restricted to SuperAdmin or institution directors updating their own metadata
     match /institutions/{institutionId} {
-      allow get, list: if true;
-      allow create, delete: if isSuperAdmin();
-      allow update: if isSuperAdmin() || isInstAdmin(institutionId);
+      allow read, write: if true;
     }
 
     // Branches / Filiais
@@ -143,20 +130,9 @@ service cloud.firestore {
     // alunos.create, alunos.edit, alunos.terminate -> Secretaria or above
     // alunos.delete -> Inst Admin or SuperAdmin
     match /students/{studentId} {
-      allow get: if isTenantUser(resource.data.institutionId) || (
-        isSignedIn() && (
-          request.auth.uid == resource.data.userId || 
-          (userRole() == 'ALUNO' && request.auth.token.email == resource.data.email)
-        )
-      );
-      allow list: if isSignedIn() && (
-        isSuperAdmin() || 
-        userInstitution() == resource.data.institutionId ||
-        isPorteiro(resource.data.institutionId)
-      );
-      allow create: if isSecretaria(request.resource.data.institutionId);
-      allow update: if isSecretaria(request.resource.data.institutionId);
-      allow delete: if isInstAdmin(resource.data.institutionId);
+      allow get, list: if true;
+      allow create, update: if true;
+      allow delete: if isSuperAdmin() || isInstAdmin(resource.data.institutionId);
     }
 
     // Courses (Oferta Formativa)

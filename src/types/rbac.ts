@@ -7,6 +7,7 @@ export type UserRole =
   | 'SUPER_ADMIN'
   | 'ADMIN_INSTITUICAO'
   | 'DIRETOR'
+  | 'CEO'
   | 'SECRETARIA'
   | 'FINANCEIRO'
   | 'PROFESSOR'
@@ -19,6 +20,7 @@ export type UserRole =
   // Lowercase compatibility aliases
   | 'superadmin'
   | 'director'
+  | 'ceo'
   | 'secretaria'
   | 'financeiro'
   | 'professor'
@@ -33,6 +35,7 @@ export type CanonicalRole =
   | 'SUPER_ADMIN'
   | 'ADMIN_INSTITUICAO'
   | 'DIRETOR'
+  | 'CEO'
   | 'SECRETARIA'
   | 'FINANCEIRO'
   | 'PROFESSOR'
@@ -191,6 +194,7 @@ export function toCanonicalRole(role: string): CanonicalRole {
   if (r === 'SUPERADMIN' || r === 'SUPER_ADMIN') return 'SUPER_ADMIN';
   if (r === 'ADMIN_INSTITUICAO' || r === 'ADMIN') return 'ADMIN_INSTITUICAO';
   if (r === 'DIRECTOR' || r === 'DIRETOR') return 'DIRETOR';
+  if (r === 'CEO') return 'CEO';
   if (r === 'SECRETARIA' || r === 'SECRETARIO') return 'SECRETARIA';
   if (r === 'FINANCEIRO' || r === 'TESOURARIA') return 'FINANCEIRO';
   if (r === 'PROFESSOR' || r === 'DOCENTE') return 'PROFESSOR';
@@ -303,6 +307,39 @@ export const ROLE_DEFINITIONS: Record<CanonicalRole, RoleDefinition> = {
       'contratos.view', 'contratos.create', 'contratos.sign_director',
       'instituicoes.view',
       'usuarios.view',
+      'automacoes.view',
+      'comunicados.view', 'comunicados.publish', 'comunicados.delete',
+      'relatorios_academicos.view', 'relatorios_academicos.export',
+      'relatorios_administrativos.view', 'relatorios_administrativos.export',
+      'auditoria.view', 'auditoria.export'
+    ]
+  },
+  CEO: {
+    role: 'CEO',
+    title: 'CEO / Mantenedor do Centro Infantil',
+    description: 'Direção executiva, liderança estratégica, acompanhamento financeiro, contratos e governança do Centro Infantil.',
+    category: 'Gestão Institucional',
+    scope: 'institution',
+    badgeColor: 'text-indigo-400 border-indigo-800/80',
+    badgeBg: 'bg-indigo-950/60',
+    permissions: [
+      'candidatos.view', 'candidatos.create', 'candidatos.edit', 'candidatos.approve', 'candidatos.reject', 'candidatos.convert',
+      'alunos.view', 'alunos.create', 'alunos.edit', 'alunos.export', 'alunos.terminate', 'alunos.reactivate', 'alunos.change_status',
+      'notas.view', 'notas.approve',
+      'pautas.view', 'pautas.export', 'pautas.approve',
+      'boletim.view', 'boletim.export', 'boletim.sign',
+      'estagios.view', 'estagios.evaluate', 'estagios.docs', 'estagios.manage',
+      'pagamentos.view', 'pagamentos.create', 'pagamentos.approve', 'pagamentos.export',
+      'caixa.view',
+      'certificados.view', 'certificados.create', 'certificados.approve', 'certificados.export',
+      'cursos.view', 'cursos.create', 'cursos.edit',
+      'turmas.view', 'turmas.create', 'turmas.edit',
+      'horarios.view',
+      'professores.view', 'professores.create', 'professores.edit', 'professores.assign',
+      'portaria.view',
+      'contratos.view', 'contratos.create', 'contratos.sign_director',
+      'instituicoes.view', 'instituicoes.edit',
+      'usuarios.view', 'usuarios.create',
       'automacoes.view',
       'comunicados.view', 'comunicados.publish', 'comunicados.delete',
       'relatorios_academicos.view', 'relatorios_academicos.export',
