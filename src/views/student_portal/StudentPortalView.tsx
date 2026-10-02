@@ -688,12 +688,7 @@ export const StudentPortalView: React.FC = () => {
                         {/* Real QR Code directly on Carteirinha Digital */}
                         <div className="p-1 bg-white rounded-xl shadow-md shrink-0">
                           <RealQRCode
-                            value={JSON.stringify({
-                              uid: currentStudent.userId || currentStudent.id,
-                              numAluno: currentStudent.code || 'MTW-2026-0087',
-                              institutionId: activeInstitution?.id || 'moztechwave-core',
-                              validade: '31/12/2026'
-                            })}
+                            value={`${typeof window !== 'undefined' ? window.location.origin : 'https://portal.moztechwave.co.mz'}/verificar/aluno/${encodeURIComponent(currentStudent.code || currentStudent.id)}`}
                             size={56}
                           />
                         </div>

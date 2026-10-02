@@ -1,12 +1,13 @@
 {
   "projectId": "siverc-94da3",
-  "appId": "1:830264966313:web:08af6f106e5d6dc7333db8",
-  "apiKey": "AIzaSyB54CYrkKo2oa7LDFDECoDmoTJMdaS3utI",
+  "appId": "1:497955072458:web:d91abbf07576328bfe4733",
+  "apiKey": "AIzaSyBLl_5awcYgc6lz_6bGxP-dedZaVQRQi6o",
   "authDomain": "siverc-94da3.firebaseapp.com",
+  "databaseURL": "https://siverc-94da3-default-rtdb.firebaseio.com",
   "firestoreDatabaseId": "(default)",
   "storageBucket": "siverc-94da3.firebasestorage.app",
-  "messagingSenderId": "830264966313",
-  "measurementId": "",
+  "messagingSenderId": "497955072458",
+  "measurementId": "G-TPL8HLY27T",
   "oAuthClientId": "",
   "recaptchaSiteKey": ""
 }

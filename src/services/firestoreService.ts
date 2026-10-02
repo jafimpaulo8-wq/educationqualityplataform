@@ -97,14 +97,21 @@ export async function checkIsSuperAdmin(uid: string): Promise<boolean> {
   }
 }
 
-// Institutions - Real Firestore only, returns [] if empty
+// Institutions - Real Firestore only, returns [] if empty (deduplicated by id)
 export async function getInstitutions(): Promise<Institution[]> {
   try {
     const snapshot = await getDocs(collection(db, COLLECTIONS.INSTITUTIONS));
     if (snapshot.empty) {
       return [];
     }
-    return snapshot.docs.map(d => ({ ...d.data(), id: d.id } as Institution));
+    const seen = new Set<string>();
+    return snapshot.docs
+      .map(d => ({ ...d.data(), id: d.id } as Institution))
+      .filter(i => {
+        if (!i?.id || seen.has(i.id)) return false;
+        seen.add(i.id);
+        return true;
+      });
   } catch (error) {
     console.warn('Could not list institutions from Firestore:', error);
     return [];
@@ -114,15 +121,22 @@ export async function getInstitutions(): Promise<Institution[]> {
 export async function getUserInstitutions(userId: string, institutionId?: string): Promise<Institution[]> {
   try {
     const all = await getInstitutions();
-    if (!institutionId && !userId) return all;
+    const seen = new Set<string>();
+    const deduped = all.filter(i => {
+      if (!i?.id || seen.has(i.id)) return false;
+      seen.add(i.id);
+      return true;
+    });
+
+    if (!institutionId && !userId) return deduped;
     // Filter to institutions the user belongs to, or all if super admin
     const isSuper = await checkIsSuperAdmin(userId);
-    if (isSuper) return all;
+    if (isSuper) return deduped;
     
     if (institutionId) {
-      return all.filter(i => i.id === institutionId);
+      return deduped.filter(i => i.id === institutionId);
     }
-    return all;
+    return deduped;
   } catch (error) {
     console.warn('Error fetching user institutions:', error);
     return [];

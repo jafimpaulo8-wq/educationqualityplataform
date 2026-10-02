@@ -452,13 +452,14 @@ export const StudioCanvas: React.FC<StudioCanvasProps> = ({
           )}
 
           {/* Render Elements */}
-          {visibleElements.map((element) => {
+          {visibleElements.map((element, idx) => {
             const isSelected = selectedElementId === element.id;
+            const elementKey = element.id || `canvas-elem-${idx}-${element.type}`;
 
             return (
               <div
-                key={element.id}
-                id={`studio-elem-${element.id}`}
+                key={elementKey}
+                id={`studio-elem-${elementKey}`}
                 onMouseDown={(e) => handleMouseDown(e, element)}
                 className={`absolute cursor-pointer select-none transition-shadow ${
                   isSelected && !isPreviewMode

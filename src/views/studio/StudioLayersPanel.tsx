@@ -107,9 +107,10 @@ export const StudioLayersPanel: React.FC<StudioLayersPanelProps> = ({
       <div className="flex items-center gap-1.5 flex-1 px-3 overflow-x-auto">
         {sideElements.map((el, idx) => {
           const isSelected = selectedElementId === el.id;
+          const layerKey = el.id || `layer-${idx}-${el.type}`;
           return (
             <div
-              key={el.id}
+              key={layerKey}
               onClick={() => onSelectElement(el.id)}
               className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs cursor-pointer transition-all whitespace-nowrap ${
                 isSelected

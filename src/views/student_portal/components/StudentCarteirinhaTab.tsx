@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Student } from '../../../types';
 import { useApp } from '../../../context/AppContext';
 import { RealQRCode } from '../../../components/common/RealQRCode';
+import { printIsolatedElement } from '../../../utils/printHelper';
 import { 
   CreditCard, 
   Printer, 
@@ -21,8 +22,12 @@ export const StudentCarteirinhaTab: React.FC<StudentCarteirinhaTabProps> = ({ cu
   const { activeInstitution } = useApp();
   const [cardSide, setCardSide] = useState<'frente' | 'verso'>('frente');
 
+  const verificationUrl = typeof window !== 'undefined'
+    ? `${window.location.origin}/verificar/aluno/${encodeURIComponent(currentStudent.code || currentStudent.id)}`
+    : `https://portal.moztechwave.co.mz/verificar/aluno/${currentStudent.code || currentStudent.id}`;
+
   const handlePrint = () => {
-    window.print();
+    printIsolatedElement('student-card-render-container', `Carteirinha_${currentStudent.code}`);
   };
 
   return (
@@ -65,7 +70,10 @@ export const StudentCarteirinhaTab: React.FC<StudentCarteirinhaTabProps> = ({ cu
       </div>
 
       {/* RENDERIZAÇÃO DO CARTÃO DIGITAL EM FORMATO CR-80 PADRÃO */}
-      <div className="flex flex-col items-center justify-center p-6 bg-slate-100/70 rounded-3xl border border-slate-200">
+      <div 
+        id="student-card-render-container" 
+        className="flex flex-col items-center justify-center p-6 bg-slate-100/70 rounded-3xl border border-slate-200 print-only-card"
+      >
         
         {cardSide === 'frente' ? (
           /* FRENTE DO CARTÃO */
@@ -155,12 +163,7 @@ export const StudentCarteirinhaTab: React.FC<StudentCarteirinhaTabProps> = ({ cu
 
               <div className="p-1.5 bg-white rounded-xl shadow-md shrink-0">
                 <RealQRCode
-                  value={JSON.stringify({
-                    uid: currentStudent.userId || currentStudent.id,
-                    numAluno: currentStudent.code,
-                    institutionId: activeInstitution?.id || 'moztechwave-core',
-                    validade: '31/12/2026'
-                  })}
+                  value={verificationUrl}
                   size={76}
                 />
               </div>

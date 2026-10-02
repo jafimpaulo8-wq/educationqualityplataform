@@ -821,11 +821,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isFirebaseConnected, setIsFirebaseConnected] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
+  // Helper to strictly deduplicate institutions by unique ID (prevents React duplicate key errors)
+  const deduplicateInstitutions = (list: Institution[]): Institution[] => {
+    const seen = new Set<string>();
+    return list.filter(item => {
+      if (!item?.id || seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
+  };
+
   // Multi-Institution Central State (Defaults to Centro Infantil Céu Azul and INITIAL_INSTITUTIONS)
-  const [allInstitutions, setAllInstitutions] = useState<Institution[]>([
-    CEU_AZUL_INSTITUTION as Institution,
-    ...INITIAL_INSTITUTIONS
-  ]);
+  const [allInstitutions, setAllInstitutions] = useState<Institution[]>(() =>
+    deduplicateInstitutions([
+      CEU_AZUL_INSTITUTION as Institution,
+      ...INITIAL_INSTITUTIONS
+    ])
+  );
   const [activeInstitutionId, setActiveInstitutionId] = useState<string>(CEU_AZUL_INSTITUTION_ID);
   const [activeBranchId, setActiveBranchId] = useState<string>('todas');
 
@@ -1338,6 +1350,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             });
             setHasSigarProfile(true);
             bootstrapCeuAzul(user.uid).catch(err => console.warn('Ceu Azul bootstrap error:', err));
+          } else if (user.email === 'centromoz8@gmail.com') {
+            // Secretaria Académica CFTPM Moztechwave: Egas Paulo (role = SECRETARIA, institutionId = 'moztechwave' / 'inst-1')
+            effectiveRole = 'SECRETARIA';
+            userAuthRoles = ['SECRETARIA'];
+            effectiveInstId = 'inst-1';
+            effectiveBranchId = 'branch-1-maputo';
+            const secProfile = {
+              id: user.uid,
+              name: 'Egas Paulo',
+              email: 'centromoz8@gmail.com',
+              role: 'SECRETARIA' as UserRole,
+              roles: ['SECRETARIA' as UserRole],
+              institutionId: 'inst-1',
+              institutionIds: ['inst-1', 'moztechwave'],
+              branchId: 'branch-1-maputo',
+              status: 'Ativo',
+              codigoAcesso: 'MTW-SEC-001'
+            };
+            setUserProfile(secProfile);
+            setHasSigarProfile(true);
+            saveUserProfile(secProfile).catch(err => console.warn('Secretaria sync error:', err));
           } else if (existing) {
             setUserProfile(existing);
             setHasSigarProfile(true);
@@ -1383,7 +1416,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           
           if (cloudInsts.length > 0) {
             const hasCeu = cloudInsts.some(i => i.id === CEU_AZUL_INSTITUTION_ID);
-            const merged = hasCeu ? cloudInsts : [CEU_AZUL_INSTITUTION as Institution, ...cloudInsts];
+            const merged = deduplicateInstitutions(hasCeu ? cloudInsts : [CEU_AZUL_INSTITUTION as Institution, ...cloudInsts]);
             setAllInstitutions(merged);
             if (effectiveInstId && merged.some(i => i.id === effectiveInstId)) {
               setActiveInstitutionId(effectiveInstId);
@@ -1394,7 +1427,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               setActiveInstitutionId(effectiveInstId || CEU_AZUL_INSTITUTION_ID);
             }
           } else {
-            setAllInstitutions([CEU_AZUL_INSTITUTION as Institution, ...INITIAL_INSTITUTIONS]);
+            setAllInstitutions(deduplicateInstitutions([CEU_AZUL_INSTITUTION as Institution, ...INITIAL_INSTITUTIONS]));
             setActiveInstitutionId(effectiveInstId || CEU_AZUL_INSTITUTION_ID);
           }
           setActiveBranchId(effectiveBranchId);
@@ -2041,7 +2074,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       financialAccounts: newInstData.financialAccounts || []
     };
 
-    setAllInstitutions(prev => [newInst, ...prev]);
+    setAllInstitutions(prev => deduplicateInstitutions([newInst, ...prev]));
     setActiveInstitutionId(newInst.id);
     setActiveBranchId('todas');
 

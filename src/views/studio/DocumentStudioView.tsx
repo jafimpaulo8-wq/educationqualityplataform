@@ -119,14 +119,16 @@ export const DocumentStudioView: React.FC = () => {
   };
 
   // Add element from sidebar
-  const handleAddElement = (newElement: StudioElement) => {
-    const elementWithSide = {
+  const handleAddElement = (newElement: StudioElement | Omit<StudioElement, 'id'>) => {
+    const elementId = (newElement as any).id || `el-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const elementWithSide: StudioElement = {
       ...newElement,
+      id: elementId,
       side: currentSide
     };
 
     setElementsForCurrentSide(prev => [...prev, elementWithSide]);
-    setSelectedElementId(newElement.id);
+    setSelectedElementId(elementId);
   };
 
   // Update specific element

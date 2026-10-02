@@ -58,15 +58,51 @@
   background: #334155;
 }
 
-/* Print optimizations for Certificate and Receipts */
+/* Universal Print Optimizations and Strict Element Isolation */
 @media print {
-  header, footer, nav, button, .no-print {
+  /* Hide all generic layout chrome */
+  header, 
+  footer, 
+  nav, 
+  aside,
+  button, 
+  .no-print,
+  #app-sidebar,
+  #app-header,
+  #mobile-bottom-nav {
     display: none !important;
   }
   
   body {
     background: #ffffff !important;
     color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* When printing an isolated target (carteirinha, crachá, certificado) */
+  body.print-isolated-active * {
+    visibility: hidden !important;
+  }
+
+  body.print-isolated-active .print-target,
+  body.print-isolated-active .print-target * {
+    visibility: visible !important;
+  }
+
+  body.print-isolated-active .print-target {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 auto !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  .print-only-card {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
 
   #moztechwave-official-certificate {
@@ -79,7 +115,6 @@
   }
 
   @page {
-    size: A4 landscape;
-    margin: 8mm;
+    margin: 5mm;
   }
 }

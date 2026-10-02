@@ -27,6 +27,8 @@ import {
   BadgeAlert
 } from 'lucide-react';
 import { Student } from '../../types';
+import { RealQRCode } from '../../components/common/RealQRCode';
+import { printIsolatedElement } from '../../utils/printHelper';
 
 export const StudentCardGeneratorView: React.FC = () => {
   const { 
@@ -44,6 +46,7 @@ export const StudentCardGeneratorView: React.FC = () => {
   const [selectedStudentId, setSelectedStudentId] = useState<string>(students[0]?.id || '');
   const [searchStudent, setSearchStudent] = useState<string>('');
   const [filterClass, setFilterClass] = useState<string>('todas');
+  const [cardFaceFilter, setCardFaceFilter] = useState<'ambos' | 'frente' | 'verso'>('ambos');
 
   // Configuração da Folha A4
   // "8 cartões por página", "10 cartões por página", configuração editável
@@ -426,18 +429,55 @@ export const StudentCardGeneratorView: React.FC = () => {
             {/* Right Card Preview Column (8 cols) */}
             <div className="lg:col-span-8 space-y-6">
               
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="text-sm font-bold text-white flex items-center gap-2">
                   <CreditCard className="w-4 h-4 text-emerald-400" />
                   Pré-visualização em Escala Real (Padrão BI Moçambique 85.6mm x 54mm)
                 </div>
-                <span className="text-xs text-slate-400 font-mono">
-                  SIVERC Cert: SIV-{currentStudent.code.slice(-6)}
-                </span>
+
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1 p-1 bg-slate-900 border border-slate-800 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => setCardFaceFilter('ambos')}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer transition ${
+                        cardFaceFilter === 'ambos' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Frente &amp; Verso
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCardFaceFilter('frente')}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer transition ${
+                        cardFaceFilter === 'frente' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Frente
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCardFaceFilter('verso')}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer transition ${
+                        cardFaceFilter === 'verso' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Verso
+                    </button>
+                  </div>
+                  <span className="text-xs text-slate-400 font-mono">
+                    SIVERC: SIV-{currentStudent.code.slice(-6)}
+                  </span>
+                </div>
               </div>
 
               {/* Grid Frente e Verso */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div 
+                id="single-card-preview-container" 
+                className={`grid gap-6 print-only-card ${
+                  cardFaceFilter === 'ambos' ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 max-w-md mx-auto'
+                }`}
+              >
                 
                 {/* ========================================================
                     FRENTE DO CARTÃO (Conforme requisitos oficiais):
@@ -452,6 +492,7 @@ export const StudentCardGeneratorView: React.FC = () => {
                     - logotipo com verificação SIVERC
                     - badge ID card waiting / operation
                    ======================================================== */}
+                {(cardFaceFilter === 'ambos' || cardFaceFilter === 'frente') && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
                     <span>FRENTE DO CARTÃO</span>
@@ -574,6 +615,7 @@ export const StudentCardGeneratorView: React.FC = () => {
                     </div>
                   </div>
                 </div>
+                )}
 
                 {/* ========================================================
                     VERSO DO CARTÃO (Conforme requisitos oficiais):
@@ -584,6 +626,7 @@ export const StudentCardGeneratorView: React.FC = () => {
                     - informações do centro HSST
                     - verificação SIVERC
                    ======================================================== */}
+                {(cardFaceFilter === 'ambos' || cardFaceFilter === 'verso') && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
                     <span>VERSO DO CARTÃO</span>
@@ -661,6 +704,7 @@ export const StudentCardGeneratorView: React.FC = () => {
 
                   </div>
                 </div>
+                )}
 
               </div>
 

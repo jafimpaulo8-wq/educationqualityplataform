@@ -318,6 +318,49 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
         return;
       }
 
+      // 3. SECRETARIA: Egas Paulo (CFTPM Moztechwave)
+      if (user.email === 'centromoz8@gmail.com') {
+        const secProfile = {
+          id: user.uid,
+          uid: user.uid,
+          name: 'Egas Paulo',
+          displayName: 'Egas Paulo (Secretaria)',
+          email: 'centromoz8@gmail.com',
+          role: 'SECRETARIA' as UserRole,
+          roles: ['SECRETARIA' as UserRole],
+          institutionId: 'inst-1',
+          institutionIds: ['inst-1', 'moztechwave'],
+          branchId: 'branch-1-maputo',
+          status: 'aprovado',
+          codigoAcesso: 'MTW-SEC-001',
+          createdAt: new Date().toISOString(),
+          lastLoginAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        await setDoc(userDocRef, secProfile, { merge: true });
+        const cftpmInst = allInstitutions.find(i => i.id === 'inst-1' || i.id === 'moztechwave');
+        if (cftpmInst) setActiveInstitution(cftpmInst);
+        setActiveRole('SECRETARIA');
+        soundManager.playSuccess();
+        await proceedAfterAuth({
+          uid: user.uid,
+          email: user.email,
+          name: 'Egas Paulo',
+          isSuperAdmin: false,
+          authorizedRoles: ['SECRETARIA'],
+          institutionId: 'inst-1',
+          branchId: 'branch-1-maputo'
+        });
+        addNotification({
+          title: 'Acesso da Secretaria Confirmado',
+          message: 'Bem-vindo, Egas Paulo (Secretaria Académica — CFTPM Moztechwave).',
+          type: 'success'
+        });
+        onClose();
+        navigate('secretaria');
+        return;
+      }
+
       if (userDocSnap.exists()) {
         const udata = userDocSnap.data();
         const rawRoles: UserRole[] = Array.isArray(udata.roles) && udata.roles.length > 0
@@ -512,6 +555,49 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
         });
         onClose();
         navigate('centro_dashboard');
+        return;
+      }
+
+      // 3. SECRETARIA: Egas Paulo (CFTPM Moztechwave)
+      if (user.email === 'centromoz8@gmail.com') {
+        const secProfile = {
+          id: user.uid,
+          uid: user.uid,
+          name: 'Egas Paulo',
+          displayName: 'Egas Paulo (Secretaria)',
+          email: 'centromoz8@gmail.com',
+          role: 'SECRETARIA' as UserRole,
+          roles: ['SECRETARIA' as UserRole],
+          institutionId: 'inst-1',
+          institutionIds: ['inst-1', 'moztechwave'],
+          branchId: 'branch-1-maputo',
+          status: 'aprovado',
+          codigoAcesso: 'MTW-SEC-001',
+          createdAt: new Date().toISOString(),
+          lastLoginAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        await setDoc(userDocRef, secProfile, { merge: true });
+        const cftpmInst = allInstitutions.find(i => i.id === 'inst-1' || i.id === 'moztechwave');
+        if (cftpmInst) setActiveInstitution(cftpmInst);
+        setActiveRole('SECRETARIA');
+        soundManager.playSuccess();
+        await proceedAfterAuth({
+          uid: user.uid,
+          email: user.email,
+          name: 'Egas Paulo',
+          isSuperAdmin: false,
+          authorizedRoles: ['SECRETARIA'],
+          institutionId: 'inst-1',
+          branchId: 'branch-1-maputo'
+        });
+        addNotification({
+          title: 'Acesso da Secretaria Confirmado',
+          message: 'Bem-vindo, Egas Paulo (Secretaria Académica — CFTPM Moztechwave).',
+          type: 'success'
+        });
+        onClose();
+        navigate('secretaria');
         return;
       }
 
@@ -767,6 +853,32 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
           navigate('centro_dashboard');
           return;
         }
+      }
+
+      // 1b. CÓDIGO DA SECRETARIA ACADÉMICA (CFTPM MOZTECHWAVE - Egas Paulo)
+      if (clean === 'MTW-SEC-001' || clean === 'SEC-MOZ-001') {
+        soundManager.playSuccess();
+        const cftpmInst = allInstitutions.find(i => i.id === 'inst-1' || i.id === 'moztechwave');
+        if (cftpmInst) setActiveInstitution(cftpmInst);
+        setActiveRole('SECRETARIA');
+        await proceedAfterAuth({
+          uid: 'usr-egas-sec-001',
+          email: 'centromoz8@gmail.com',
+          name: 'Egas Paulo',
+          isSuperAdmin: false,
+          authorizedRoles: ['SECRETARIA'],
+          institutionId: 'inst-1',
+          branchId: 'branch-1-maputo'
+        });
+        addNotification({
+          title: 'Sessão da Secretaria Iniciada',
+          message: 'Bem-vindo, Egas Paulo! Secretaria Académica CFTPM Moztechwave ativada.',
+          type: 'success'
+        });
+        setLoading(false);
+        onClose();
+        navigate('secretaria');
+        return;
       }
       
       // 2. VERIFICAÇÃO DO CÓDIGO MESTRE DA PLATAFORMA
