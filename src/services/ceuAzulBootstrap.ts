@@ -38,7 +38,7 @@ export async function bootstrapCeuAzul(currentUid?: string): Promise<boolean> {
         city: "Nacala-Porto",
         province: "Nampula",
         address: "Nacala-Porto, Nampula, Moçambique",
-        email: "moztechwavenacala8@gmail.com",
+        email: "jafimpaulo8@gmail.com",
         telefone1: "853 181 189",
         telefone2: "864 826 647",
         phone: "853 181 189",
@@ -84,9 +84,9 @@ export async function bootstrapCeuAzul(currentUid?: string): Promise<boolean> {
 
     // 3. CEO PROFILE: /users/usr-alfredo-ceo-001
     try {
-      await setDoc(doc(db, 'users', 'usr-alfredo-ceo-001'), {
-        name: "Alfredo Andrade",
-        email: "andradaalfred02308@gmail.com",
+      await setDoc(doc(db, 'users', 'usr-CFTP-ceo-001'), {
+        name: "CFTP",
+        email: "moztechwavenacala8@gmail.com",
         role: "CEO",
         roles: ["CEO"],
         institutionId: CEU_AZUL_INSTITUTION_ID,
@@ -147,8 +147,8 @@ export async function bootstrapCeuAzul(currentUid?: string): Promise<boolean> {
           codigoAcesso: (std as any).codigoAcesso,
           codigo: (std as any).codigoAcesso,
           courseName: "Educação Pré-Escolar / Infantil",
-          classGroupName: "Turma Infantil Céu Azul",
-          turma: "Turma Infantil Céu Azul",
+          classGroupName: "CEU AZUL-1",
+          turma: "CEU AZUL-1",
           updatedAt: serverTimestamp()
         }, { merge: true });
       } catch (e) {
