@@ -122,14 +122,14 @@ export class AuthService {
             } catch (e) {
               console.warn('Director profile bootstrap warning:', e);
             }
-          } else if (email === 'andradaalfred02308@gmail.com') {
+          } else if (email === 'moztechwavenacala8@gmail.com') {
             try {
               const ceoProfile = {
                 id: uid,
                 uid: uid,
-                name: 'Alfredo Andrade',
-                displayName: 'Alfredo Andrade (CEO)',
-                email: 'andradaalfred02308@gmail.com',
+                name: 'CFTP',
+                displayName: 'CFTPM (CEO)',
+                email: 'moztechwavenacala8@gmail.com',
                 role: 'CEO' as UserRole,
                 roles: ['CEO' as UserRole],
                 institutionId: 'ceu-azul-nacala',
