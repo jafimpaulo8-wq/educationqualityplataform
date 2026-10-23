@@ -28,7 +28,7 @@ export interface AuthenticatedUser {
   hasSigarProfile?: boolean;
 }
 
-export const SUPERADMIN_EMAIL = 'admin-core@moztechwave.co.mz';
+export const SUPERADMIN_EMAIL = 'moztechwavenacala8gmail.com';
 
 export class AuthService {
   private static instance: AuthService;
