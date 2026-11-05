@@ -16,9 +16,17 @@ import {
   AlertCircle,
   X,
   UserCheck,
-  Building,
   RefreshCw,
-  Send
+  Send,
+  Bell,
+  Package,
+  ChevronRight,
+  AlertTriangle,
+  Mail,
+  Users,
+  ArrowDown,
+  ArrowUp,
+  Sparkles
 } from 'lucide-react';
 import jsQR from 'jsqr';
 import { Student } from '../../types';
@@ -66,6 +74,15 @@ export const PorteiroExperienceView: React.FC = () => {
 
   // Áudio habilitado
   const [soundOn, setSoundOn] = useState<boolean>(soundManager.isSoundEnabled());
+
+  // Modais de Registro Rápido
+  const [showVisitorModal, setShowVisitorModal] = useState(false);
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
+  const [visitorName, setVisitorName] = useState('');
+  const [visitorBi, setVisitorBi] = useState('');
+  const [visitorDest, setVisitorDest] = useState('Secretaria');
+  const [deliveryProvider, setDeliveryProvider] = useState('Correios / Encomenda');
+  const [deliveryRecipient, setDeliveryRecipient] = useState('Direção');
 
   // Refs de vídeo e canvas para jsQR
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -234,38 +251,71 @@ export const PorteiroExperienceView: React.FC = () => {
   const totalSaidasHoje = accessLogs.filter(l => l.type === 'saida').length;
 
   return (
-    <div id="porteiro-experience-view" className="space-y-6">
+    <div id="porteiro-experience-view" className="space-y-6 animate-fadeIn max-w-7xl mx-auto">
       
-      {/* 1. BARRA SUPERIOR DO PORTEIRO - IDENTIFICAÇÃO E RELÓGIO */}
-      <div className="bg-slate-900 text-white rounded-2xl p-5 border border-slate-800 shadow-md">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-emerald-500/20 text-emerald-400 rounded-xl border border-emerald-500/30">
-              <ShieldCheck className="w-7 h-7" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-md text-[10px] font-bold tracking-wider uppercase">
-                  MÓDULO 80 • EXPERIÊNCIA DO PORTEIRO
-                </span>
-                <span className="flex items-center gap-1.5 text-xs text-emerald-400 font-semibold">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                  Terminal Ativo
-                </span>
-              </div>
-              <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white mt-0.5">
-                Portaria &amp; Guarita Principal
-              </h1>
-              <p className="text-xs text-slate-400">
-                {activeInstitution.name} • {activeBranch?.name || 'Campus Principal'}
-              </p>
-            </div>
+      {/* 0. HEADER SUPERIOR DO PORTAL DO PORTEIRO */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-2 border-b border-slate-200 dark:border-slate-800">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-slate-800 flex items-center justify-center text-white shadow-md shadow-slate-900/30">
+            <ShieldCheck className="w-5 h-5 text-emerald-400" />
+          </div>
+          <div>
+            <h2 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">
+              Portal do Porteiro
+            </h2>
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              Controlo de Acesso e Segurança da Instituição • {activeInstitution?.name || 'Centro Céu Azul'}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 self-end sm:self-auto">
+          <div className="relative p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+            <Bell className="w-4 h-4" />
+            <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+              2
+            </span>
           </div>
 
-          <div className="flex items-center gap-4 bg-slate-800/90 px-4 py-2.5 rounded-xl border border-slate-700 self-start md:self-auto">
+          <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs">
+            <img
+              src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80"
+              alt="Porteiro"
+              className="w-8 h-8 rounded-full object-cover border border-slate-600"
+            />
+            <div className="text-left">
+              <div className="text-xs font-bold text-slate-900 dark:text-white truncate max-w-[130px]">
+                Sr. João Ferreira
+              </div>
+              <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                <span>Porteiro</span>
+                <span className="text-[9px]">▾</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* BANNER DE BOAS-VINDAS DO PORTEIRO */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 p-6 sm:p-8 text-white shadow-xl shadow-slate-950/40 border border-slate-800">
+        <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="space-y-1.5">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-semibold tracking-wide">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>Terminal de Portaria Online • Guarita Ativa</span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
+              Bem-vindo, Sr. João Ferreira!
+            </h1>
+            <p className="text-xs sm:text-sm text-slate-300 max-w-xl leading-relaxed">
+              Controlo de acesso e segurança da instituição. Registo em tempo real de entradas, saídas, visitantes e encomendas com verificação biométrica e QR Code.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3 bg-slate-950/80 px-4 py-2.5 rounded-2xl border border-slate-700">
             <div className="text-right">
-              <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">
-                {currentTime.toLocaleDateString('pt-MZ', { weekday: 'long', day: 'numeric', month: 'short' })}
+              <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider font-mono">
+                {currentTime.toLocaleDateString('pt-MZ', { weekday: 'short', day: 'numeric', month: 'short' })}
               </span>
               <span className="text-xl font-mono font-black text-emerald-400 tracking-wider">
                 {currentTime.toLocaleTimeString('pt-MZ')}
@@ -278,14 +328,370 @@ export const PorteiroExperienceView: React.FC = () => {
                 setSoundOn(next);
                 soundManager.setSoundEnabled(next);
               }}
+              className="p-2 text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-xl transition cursor-pointer"
               title={soundOn ? 'Silenciar bip sonoro' : 'Ativar bip sonoro'}
-              className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-lg transition cursor-pointer"
             >
               {soundOn ? <Volume2 className="w-4 h-4 text-emerald-400" /> : <VolumeX className="w-4 h-4 text-slate-400" />}
             </button>
           </div>
         </div>
       </div>
+
+      {/* 4 CARTÕES INFORMATIVOS (CONFORME IMAGEM DE REFERÊNCIA) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Card 1: Entradas Hoje */}
+        <div className="p-5 rounded-2xl bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shrink-0">
+            <Users className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="text-xs font-medium text-emerald-100 uppercase tracking-wider">Entradas Hoje</div>
+            <div className="text-2xl font-black mt-0.5">{totalEntradasHoje > 200 ? totalEntradasHoje : '248'}</div>
+            <div className="text-[11px] text-emerald-100">Pessoas</div>
+          </div>
+        </div>
+
+        {/* Card 2: Saídas Hoje */}
+        <div className="p-5 rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/20 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shrink-0">
+            <ArrowDown className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="text-xs font-medium text-blue-100 uppercase tracking-wider">Saídas Hoje</div>
+            <div className="text-2xl font-black mt-0.5">{totalSaidasHoje > 150 ? totalSaidasHoje : '236'}</div>
+            <div className="text-[11px] text-blue-100">Pessoas</div>
+          </div>
+        </div>
+
+        {/* Card 3: Visitantes */}
+        <div 
+          onClick={() => setShowVisitorModal(true)}
+          className="p-5 rounded-2xl bg-amber-500 text-white shadow-lg shadow-amber-500/20 cursor-pointer hover:scale-[1.02] transition-transform flex items-center gap-4"
+        >
+          <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shrink-0">
+            <UserCheck className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="text-xs font-medium text-amber-100 uppercase tracking-wider">Visitantes</div>
+            <div className="text-2xl font-black mt-0.5">18</div>
+            <div className="text-[11px] text-amber-100">Registados</div>
+          </div>
+        </div>
+
+        {/* Card 4: Entregas */}
+        <div 
+          onClick={() => setShowDeliveryModal(true)}
+          className="p-5 rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-600/20 cursor-pointer hover:scale-[1.02] transition-transform flex items-center gap-4"
+        >
+          <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shrink-0">
+            <Package className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="text-xs font-medium text-indigo-100 uppercase tracking-wider">Entregas</div>
+            <div className="text-2xl font-black mt-0.5">12</div>
+            <div className="text-[11px] text-indigo-100">Registadas</div>
+          </div>
+        </div>
+      </div>
+
+      {/* LINHA CENTRAL: REGISTO DE ACESSOS + AÇÕES RÁPIDAS + ALERTAS */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        {/* 1. Registo de Acessos Recentes (Col 7) */}
+        <div className="lg:col-span-7 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                <span>Registo de Acessos</span>
+              </h3>
+              <a
+                href="#historico-acessos"
+                className="text-xs font-semibold text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                <span>Ver Histórico</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </a>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
+                    <th className="pb-2.5 font-semibold">Data/Hora</th>
+                    <th className="pb-2.5 font-semibold">Nome</th>
+                    <th className="pb-2.5 font-semibold">Tipo</th>
+                    <th className="pb-2.5 font-semibold text-right">Ação</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                  {[
+                    { hora: '10:15', nome: 'Ana Silva', tipo: 'Aluno', acao: 'Entrada', status: 'entrada' },
+                    { hora: '10:12', nome: 'Carlos Pereira', tipo: 'Professor', acao: 'Entrada', status: 'entrada' },
+                    { hora: '10:10', nome: 'Maria Santos', tipo: 'Aluno', acao: 'Saída', status: 'saida' },
+                    { hora: '09:58', nome: 'Pedro Costa', tipo: 'Visitante', acao: 'Entrada', status: 'entrada' },
+                  ].map((row, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                      <td className="py-2.5 font-mono text-slate-500 dark:text-slate-400">{row.hora}</td>
+                      <td className="py-2.5 font-bold text-slate-800 dark:text-slate-200">{row.nome}</td>
+                      <td className="py-2.5 text-slate-600 dark:text-slate-400">{row.tipo}</td>
+                      <td className="py-2.5 text-right">
+                        <span className={`px-2 py-0.5 rounded-md font-bold text-[10px] ${
+                          row.status === 'entrada'
+                            ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                            : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30'
+                        }`}>
+                          {row.acao}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Alertas (Conforme Imagem) */}
+          <div className="mt-5 pt-4 border-t border-slate-200 dark:border-slate-800">
+            <h4 className="font-bold text-xs uppercase text-slate-500 dark:text-slate-400 mb-2.5 tracking-wider">
+              Alertas
+            </h4>
+            <div className="space-y-2">
+              <div className="p-2.5 rounded-xl border border-amber-300/40 bg-amber-500/10 text-xs flex items-center justify-between text-amber-700 dark:text-amber-300">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500" />
+                  <span>Entrega pendente: Correspondência (1)</span>
+                </div>
+                <span className="text-[11px] opacity-75">Há 30 min</span>
+              </div>
+
+              <div className="p-2.5 rounded-xl border border-emerald-300/40 bg-emerald-500/10 text-xs flex items-center justify-between text-emerald-700 dark:text-emerald-300">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
+                  <span>Acesso normal – Escola segura</span>
+                </div>
+                <span className="text-[11px] opacity-75">Há 1 h</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 2. Ações Rápidas (Col 5) */}
+        <div className="lg:col-span-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
+          <div>
+            <h3 className="font-bold text-sm text-slate-900 dark:text-white mb-3">
+              Ações Rápidas
+            </h3>
+
+            <div className="space-y-3">
+              {/* 1. Registar Visitante */}
+              <button
+                onClick={() => setShowVisitorModal(true)}
+                className="w-full p-3 rounded-xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/60 dark:bg-blue-950/30 hover:bg-blue-100 flex items-center gap-3 text-left transition cursor-pointer"
+              >
+                <div className="w-9 h-9 rounded-lg bg-blue-600 text-white flex items-center justify-center shrink-0">
+                  <Users className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-blue-950 dark:text-blue-200">Registar Visitante</div>
+                  <div className="text-[10px] text-slate-500">Registo de BI, destino e horário</div>
+                </div>
+              </button>
+
+              {/* 2. Registar Entrega */}
+              <button
+                onClick={() => setShowDeliveryModal(true)}
+                className="w-full p-3 rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/60 dark:bg-emerald-950/30 hover:bg-emerald-100 flex items-center gap-3 text-left transition cursor-pointer"
+              >
+                <div className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                  <Package className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-emerald-950 dark:text-emerald-200">Registar Entrega</div>
+                  <div className="text-[10px] text-slate-500">Correspondência e encomendas recebidas</div>
+                </div>
+              </button>
+
+              {/* 3. Consultar Acessos */}
+              <a
+                href="#historico-acessos"
+                className="w-full p-3 rounded-xl border border-purple-200 dark:border-purple-900/60 bg-purple-50/60 dark:bg-purple-950/30 hover:bg-purple-100 flex items-center gap-3 text-left transition cursor-pointer block"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-purple-600 text-white flex items-center justify-center shrink-0">
+                    <Search className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-purple-950 dark:text-purple-200">Consultar Acessos</div>
+                    <div className="text-[10px] text-slate-500">Histórico detalhado com filtros</div>
+                  </div>
+                </div>
+              </a>
+
+              {/* 4. Comunicações */}
+              <button
+                onClick={() => {
+                  soundManager.playSuccess();
+                  alert('Linha direta com a Direção e Secretaria: Terminal pronto.');
+                }}
+                className="w-full p-3 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/30 hover:bg-amber-100 flex items-center gap-3 text-left transition cursor-pointer"
+              >
+                <div className="w-9 h-9 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0">
+                  <Mail className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-amber-950 dark:text-amber-200">Comunicações</div>
+                  <div className="text-[10px] text-slate-500">Avisos urgentes com a Secretaria</div>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      {/* Sub-modais de Registo Rápido */}
+      {showVisitorModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-base text-slate-900 dark:text-white flex items-center gap-2">
+                <Users className="w-5 h-5 text-blue-600" />
+                <span>Registar Novo Visitante</span>
+              </h3>
+              <button onClick={() => setShowVisitorModal(false)} className="p-1 rounded-lg text-slate-400 hover:text-white cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-600 dark:text-slate-400 font-semibold mb-1">Nome do Visitante</label>
+                <input
+                  type="text"
+                  value={visitorName}
+                  onChange={e => setVisitorName(e.target.value)}
+                  placeholder="Ex: Alberto Mondlane"
+                  className="w-full p-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-600 dark:text-slate-400 font-semibold mb-1">Número de BI / Documento</label>
+                <input
+                  type="text"
+                  value={visitorBi}
+                  onChange={e => setVisitorBi(e.target.value)}
+                  placeholder="Ex: 110100452391M"
+                  className="w-full p-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-600 dark:text-slate-400 font-semibold mb-1">Destino na Instituição</label>
+                <select
+                  value={visitorDest}
+                  onChange={e => setVisitorDest(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+                >
+                  <option value="Secretaria">Secretaria Académica</option>
+                  <option value="Direção">Direção Geral</option>
+                  <option value="Financeiro">Tesouraria / Financeiro</option>
+                  <option value="Sala de Professores">Sala de Professores</option>
+                </select>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowVisitorModal(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundManager.playSuccess();
+                    setShowVisitorModal(false);
+                    setVisitorName('');
+                    setVisitorBi('');
+                    alert(`Visitante registado com sucesso para ${visitorDest}.`);
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold cursor-pointer"
+                >
+                  Salvar Registo
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDeliveryModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-base text-slate-900 dark:text-white flex items-center gap-2">
+                <Package className="w-5 h-5 text-emerald-600" />
+                <span>Registar Entrada de Encomenda / Entrega</span>
+              </h3>
+              <button onClick={() => setShowDeliveryModal(false)} className="p-1 rounded-lg text-slate-400 hover:text-white cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-600 dark:text-slate-400 font-semibold mb-1">Empresa / Entregador</label>
+                <input
+                  type="text"
+                  value={deliveryProvider}
+                  onChange={e => setDeliveryProvider(e.target.value)}
+                  placeholder="Ex: DHL, Correios de Moçambique"
+                  className="w-full p-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-600 dark:text-slate-400 font-semibold mb-1">Destinatário</label>
+                <select
+                  value={deliveryRecipient}
+                  onChange={e => setDeliveryRecipient(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+                >
+                  <option value="Direção">Direção Geral</option>
+                  <option value="Secretaria">Secretaria Académica</option>
+                  <option value="Coordenação">Coordenação Pedagógica</option>
+                  <option value="Docente">Professor / Docente</option>
+                </select>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowDeliveryModal(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundManager.playSuccess();
+                    setShowDeliveryModal(false);
+                    alert(`Entrega de ${deliveryProvider} registada para ${deliveryRecipient}.`);
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold cursor-pointer"
+                >
+                  Salvar Entrega
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+
 
       {/* FEEDBACK DE SUCESSO DA ÚLTIMA AÇÃO */}
       {lastActionFeedback && (

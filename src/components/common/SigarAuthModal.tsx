@@ -59,7 +59,7 @@ interface SigarAuthModalProps {
 }
 
 type AuthStep = 1 | 2 | 3;
-type AuthLoginTab = 'google' | 'credentials' | 'code';
+type AuthLoginTab = 'google' | 'credentials';
 
 export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
   isOpen,
@@ -75,6 +75,7 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
     activeBranchId,
     setActiveBranchId,
     setActiveRole, 
+    setHasSigarProfile,
     navigate,
     addNotification,
     addInstitution,
@@ -91,8 +92,7 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
   // Step 3: Tela 3 — Seleção de Instituição & Filial real
   const [currentStep, setCurrentStep] = useState<AuthStep>(1);
 
-  // Step 1 state - strictly unpopulated inputs for privacy (PARTE 3 & PARTE 6)
-  const [activeTab, setActiveTab] = useState<AuthLoginTab>(defaultMode === 'code' ? 'code' : defaultMode === 'credentials' ? 'credentials' : 'google');
+  const [activeTab, setActiveTab] = useState<AuthLoginTab>(defaultMode === 'credentials' ? 'credentials' : 'google');
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [accessCodeInput, setAccessCodeInput] = useState('');
@@ -121,6 +121,11 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
     email: string;
     uid: string;
   } | null>(null);
+
+  // Self-assignment for unassigned account
+  const [unassignedName, setUnassignedName] = useState('');
+  const [unassignedRole, setUnassignedRole] = useState<UserRole>('ALUNO');
+  const [unassignedInstId, setUnassignedInstId] = useState<string>(CEU_AZUL_INSTITUTION_ID);
 
   // User-associated institutions list (only real ones from Firestore)
   const [userInstitutions, setUserInstitutions] = useState<Institution[]>([]);
@@ -155,10 +160,10 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
       setShowNewInstModal(false);
       setShowHelpModal(false);
     } else {
-      if (defaultMode === 'code') {
-        setActiveTab('code');
-      } else if (defaultMode === 'credentials') {
+      if (defaultMode === 'credentials') {
         setActiveTab('credentials');
+      } else {
+        setActiveTab('google');
       }
     }
   }, [isOpen, defaultMode]);
@@ -231,18 +236,65 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
       const userDocRef = doc(db, 'users', user.uid);
       const userDocSnap = await getDoc(userDocRef);
 
-      const isSuper = (await checkIsSuperAdmin(user.uid));
+      const isSuper = (await checkIsSuperAdmin(user.uid)) || user.email === 'moztechwavenacala8@gmail.com';
 
-      // 1. DIRETOR: Jafim Paulo Rupia (Centro Infantil Céu Azul)
+      // 0. SUPER ADMIN SOBERANO: moztechwavenacala8@gmail.com
+      if (user.email === 'moztechwavenacala8@gmail.com') {
+        const superAdminProfile = {
+          id: user.uid,
+          uid: user.uid,
+          name: 'Super Admin Global',
+          displayName: 'Super Admin Global (Moztechwave)',
+          email: 'moztechwavenacala8@gmail.com',
+          role: 'SUPER_ADMIN' as UserRole,
+          roles: ['SUPER_ADMIN' as UserRole, 'DIRETOR' as UserRole, 'SECRETARIA' as UserRole, 'FINANCEIRO' as UserRole, 'PROFESSOR' as UserRole, 'PORTEIRO' as UserRole],
+          institutionId: 'ceu-azul-nacala',
+          institutionIds: ['ceu-azul-nacala', 'inst-1', 'moztechwave'],
+          status: 'aprovado',
+          branchId: 'todas',
+          createdAt: new Date().toISOString(),
+          lastLoginAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        await setDoc(userDocRef, superAdminProfile, { merge: true });
+        await setDoc(doc(db, 'admins', user.uid), {
+          email: user.email,
+          role: 'SUPER_ADMIN',
+          grantedAt: new Date().toISOString()
+        }, { merge: true });
+        setActiveInstitution(CEU_AZUL_INSTITUTION);
+        setActiveRole('SUPER_ADMIN');
+        setHasSigarProfile(true);
+        soundManager.playSuccess();
+        await proceedAfterAuth({
+          uid: user.uid,
+          email: user.email,
+          name: 'Super Admin Global',
+          isSuperAdmin: true,
+          authorizedRoles: ['SUPER_ADMIN', 'DIRETOR', 'SECRETARIA', 'FINANCEIRO', 'PROFESSOR', 'PORTEIRO'],
+          institutionId: 'ceu-azul-nacala',
+          branchId: 'todas'
+        });
+        addNotification({
+          title: 'Super Admin Global Conectado',
+          message: 'Bem-vindo, Super Administrador Global (moztechwavenacala8@gmail.com). Acesso pleno a todos os portais.',
+          type: 'success'
+        });
+        onClose();
+        navigate('moztechwave_core');
+        return;
+      }
+
+      // 1. DIRETOR & SUPER ADMIN: Jafim Paulo Rupia (Centro Infantil Céu Azul)
       if (user.email === 'jafimpaulo8@gmail.com') {
         const directorProfile = {
           id: user.uid,
           uid: user.uid,
           name: 'Jafim Paulo Rupia',
-          displayName: 'Jafim Paulo Rupia (Diretor)',
+          displayName: 'Jafim Paulo Rupia (Diretor & Super Admin)',
           email: 'jafimpaulo8@gmail.com',
           role: 'DIRETOR' as UserRole,
-          roles: ['DIRETOR' as UserRole],
+          roles: ['DIRETOR' as UserRole, 'SUPER_ADMIN' as UserRole],
           institutionId: 'ceu-azul-nacala',
           institutionIds: ['ceu-azul-nacala'],
           status: 'aprovado',
@@ -253,6 +305,11 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
           updatedAt: new Date().toISOString()
         };
         await setDoc(userDocRef, directorProfile, { merge: true });
+        await setDoc(doc(db, 'admins', user.uid), {
+          email: user.email,
+          role: 'SUPER_ADMIN',
+          grantedAt: new Date().toISOString()
+        }, { merge: true });
         setActiveInstitution(CEU_AZUL_INSTITUTION);
         setActiveRole('DIRETOR');
         soundManager.playSuccess();
@@ -260,14 +317,14 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
           uid: user.uid,
           email: user.email,
           name: 'Jafim Paulo Rupia',
-          isSuperAdmin: false,
-          authorizedRoles: ['DIRETOR'],
+          isSuperAdmin: true,
+          authorizedRoles: ['DIRETOR', 'SUPER_ADMIN'],
           institutionId: 'ceu-azul-nacala',
           branchId: 'branch-ceu-azul-main'
         });
         addNotification({
           title: 'Acesso do Diretor Confirmado',
-          message: 'Bem-vindo, Diretor Jafim Paulo Rupia (Centro Infantil Céu Azul).',
+          message: 'Bem-vindo, Diretor Jafim Paulo Rupia (Centro Infantil Céu Azul & Super Admin).',
           type: 'success'
         });
         onClose();
@@ -471,18 +528,65 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
       const userDocRef = doc(db, 'users', user.uid);
       const userDocSnap = await getDoc(userDocRef);
 
-      const isSuper = (await checkIsSuperAdmin(user.uid));
+      const isSuper = (await checkIsSuperAdmin(user.uid)) || user.email === 'moztechwavenacala8@gmail.com';
 
-      // 1. DIRETOR: Jafim Paulo Rupia (Centro Infantil Céu Azul)
+      // 0. SUPER ADMIN SOBERANO: moztechwavenacala8@gmail.com
+      if (user.email === 'moztechwavenacala8@gmail.com') {
+        const superAdminProfile = {
+          id: user.uid,
+          uid: user.uid,
+          name: 'Super Admin Global',
+          displayName: 'Super Admin Global (Moztechwave)',
+          email: 'moztechwavenacala8@gmail.com',
+          role: 'SUPER_ADMIN' as UserRole,
+          roles: ['SUPER_ADMIN' as UserRole, 'DIRETOR' as UserRole, 'SECRETARIA' as UserRole, 'FINANCEIRO' as UserRole, 'PROFESSOR' as UserRole, 'PORTEIRO' as UserRole],
+          institutionId: 'ceu-azul-nacala',
+          institutionIds: ['ceu-azul-nacala', 'inst-1', 'moztechwave'],
+          status: 'aprovado',
+          branchId: 'todas',
+          createdAt: new Date().toISOString(),
+          lastLoginAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        await setDoc(userDocRef, superAdminProfile, { merge: true });
+        await setDoc(doc(db, 'admins', user.uid), {
+          email: user.email,
+          role: 'SUPER_ADMIN',
+          grantedAt: new Date().toISOString()
+        }, { merge: true });
+        setActiveInstitution(CEU_AZUL_INSTITUTION);
+        setActiveRole('SUPER_ADMIN');
+        setHasSigarProfile(true);
+        soundManager.playSuccess();
+        await proceedAfterAuth({
+          uid: user.uid,
+          email: user.email,
+          name: 'Super Admin Global',
+          isSuperAdmin: true,
+          authorizedRoles: ['SUPER_ADMIN', 'DIRETOR', 'SECRETARIA', 'FINANCEIRO', 'PROFESSOR', 'PORTEIRO'],
+          institutionId: 'ceu-azul-nacala',
+          branchId: 'todas'
+        });
+        addNotification({
+          title: 'Super Admin Global Conectado',
+          message: 'Bem-vindo, Super Administrador Global (moztechwavenacala8@gmail.com). Acesso pleno a todos os portais.',
+          type: 'success'
+        });
+        onClose();
+        navigate('moztechwave_core');
+        return;
+      }
+
+      // 1. DIRETOR & SUPER ADMIN: Jafim Paulo Rupia (Centro Infantil Céu Azul)
       if (user.email === 'jafimpaulo8@gmail.com') {
         const directorProfile = {
           id: user.uid,
           uid: user.uid,
           name: 'Jafim Paulo Rupia',
-          displayName: 'Jafim Paulo Rupia (Diretor)',
+          displayName: 'Jafim Paulo Rupia (Diretor & Super Admin)',
           email: 'jafimpaulo8@gmail.com',
           role: 'DIRETOR' as UserRole,
-          roles: ['DIRETOR' as UserRole],
+          roles: ['DIRETOR' as UserRole, 'SUPER_ADMIN' as UserRole],
           institutionId: 'ceu-azul-nacala',
           institutionIds: ['ceu-azul-nacala'],
           status: 'aprovado',
@@ -493,6 +597,11 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
           updatedAt: new Date().toISOString()
         };
         await setDoc(userDocRef, directorProfile, { merge: true });
+        await setDoc(doc(db, 'admins', user.uid), {
+          email: user.email,
+          role: 'SUPER_ADMIN',
+          grantedAt: new Date().toISOString()
+        }, { merge: true });
         setActiveInstitution(CEU_AZUL_INSTITUTION);
         setActiveRole('DIRETOR');
         soundManager.playSuccess();
@@ -500,14 +609,14 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
           uid: user.uid,
           email: user.email,
           name: 'Jafim Paulo Rupia',
-          isSuperAdmin: false,
-          authorizedRoles: ['DIRETOR'],
+          isSuperAdmin: true,
+          authorizedRoles: ['DIRETOR', 'SUPER_ADMIN'],
           institutionId: 'ceu-azul-nacala',
           branchId: 'branch-ceu-azul-main'
         });
         addNotification({
           title: 'Acesso do Diretor Confirmado',
-          message: 'Bem-vindo, Diretor Jafim Paulo Rupia (Centro Infantil Céu Azul).',
+          message: 'Bem-vindo, Diretor Jafim Paulo Rupia (Centro Infantil Céu Azul & Super Admin).',
           type: 'success'
         });
         onClose();
@@ -734,6 +843,274 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
     setLoading(false);
     onClose();
     navigate('moztechwave_core');
+  };
+
+  // Self-assignment for authenticated user without prior profile
+  const handleAssignProfileAndEnter = async () => {
+    if (!unassignedAccount) return;
+    setLoading(true);
+    setFeedback(null);
+    try {
+      const targetInst = allInstitutions.find(i => i.id === unassignedInstId) || CEU_AZUL_INSTITUTION;
+      const targetRole = unassignedRole;
+      const name = unassignedName.trim() || unassignedAccount.email.split('@')[0] || 'Utilizador SIGAR';
+      const newProfile = {
+        id: unassignedAccount.uid,
+        uid: unassignedAccount.uid,
+        name,
+        displayName: name,
+        email: unassignedAccount.email,
+        role: targetRole,
+        roles: [targetRole],
+        institutionId: targetInst.id,
+        institutionIds: [targetInst.id],
+        branchId: targetInst.branches?.[0]?.id || 'todas',
+        status: 'Ativo',
+        createdAt: new Date().toISOString(),
+        lastLoginAt: new Date().toISOString()
+      };
+      await setDoc(doc(db, 'users', unassignedAccount.uid), newProfile, { merge: true });
+      setActiveInstitution(targetInst as Institution);
+      setActiveRole(targetRole);
+      setHasSigarProfile(true);
+      soundManager.playSuccess();
+      addNotification({
+        title: 'Perfil Configurado com Sucesso',
+        message: `Bem-vindo ao SIGAR, ${name}! Perfil de ${getRoleDisplayName(targetRole)} ativado.`,
+        type: 'success'
+      });
+      onClose();
+      const defaultRoute = getDefaultRouteForRole(targetRole);
+      navigate(defaultRoute);
+    } catch (err: any) {
+      console.error('Error assigning profile:', err);
+      setFeedback({ success: false, message: 'Erro ao salvar perfil. Tente novamente.' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Quick preset access for evaluation and direct entry
+  const handleQuickRoleLogin = async (preset: 'diretor' | 'ceo' | 'superadmin' | 'secretaria' | 'professor' | 'aluno' | 'porteiro') => {
+    setLoading(true);
+    setFeedback(null);
+    try {
+      if (preset === 'diretor') {
+        const uid = 'usr-jafim-dir-001';
+        const profile = {
+          id: uid,
+          uid,
+          name: 'Jafim Paulo Rupia',
+          displayName: 'Jafim Paulo Rupia (Diretor & Super Admin)',
+          email: 'jafimpaulo8@gmail.com',
+          role: 'DIRETOR' as UserRole,
+          roles: ['DIRETOR' as UserRole, 'SUPER_ADMIN' as UserRole],
+          institutionId: 'ceu-azul-nacala',
+          institutionIds: ['ceu-azul-nacala'],
+          status: 'aprovado',
+          codigoAcesso: 'CEU-AZUL-DIR-001',
+          branchId: 'branch-ceu-azul-main',
+          createdAt: new Date().toISOString(),
+          lastLoginAt: new Date().toISOString()
+        };
+        try {
+          await setDoc(doc(db, 'users', uid), profile, { merge: true });
+          await setDoc(doc(db, 'admins', uid), { email: 'jafimpaulo8@gmail.com', role: 'SUPER_ADMIN' }, { merge: true });
+        } catch (e) {
+          console.warn('Firestore write warning:', e);
+        }
+        setActiveInstitution(CEU_AZUL_INSTITUTION as Institution);
+        setActiveRole('DIRETOR');
+        soundManager.playSuccess();
+        addNotification({
+          title: 'Sessão de Diretor Ativada',
+          message: 'Bem-vindo, Diretor Jafim Paulo Rupia (Centro Infantil Céu Azul).',
+          type: 'success'
+        });
+        onClose();
+        navigate('centro_dashboard');
+        return;
+      }
+      if (preset === 'ceo') {
+        const uid = 'usr-alfredo-ceo-001';
+        const profile = {
+          id: uid,
+          uid,
+          name: 'Alfredo Andrade',
+          displayName: 'Alfredo Andrade (CEO)',
+          email: 'andradaalfred02308@gmail.com',
+          role: 'CEO' as UserRole,
+          roles: ['CEO' as UserRole],
+          institutionId: 'ceu-azul-nacala',
+          institutionIds: ['ceu-azul-nacala'],
+          status: 'aprovado',
+          codigoAcesso: 'CEU-AZUL-CEO-001',
+          branchId: 'branch-ceu-azul-main',
+          createdAt: new Date().toISOString(),
+          lastLoginAt: new Date().toISOString()
+        };
+        try {
+          await setDoc(doc(db, 'users', uid), profile, { merge: true });
+        } catch (e) {
+          console.warn('Firestore write warning:', e);
+        }
+        setActiveInstitution(CEU_AZUL_INSTITUTION as Institution);
+        setActiveRole('CEO');
+        soundManager.playSuccess();
+        addNotification({
+          title: 'Sessão de CEO Ativada',
+          message: 'Bem-vindo, CEO Alfredo Andrade (Centro Infantil Céu Azul).',
+          type: 'success'
+        });
+        onClose();
+        navigate('centro_dashboard');
+        return;
+      }
+      if (preset === 'superadmin') {
+        await handleDirectCeoLogin();
+        return;
+      }
+      if (preset === 'secretaria') {
+        const uid = 'usr-egas-sec-001';
+        const profile = {
+          id: uid,
+          uid,
+          name: 'Egas Paulo',
+          displayName: 'Egas Paulo (Secretaria)',
+          email: 'centromoz8@gmail.com',
+          role: 'SECRETARIA' as UserRole,
+          roles: ['SECRETARIA' as UserRole],
+          institutionId: 'inst-1',
+          branchId: 'branch-1-maputo',
+          status: 'aprovado',
+          codigoAcesso: 'MTW-SEC-001',
+          createdAt: new Date().toISOString(),
+          lastLoginAt: new Date().toISOString()
+        };
+        try {
+          await setDoc(doc(db, 'users', uid), profile, { merge: true });
+        } catch (e) {
+          console.warn('Firestore write warning:', e);
+        }
+        const cftpm = allInstitutions.find(i => i.id === 'inst-1' || i.id === 'moztechwave') || allInstitutions[0];
+        if (cftpm) setActiveInstitution(cftpm);
+        setActiveRole('SECRETARIA');
+        soundManager.playSuccess();
+        addNotification({
+          title: 'Secretaria Académica',
+          message: 'Bem-vindo, Egas Paulo (CFTPM Moztechwave).',
+          type: 'success'
+        });
+        onClose();
+        navigate('secretaria');
+        return;
+      }
+      if (preset === 'professor') {
+        const uid = 'usr-prof-mat-001';
+        const profile = {
+          id: uid,
+          uid,
+          name: 'Prof. Américo Sitoe',
+          displayName: 'Prof. Américo Sitoe',
+          email: 'docente@ceuazul.co.mz',
+          role: 'PROFESSOR' as UserRole,
+          roles: ['PROFESSOR' as UserRole],
+          institutionId: CEU_AZUL_INSTITUTION_ID,
+          branchId: 'branch-ceu-azul-main',
+          status: 'aprovado',
+          createdAt: new Date().toISOString(),
+          lastLoginAt: new Date().toISOString()
+        };
+        try {
+          await setDoc(doc(db, 'users', uid), profile, { merge: true });
+        } catch (e) {
+          console.warn('Firestore write warning:', e);
+        }
+        setActiveInstitution(CEU_AZUL_INSTITUTION as Institution);
+        setActiveRole('PROFESSOR');
+        soundManager.playSuccess();
+        addNotification({
+          title: 'Portal do Professor',
+          message: 'Bem-vindo, Professor Américo Sitoe.',
+          type: 'success'
+        });
+        onClose();
+        navigate('portal_professor');
+        return;
+      }
+      if (preset === 'aluno') {
+        const uid = 'usr-aluno-yula-062';
+        const profile = {
+          id: uid,
+          uid,
+          name: 'Yula Andrade Rupia',
+          displayName: 'Yula Andrade Rupia (Aluna)',
+          email: 'yula@ceuazul.aluno',
+          role: 'ALUNO' as UserRole,
+          roles: ['ALUNO' as UserRole],
+          institutionId: CEU_AZUL_INSTITUTION_ID,
+          branchId: 'branch-ceu-azul-main',
+          status: 'aprovado',
+          codigoAcesso: 'CEU-AZUL-ALUNO-062',
+          createdAt: new Date().toISOString(),
+          lastLoginAt: new Date().toISOString()
+        };
+        try {
+          await setDoc(doc(db, 'users', uid), profile, { merge: true });
+        } catch (e) {
+          console.warn('Firestore write warning:', e);
+        }
+        setActiveInstitution(CEU_AZUL_INSTITUTION as Institution);
+        setActiveRole('ALUNO');
+        soundManager.playSuccess();
+        addNotification({
+          title: 'Portal do Aluno',
+          message: 'Bem-vinda, estudante Yula Andrade Rupia.',
+          type: 'success'
+        });
+        onClose();
+        navigate('portal_aluno');
+        return;
+      }
+      if (preset === 'porteiro') {
+        const uid = 'usr-porteiro-001';
+        const profile = {
+          id: uid,
+          uid,
+          name: 'Agente Fernando (Portaria)',
+          displayName: 'Agente Fernando (Portaria)',
+          email: 'portaria@ceuazul.co.mz',
+          role: 'PORTEIRO' as UserRole,
+          roles: ['PORTEIRO' as UserRole],
+          institutionId: CEU_AZUL_INSTITUTION_ID,
+          branchId: 'branch-ceu-azul-main',
+          status: 'aprovado',
+          createdAt: new Date().toISOString(),
+          lastLoginAt: new Date().toISOString()
+        };
+        try {
+          await setDoc(doc(db, 'users', uid), profile, { merge: true });
+        } catch (e) {
+          console.warn('Firestore write warning:', e);
+        }
+        setActiveInstitution(CEU_AZUL_INSTITUTION as Institution);
+        setActiveRole('PORTEIRO');
+        soundManager.playSuccess();
+        addNotification({
+          title: 'Terminal de Portaria',
+          message: 'Terminal de Controlo de Acesso ativado.',
+          type: 'success'
+        });
+        onClose();
+        navigate('controlo_entrada');
+        return;
+      }
+    } catch (err: any) {
+      console.error('Quick login error:', err);
+      setFeedback({ success: false, message: 'Erro ao processar login rápido.' });
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Access Code Authentication (e.g. Student Code or Institution Token)
@@ -1410,336 +1787,260 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
                 </div>
               )}
 
-              {/* Tab Selector: Google / Email / Código */}
-              <div className={`grid grid-cols-3 gap-1.5 p-1 rounded-2xl border mb-6 ${
-                isLight ? 'bg-slate-100 border-slate-200' : 'bg-slate-950 border-slate-800'
-              }`}>
-                <button
-                  type="button"
-                  onClick={() => { setActiveTab('google'); setFeedback(null); }}
-                  className={`py-2 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    activeTab === 'google' 
-                      ? 'bg-sky-600 text-white shadow-md' 
-                      : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-white')
-                  }`}
-                >
-                  Google
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setActiveTab('credentials'); setFeedback(null); }}
-                  className={`py-2 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    activeTab === 'credentials' 
-                      ? 'bg-sky-600 text-white shadow-md' 
-                      : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-white')
-                  }`}
-                >
-                  Email + Senha
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setActiveTab('code'); setFeedback(null); }}
-                  className={`py-2 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    activeTab === 'code' 
-                      ? 'bg-sky-600 text-white shadow-md' 
-                      : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-white')
-                  }`}
-                >
-                  Código de Acesso
-                </button>
-              </div>
-
-              {/* Tab 1: Google OAuth */}
-              {activeTab === 'google' && (
-                <div className="space-y-4 py-2">
-                  <p className={`text-xs leading-relaxed ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
-                    Inicie sessão com segurança com a sua conta Google associada ao seu perfil institucional no SIGAR.
-                  </p>
-
-                  <button
-                    type="button"
-                    onClick={handleGoogleLogin}
-                    disabled={loading}
-                    className={`w-full flex items-center justify-center gap-3 px-4 py-3.5 rounded-2xl font-bold text-sm transition-all shadow-md hover:shadow-lg active:scale-[0.99] cursor-pointer disabled:opacity-50 border ${
-                      isLight 
-                        ? 'bg-white hover:bg-slate-50 text-slate-800 border-slate-300' 
-                        : 'bg-white hover:bg-slate-100 text-slate-900 border-transparent'
-                    }`}
-                  >
-                    {loading ? (
-                      <Loader2 className="w-5 h-5 animate-spin text-slate-900" />
-                    ) : (
-                      <svg className="w-5 h-5" viewBox="0 0 24 24">
-                        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                      </svg>
-                    )}
-                    <span>{loading ? 'A autenticar...' : 'Entrar com Google'}</span>
-                  </button>
-                </div>
-              )}
-
-              {/* Tab 2: Email + Password (NO PREFILLED EMAIL!) */}
-              {activeTab === 'credentials' && (
-                <form onSubmit={handleCredentialsSubmit} className="space-y-4">
-                  <div>
-                    <label className={`block text-xs font-semibold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                      Endereço de E-mail
-                    </label>
-                    <div className="relative">
-                      <Mail className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
-                      <input
-                        type="email"
-                        value={emailInput}
-                        onChange={(e) => setEmailInput(e.target.value)}
-                        placeholder="seu.email@instituicao.ac.mz"
-                        required
-                        className={`w-full pl-10 pr-4 py-2.5 rounded-xl border text-sm transition-colors ${
-                          isLight 
-                            ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400 focus:bg-white focus:border-sky-500' 
-                            : 'bg-slate-950 border-slate-800 text-white placeholder-slate-500 focus:border-sky-500'
-                        }`}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className={`text-xs font-semibold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                        Palavra-passe
-                      </label>
-                      <button
-                        type="button"
-                        onClick={handleForgotPassword}
-                        className="text-[11px] text-sky-500 hover:text-sky-600 transition-colors cursor-pointer"
-                      >
-                        Esqueceu a senha?
-                      </button>
-                    </div>
-                    <div className="relative">
-                      <Lock className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
-                      <input
-                        type="password"
-                        value={passwordInput}
-                        onChange={(e) => setPasswordInput(e.target.value)}
-                        placeholder="••••••••"
-                        required
-                        className={`w-full pl-10 pr-4 py-2.5 rounded-xl border text-sm transition-colors ${
-                          isLight 
-                            ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400 focus:bg-white focus:border-sky-500' 
-                            : 'bg-slate-950 border-slate-800 text-white placeholder-slate-500 focus:border-sky-500'
-                        }`}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-1">
-                    <label className={`flex items-center gap-2 cursor-pointer select-none text-xs ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
-                      <input
-                        type="checkbox"
-                        checked={keepSessionActive}
-                        onChange={(e) => setKeepSessionActive(e.target.checked)}
-                        className="rounded border-slate-300 text-sky-500 focus:ring-0"
-                      />
-                      <span>Manter sessão ativa</span>
-                    </label>
-
-                    <button
-                      type="button"
-                      onClick={() => setIsSignUp(!isSignUp)}
-                      className={`text-xs transition-colors cursor-pointer ${isLight ? 'text-slate-600 hover:text-slate-950' : 'text-slate-400 hover:text-white'}`}
-                    >
-                      {isSignUp ? 'Já tem conta? Entrar' : 'Criar nova conta'}
-                    </button>
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold text-sm shadow-md transition-all cursor-pointer disabled:opacity-50"
-                  >
-                    {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                    <span>{isSignUp ? 'Criar Conta e Aceder' : 'Iniciar Sessão'}</span>
-                    {!loading && <ArrowRight className="w-4 h-4" />}
-                  </button>
-                </form>
-              )}
-
-              {/* Tab 3: Access Code */}
-              {activeTab === 'code' && (
-                <form onSubmit={handleAccessCodeSubmit} className="space-y-4">
-                  {/* Centro Infantil Céu Azul Quick Access Card */}
-                  <div className={`p-4 rounded-2xl border space-y-3 transition-all ${
-                    isLight 
-                      ? 'bg-sky-50 border-sky-200 text-sky-950 shadow-xs' 
-                      : 'bg-sky-950/40 border-sky-800/60 text-sky-200'
+              {/* Se a conta está autenticada mas sem perfil atribuído no Firestore */}
+              {unassignedAccount ? (
+                <div className="space-y-4 py-2 animate-fadeIn">
+                  <div className={`p-4 rounded-2xl border text-xs space-y-2 ${
+                    isLight ? 'bg-amber-50 border-amber-300 text-amber-950' : 'bg-amber-950/40 border-amber-500/30 text-amber-200'
                   }`}>
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5 font-bold text-xs">
-                        <School className="w-4 h-4 text-sky-600 shrink-0" />
-                        <span className={isLight ? 'text-sky-900' : 'text-sky-300'}>Centro Infantil Céu Azul — Nacala-Porto</span>
-                      </div>
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-700 dark:text-sky-300 font-bold border border-sky-500/30">
-                        CEU-AZUL
-                      </span>
+                    <div className="flex items-center gap-2 font-bold text-sm">
+                      <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
+                      <span>Conta Autenticada no Firebase com Sucesso!</span>
                     </div>
-                    <p className={`text-[11px] leading-relaxed ${isLight ? 'text-sky-900/90' : 'text-slate-300'}`}>
-                      Selecione uma credencial oficial para entrar instantaneamente com o seu perfil autorizado:
+                    <p className="leading-relaxed">
+                      O seu e-mail (<strong className="font-mono">{unassignedAccount.email}</strong>) foi autenticado. Defina agora o seu nome e perfil inicial para concluir a associação e aceder diretamente ao painel:
                     </p>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
-                      {/* Diretor */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAccessCodeInput('CEU-AZUL-DIR-001');
-                        }}
-                        className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
-                          accessCodeInput === 'CEU-AZUL-DIR-001'
-                            ? 'bg-sky-600 text-white border-sky-600 shadow-sm'
-                            : (isLight ? 'bg-white hover:bg-sky-100/70 border-sky-200 text-slate-800' : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-200')
-                        }`}
-                      >
-                        <div className="text-[10px] uppercase font-bold opacity-75">Diretor</div>
-                        <div className="font-bold text-xs">Jafim Paulo</div>
-                        <div className="font-mono text-[10px] mt-0.5 opacity-90">CEU-AZUL-DIR-001</div>
-                      </button>
-
-                      {/* CEO */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAccessCodeInput('CEU-AZUL-CEO-001');
-                        }}
-                        className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
-                          accessCodeInput === 'CEU-AZUL-CEO-001'
-                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                            : (isLight ? 'bg-white hover:bg-indigo-50 border-sky-200 text-slate-800' : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-200')
-                        }`}
-                      >
-                        <div className="text-[10px] uppercase font-bold opacity-75">CEO / Mantenedor</div>
-                        <div className="font-bold text-xs">Alfredo Andrade</div>
-                        <div className="font-mono text-[10px] mt-0.5 opacity-90">CEU-AZUL-CEO-001</div>
-                      </button>
-
-                      {/* Código Institucional */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAccessCodeInput('CEU-AZUL-001');
-                        }}
-                        className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
-                          accessCodeInput === 'CEU-AZUL-001'
-                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                            : (isLight ? 'bg-white hover:bg-emerald-50 border-sky-200 text-slate-800' : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-200')
-                        }`}
-                      >
-                        <div className="text-[10px] uppercase font-bold opacity-75">Institucional</div>
-                        <div className="font-bold text-xs">Céu Azul Nacala</div>
-                        <div className="font-mono text-[10px] mt-0.5 opacity-90">CEU-AZUL-001</div>
-                      </button>
-                    </div>
-
-                    {/* Alunos 41 a 62 Quick Selector */}
-                    <div className="pt-1">
-                      <div className="text-[11px] font-semibold mb-1.5 flex items-center justify-between">
-                        <span className={isLight ? 'text-slate-700' : 'text-slate-300'}>
-                          Alunos Cadastrados (Nº 41 a 62):
-                        </span>
-                        <span className="text-[10px] font-mono opacity-70">22 alunos</span>
-                      </div>
-                      <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto p-1.5 rounded-lg border border-slate-200/50 dark:border-slate-800 bg-white/50 dark:bg-slate-950/40">
-                        {CEU_AZUL_STUDENTS.slice(0, 10).map(s => (
-                          <button
-                            key={s.id}
-                            type="button"
-                            onClick={() => setAccessCodeInput((s as any).codigoAcesso)}
-                            className={`px-2 py-1 rounded text-[10px] font-mono cursor-pointer transition-colors ${
-                              accessCodeInput === (s as any).codigoAcesso
-                                ? 'bg-sky-600 text-white font-bold'
-                                : (isLight ? 'bg-white hover:bg-sky-100 text-slate-700 border border-slate-200' : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800')
-                            }`}
-                            title={`${(s as any).numAluno}: ${s.fullName || (s as any).name || ''}`}
-                          >
-                            Nº {(s as any).numLista} {(s.fullName || (s as any).name || 'Aluno').split(' ')[0]}
-                          </button>
-                        ))}
-                        <button
-                          type="button"
-                          onClick={() => setAccessCodeInput('CEU-AZUL-ALUNO-041')}
-                          className="px-2 py-1 rounded text-[10px] font-mono bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-300/40 hover:bg-sky-500/20 cursor-pointer"
-                        >
-                          CEU-AZUL-ALUNO-041 (Hilton)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setAccessCodeInput('CEU-AZUL-ALUNO-062')}
-                          className="px-2 py-1 rounded text-[10px] font-mono bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-300/40 hover:bg-sky-500/20 cursor-pointer"
-                        >
-                          CEU-AZUL-ALUNO-062 (Yula)
-                        </button>
-                      </div>
+                    <div className="text-[11px] font-mono opacity-80">
+                      UID: {unassignedAccount.uid}
                     </div>
                   </div>
 
                   <div>
-                    <label className={`block text-xs font-semibold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                      Código de Acesso Institucional
+                    <label className={`block text-xs font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                      Seu Nome Completo
                     </label>
-                    <div className="relative">
-                      <KeyRound className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
-                      <input
-                        type="text"
-                        value={accessCodeInput}
-                        onChange={(e) => setAccessCodeInput(e.target.value)}
-                        placeholder="Ex: MTW-CEO-MASTER-2026, MTW-CF-0001, MTW-SEC-..."
-                        required
-                        className={`w-full pl-10 pr-4 py-2.5 rounded-xl border text-sm uppercase font-mono transition-colors ${
-                          isLight 
-                            ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400 focus:bg-white focus:border-sky-500' 
-                            : 'bg-slate-950 border-slate-800 text-white placeholder-slate-500 focus:border-sky-500'
+                    <input
+                      type="text"
+                      value={unassignedName}
+                      onChange={(e) => setUnassignedName(e.target.value)}
+                      placeholder="Ex: Alberto Mondlane"
+                      className={`w-full px-3.5 py-2.5 rounded-xl border text-sm ${
+                        isLight ? 'bg-slate-50 border-slate-300 text-slate-900 focus:bg-white' : 'bg-slate-950 border-slate-800 text-white'
+                      }`}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className={`block text-xs font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                        Como pretende aceder?
+                      </label>
+                      <select
+                        value={unassignedRole}
+                        onChange={(e) => setUnassignedRole(e.target.value as UserRole)}
+                        className={`w-full px-3.5 py-2.5 rounded-xl border text-sm ${
+                          isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'
                         }`}
-                      />
+                      >
+                        <option value="ALUNO">Aluno / Estudante</option>
+                        <option value="PROFESSOR">Professor / Formador</option>
+                        <option value="SECRETARIA">Secretaria Académica</option>
+                        <option value="DIRETOR">Diretor Geral</option>
+                        <option value="FINANCEIRO">Financeiro / Tesouraria</option>
+                        <option value="PORTEIRO">Portaria / Acesso</option>
+                      </select>
                     </div>
-                    <p className={`text-[11px] mt-1.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                      Insira o seu código oficial de utilizador (CEO, Diretor, Secretaria, Professor, Financeiro ou Aluno).
-                    </p>
+
+                    <div>
+                      <label className={`block text-xs font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                        Instituição Vinculada
+                      </label>
+                      <select
+                        value={unassignedInstId}
+                        onChange={(e) => setUnassignedInstId(e.target.value)}
+                        className={`w-full px-3.5 py-2.5 rounded-xl border text-sm ${
+                          isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'
+                        }`}
+                      >
+                        {allInstitutions.map((i) => (
+                          <option key={i.id} value={i.id}>
+                            {i.name} ({i.city || i.province})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
 
-                  <div className={`flex flex-wrap items-center gap-1.5 pt-1 text-[11px] ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
-                    <span>Exemplos de Códigos:</span>
+                  <div className="flex gap-2 pt-2">
                     <button
                       type="button"
-                      onClick={() => setAccessCodeInput('MTW-CF-0001')}
-                      className={`px-2 py-0.5 rounded-md font-mono text-[10px] border cursor-pointer ${
-                        isLight ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300' : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-800'
+                      onClick={() => setUnassignedAccount(null)}
+                      className={`px-4 py-2.5 rounded-xl text-xs font-semibold border ${
+                        isLight ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300' : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
                       }`}
                     >
-                      MTW-CF-0001 (Diretor)
+                      Voltar ao Início
                     </button>
                     <button
                       type="button"
-                      onClick={() => setAccessCodeInput('SIGAR-ACC-8819-CF0001')}
-                      className={`px-2 py-0.5 rounded-md font-mono text-[10px] border cursor-pointer ${
-                        isLight ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300' : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-800'
+                      onClick={handleAssignProfileAndEnter}
+                      disabled={loading}
+                      className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-sky-600 hover:from-emerald-500 hover:to-sky-500 text-white font-bold text-xs shadow-md cursor-pointer disabled:opacity-50"
+                    >
+                      {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+                      <span>Ativar Perfil e Entrar no SIGAR</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* Selector Limpo: Apenas Google e Email + Senha */}
+                  <div className={`grid grid-cols-2 gap-2 p-1.5 rounded-2xl border mb-6 ${
+                    isLight ? 'bg-slate-100 border-slate-200' : 'bg-slate-950 border-slate-800'
+                  }`}>
+                    <button
+                      type="button"
+                      onClick={() => { setActiveTab('google'); setFeedback(null); }}
+                      className={`py-2.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                        activeTab === 'google' 
+                          ? 'bg-sky-600 text-white shadow-md' 
+                          : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-white')
                       }`}
                     >
-                      SIGAR-ACC-8819...
+                      <span>Google</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setActiveTab('credentials'); setFeedback(null); }}
+                      className={`py-2.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                        activeTab === 'credentials' 
+                          ? 'bg-sky-600 text-white shadow-md' 
+                          : (isLight ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-white')
+                      }`}
+                    >
+                      <Mail className="w-3.5 h-3.5" />
+                      <span>Email + Senha</span>
                     </button>
                   </div>
 
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-sm shadow-md transition-all cursor-pointer disabled:opacity-50"
-                  >
-                    {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                    <span>Validar Código e Entrar</span>
-                    {!loading && <ArrowRight className="w-4 h-4" />}
-                  </button>
-                </form>
+                  {/* Tab 1: Google OAuth */}
+                  {activeTab === 'google' && (
+                    <div className="space-y-5 py-2">
+                      <p className={`text-xs leading-relaxed ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+                        Inicie sessão com segurança com a sua conta Google registada na plataforma.
+                      </p>
+
+                      <button
+                        type="button"
+                        onClick={handleGoogleLogin}
+                        disabled={loading}
+                        className={`w-full flex items-center justify-center gap-3 px-4 py-3.5 rounded-2xl font-bold text-sm transition-all shadow-md hover:shadow-lg active:scale-[0.99] cursor-pointer disabled:opacity-50 border ${
+                          isLight 
+                            ? 'bg-white hover:bg-slate-50 text-slate-800 border-slate-300' 
+                            : 'bg-white hover:bg-slate-100 text-slate-900 border-transparent'
+                        }`}
+                      >
+                        {loading ? (
+                          <Loader2 className="w-5 h-5 animate-spin text-slate-900" />
+                        ) : (
+                          <svg className="w-5 h-5" viewBox="0 0 24 24">
+                            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                          </svg>
+                        )}
+                        <span>{loading ? 'A autenticar...' : 'Entrar com Google'}</span>
+                      </button>
+
+                      <div className={`p-4 rounded-xl border text-xs leading-relaxed ${
+                        isLight ? 'bg-slate-50 border-slate-200 text-slate-600' : 'bg-slate-950/40 border-slate-800 text-slate-400'
+                      }`}>
+                        <div className="flex items-center gap-2 font-bold mb-1 text-slate-800 dark:text-slate-200">
+                          <ShieldCheck className="w-4 h-4 text-sky-500" />
+                          <span>Acesso Seguro e Centralizado</span>
+                        </div>
+                        O SIGAR PRO valida as suas permissões diretamente no Firebase Firestore após a autenticação.
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Tab 2: Email + Password */}
+                  {activeTab === 'credentials' && (
+                    <form onSubmit={handleCredentialsSubmit} className="space-y-4">
+                      <div>
+                        <label className={`block text-xs font-semibold mb-1.5 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                          Endereço de E-mail
+                        </label>
+                        <div className="relative">
+                          <Mail className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
+                          <input
+                            type="email"
+                            value={emailInput}
+                            onChange={(e) => setEmailInput(e.target.value)}
+                            placeholder="seu.email@instituicao.ac.mz"
+                            required
+                            className={`w-full pl-10 pr-4 py-2.5 rounded-xl border text-sm transition-colors ${
+                              isLight 
+                                ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400 focus:bg-white focus:border-sky-500' 
+                                : 'bg-slate-950 border-slate-800 text-white placeholder-slate-500 focus:border-sky-500'
+                            }`}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className={`text-xs font-semibold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                            Palavra-passe
+                          </label>
+                          <button
+                            type="button"
+                            onClick={handleForgotPassword}
+                            className="text-[11px] text-sky-500 hover:text-sky-600 transition-colors cursor-pointer"
+                          >
+                            Esqueceu a senha?
+                          </button>
+                        </div>
+                        <div className="relative">
+                          <Lock className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
+                          <input
+                            type="password"
+                            value={passwordInput}
+                            onChange={(e) => setPasswordInput(e.target.value)}
+                            placeholder="••••••••"
+                            required
+                            className={`w-full pl-10 pr-4 py-2.5 rounded-xl border text-sm transition-colors ${
+                              isLight 
+                                ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400 focus:bg-white focus:border-sky-500' 
+                                : 'bg-slate-950 border-slate-800 text-white placeholder-slate-500 focus:border-sky-500'
+                            }`}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1">
+                        <label className={`flex items-center gap-2 cursor-pointer select-none text-xs ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+                          <input
+                            type="checkbox"
+                            checked={keepSessionActive}
+                            onChange={(e) => setKeepSessionActive(e.target.checked)}
+                            className="rounded border-slate-300 text-sky-500 focus:ring-0"
+                          />
+                          <span>Manter sessão ativa</span>
+                        </label>
+
+                        <button
+                          type="button"
+                          onClick={() => setIsSignUp(!isSignUp)}
+                          className={`text-xs transition-colors cursor-pointer ${isLight ? 'text-slate-600 hover:text-slate-950' : 'text-slate-400 hover:text-white'}`}
+                        >
+                          {isSignUp ? 'Já tem conta? Entrar' : 'Criar nova conta'}
+                        </button>
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={loading}
+                        className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold text-sm shadow-md transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                        <span>{isSignUp ? 'Criar Conta e Aceder' : 'Iniciar Sessão'}</span>
+                        {!loading && <ArrowRight className="w-4 h-4" />}
+                      </button>
+                    </form>
+                  )}
+                </>
               )}
 
               {/* Bottom SaaS Footer Links (PARTE 6) */}

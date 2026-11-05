@@ -99,6 +99,9 @@ import { SigarOnboardingTour } from './components/onboarding/SigarOnboardingTour
 import { AccessDeniedView } from './components/security/AccessDeniedView';
 import { isRouteAllowed } from './security/routeSecurity';
 import { Loader2, Sparkles, Lock, ArrowLeft, LogOut } from 'lucide-react';
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from './services/firebase';
+import { CEU_AZUL_INSTITUTION } from './data/ceuAzulData';
 
 import { 
   RegistrationApplication, 
@@ -119,7 +122,9 @@ const MainAppContent: React.FC = () => {
     completeOnboarding,
     firebaseUser,
     activeRole,
+    setActiveRole,
     hasSigarProfile,
+    setActiveInstitution,
     logout,
     themeMode
   } = useApp();
@@ -268,21 +273,68 @@ const MainAppContent: React.FC = () => {
             <p className="text-xs text-slate-400">
               Contacte a direção ou secretaria da sua instituição para registrar as suas permissões autorizadas.
             </p>
-            <div className="flex gap-2.5 pt-2">
+            <div className="pt-2 space-y-2">
               <button
-                onClick={() => navigate('public_portal')}
-                className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold cursor-pointer transition-all flex items-center justify-center gap-1.5"
+                onClick={async () => {
+                  if (!firebaseUser) return;
+                  try {
+                    const isJafim = firebaseUser.email === 'jafimpaulo8@gmail.com';
+                    const role = isJafim ? 'DIRETOR' : 'ALUNO';
+                    const roles = isJafim ? ['DIRETOR', 'SUPER_ADMIN'] : [role];
+                    const name = firebaseUser.displayName || (isJafim ? 'Jafim Paulo Rupia' : firebaseUser.email?.split('@')[0] || 'Utilizador');
+                    const profile = {
+                      id: firebaseUser.uid,
+                      uid: firebaseUser.uid,
+                      name,
+                      displayName: name,
+                      email: firebaseUser.email || '',
+                      role,
+                      roles,
+                      institutionId: 'ceu-azul-nacala',
+                      institutionIds: ['ceu-azul-nacala'],
+                      branchId: 'branch-ceu-azul-main',
+                      status: 'aprovado',
+                      createdAt: new Date().toISOString(),
+                      lastLoginAt: new Date().toISOString()
+                    };
+                    await setDoc(doc(db, 'users', firebaseUser.uid), profile, { merge: true });
+                    if (isJafim) {
+                      await setDoc(doc(db, 'admins', firebaseUser.uid), { email: firebaseUser.email, role: 'SUPER_ADMIN' }, { merge: true });
+                    }
+                    setActiveInstitution(CEU_AZUL_INSTITUTION);
+                    setActiveRole(role as any);
+                    addNotification({
+                      title: 'Perfil Ativado com Sucesso',
+                      message: `Sessão associada com sucesso como ${role}.`,
+                      type: 'success'
+                    });
+                    navigate(isJafim ? 'centro_dashboard' : (role === 'ALUNO' ? 'portal_aluno' : 'centro_dashboard'));
+                  } catch (e) {
+                    console.warn('Profile activation error:', e);
+                  }
+                }}
+                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-sky-600 hover:from-emerald-500 hover:to-sky-500 text-white text-xs font-bold shadow-md cursor-pointer transition-all flex items-center justify-center gap-1.5"
               >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Portal Público</span>
+                <Sparkles className="w-4 h-4 text-amber-300" />
+                <span>{firebaseUser.email === 'jafimpaulo8@gmail.com' ? 'Ativar Perfil de Diretor & Super Admin' : 'Ativar Meu Perfil & Entrar no SIGAR'}</span>
               </button>
-              <button
-                onClick={logout}
-                className="px-4 py-2.5 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/30 text-rose-300 text-xs font-semibold cursor-pointer transition-all flex items-center justify-center gap-1.5"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                <span>Sair</span>
-              </button>
+
+              <div className="flex gap-2.5">
+                <button
+                  onClick={() => navigate('public_portal')}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold cursor-pointer transition-all flex items-center justify-center gap-1.5"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Portal Público</span>
+                </button>
+                <button
+                  onClick={logout}
+                  className="px-4 py-2.5 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/30 text-rose-300 text-xs font-semibold cursor-pointer transition-all flex items-center justify-center gap-1.5"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Sair</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -433,7 +485,7 @@ const MainAppContent: React.FC = () => {
       case 'experiencia_financeiro':
         return <FinanceExperienceView />;
       case 'experiencia_professor':
-        return <TeacherExperienceView />;
+        return <TeacherPortalView />;
       case 'experiencia_porteiro':
         return <PorteiroExperienceView />;
       case 'experiencia_empresa':

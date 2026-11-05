@@ -300,25 +300,58 @@ export const FinanceExperienceView: React.FC = () => {
 
   return (
     <div className="space-y-6 pb-24 text-slate-100 max-w-7xl mx-auto">
-      {/* Top Financial Hero Banner */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-emerald-950 via-slate-900 to-slate-950 border border-emerald-500/30 p-6 md:p-8 shadow-2xl">
-        <div className="absolute top-0 right-0 -mr-16 -mt-16 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+      {/* Reference Image Header Strip */}
+      <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
+            <DollarSign className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-white tracking-tight">Portal Financeiro &amp; Tesouraria</h2>
+            <p className="text-[11px] text-slate-400">{activeInstitution.name} • Gestão de Contas e Caixa</p>
+          </div>
+        </div>
 
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold uppercase tracking-wider">
-              <DollarSign className="w-3.5 h-3.5" />
-              Módulo 77: Experiência do Financeiro • {activeInstitution.code}
-            </div>
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-black text-white tracking-tight">
-              Gestão Financeira &amp; Tesouraria Escolar
-            </h1>
-            <p className="text-slate-400 text-sm max-w-2xl leading-relaxed">
-              Controle integral de contas a receber, contas a pagar, conciliação M-Pesa &amp; e-Mola, emissão oficial de recibos com código QR, abertura e sangria de caixa e DRE contábil em Meticais (MT).
-            </p>
+        <div className="flex items-center gap-3">
+          <div className="relative p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-300">
+            <Clock className="w-4 h-4" />
+            <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white font-bold text-[10px] flex items-center justify-center">
+              4
+            </span>
           </div>
 
-          <div className="p-4 rounded-2xl bg-slate-950/90 border border-emerald-500/30 space-y-2 shrink-0">
+          <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5">
+            <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-amber-500 to-emerald-500 flex items-center justify-center text-slate-950 font-bold text-xs">
+              MC
+            </div>
+            <div className="text-left leading-tight hidden sm:block">
+              <div className="text-xs font-bold text-white">Dr. Mário Cossa</div>
+              <div className="text-[10px] text-amber-400 font-medium">Diretor Financeiro ▾</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Top Welcome Banner matching reference style */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-amber-950/60 via-slate-900 to-slate-950 border border-amber-500/30 p-5 sm:p-6 shadow-xl">
+        <div className="absolute top-0 right-0 -mr-16 -mt-16 w-80 h-80 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="w-16 h-16 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 shrink-0 shadow-lg">
+              <Banknote className="w-8 h-8" />
+            </div>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+                Bem-vindo, Dr. Mário Cossa!
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-xl">
+                Controlo integral de receitas, despesas, conciliação M-Pesa &amp; e-Mola e caixa em tempo real.
+              </p>
+            </div>
+          </div>
+
+          <div className="p-3.5 rounded-2xl bg-slate-950/90 border border-amber-500/30 space-y-1 shrink-0">
             <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">
               Caixa da Tesouraria:
             </div>
@@ -335,7 +368,7 @@ export const FinanceExperienceView: React.FC = () => {
         </div>
 
         {/* 13 Pillars Tabs Navigation */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 mt-8 pt-4 border-t border-slate-800">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 mt-6 pt-4 border-t border-slate-800">
           {[
             { id: 'dashboard', label: '1. Dashboard', icon: <TrendingUp className="w-3.5 h-3.5" /> },
             { id: 'receber', label: '2. A Receber', icon: <ArrowDownLeft className="w-3.5 h-3.5" /> },

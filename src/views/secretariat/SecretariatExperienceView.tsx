@@ -23,7 +23,11 @@ import {
   Sparkles,
   ArrowRight,
   ShieldAlert,
-  IdCard
+  IdCard,
+  Bell,
+  ChevronRight,
+  GraduationCap,
+  BarChart3
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 
@@ -38,6 +42,7 @@ export const SecretariatExperienceView: React.FC = () => {
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<
+    | 'dashboard'
     | 'inscricoes'
     | 'alunos'
     | 'matriculas'
@@ -50,7 +55,7 @@ export const SecretariatExperienceView: React.FC = () => {
     | 'frequencia'
     | 'comunicados'
     | 'pagamentos'
-  >('inscricoes');
+  >('dashboard');
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStudentForDoc, setSelectedStudentForDoc] = useState(students[0] || null);
@@ -139,8 +144,9 @@ export const SecretariatExperienceView: React.FC = () => {
         </div>
 
         {/* 12 Secretariat Pillars Navigation Bar */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2 mt-8 pt-4 border-t border-slate-800">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 mt-8 pt-4 border-t border-slate-800">
           {[
+            { id: 'dashboard', label: 'Início', icon: <Building2 className="w-3.5 h-3.5" /> },
             { id: 'inscricoes', label: '1. Inscrições', icon: <FileCheck2 className="w-3.5 h-3.5" /> },
             { id: 'alunos', label: '2. Alunos', icon: <Users className="w-3.5 h-3.5" /> },
             { id: 'matriculas', label: '3. Matrículas', icon: <UserPlus className="w-3.5 h-3.5" /> },
@@ -159,7 +165,7 @@ export const SecretariatExperienceView: React.FC = () => {
               onClick={() => setActiveTab(tab.id as any)}
               className={`flex items-center gap-1.5 p-2 rounded-xl font-bold text-xs transition-all cursor-pointer truncate ${
                 activeTab === tab.id
-                  ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-600/30'
+                  ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30'
                   : 'bg-slate-950/70 border border-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-800'
               }`}
             >
@@ -175,6 +181,359 @@ export const SecretariatExperienceView: React.FC = () => {
         <div className="p-4 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-bold text-xs flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 shrink-0" />
           <span>{issuedDocFeedback}</span>
+        </div>
+      )}
+
+      {/* TAB 0: DASHBOARD DA SECRETARIA (CONFORME IMAGEM DE REFERÊNCIA) */}
+      {activeTab === 'dashboard' && (
+        <div className="space-y-6 animate-fadeIn">
+          {/* Header Superior do Portal */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-2 border-b border-slate-200 dark:border-slate-800">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-600 flex items-center justify-center text-white shadow-md shadow-emerald-600/30">
+                <Building2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">
+                  Portal da Secretaria
+                </h2>
+                <span className="text-xs text-slate-500 dark:text-slate-400">
+                  Atendimento, Matrículas e Administração Académica • {activeInstitution?.name || 'Centro Céu Azul'}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 self-end sm:self-auto">
+              <div className="relative p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                <Bell className="w-4 h-4" />
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                  5
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs">
+                <img
+                  src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=100&auto=format&fit=crop&q=80"
+                  alt="Secretária"
+                  className="w-8 h-8 rounded-full object-cover border border-emerald-500"
+                />
+                <div className="text-left">
+                  <div className="text-xs font-bold text-slate-900 dark:text-white truncate max-w-[130px]">
+                    Dra. Carla Mendes
+                  </div>
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                    <span>Secretária</span>
+                    <span className="text-[9px]">▾</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Banner de Boas-Vindas */}
+          <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-emerald-700 via-teal-700 to-cyan-800 p-6 sm:p-8 text-white shadow-xl shadow-emerald-900/20">
+            <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="space-y-1.5">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 backdrop-blur-md text-[11px] font-semibold tracking-wide">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Atendimento Integrado • Ano Letivo 2026</span>
+                </div>
+                <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
+                  Bem-vinda, Dra. Carla Mendes!
+                </h1>
+                <p className="text-xs sm:text-sm text-emerald-100 max-w-xl leading-relaxed">
+                  Gestão eficiente, instituição mais organizada. Controle matrículas, expedientes, pautas e documentação oficial com sincronização Firebase.
+                </p>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => navigate('alunos_cadastrar')}
+                  className="px-4 py-2.5 rounded-2xl bg-white text-emerald-900 font-bold text-xs hover:bg-emerald-50 transition shadow-md cursor-pointer flex items-center gap-1.5"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>Nova Matrícula</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-radial from-white/10 to-transparent pointer-events-none" />
+          </div>
+
+          {/* 4 Cartões Informativos (Conforme Imagem) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Card 1: Alunos */}
+            <div 
+              onClick={() => setActiveTab('alunos')}
+              className="p-5 rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/20 cursor-pointer hover:scale-[1.02] transition-transform flex items-center gap-4"
+            >
+              <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shrink-0">
+                <Users className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="text-xs font-medium text-blue-100 uppercase tracking-wider">Alunos</div>
+                <div className="text-2xl font-black mt-0.5">{students.length > 50 ? students.length : '1.250'}</div>
+                <div className="text-[11px] text-blue-200">Total</div>
+              </div>
+            </div>
+
+            {/* Card 2: Professores */}
+            <div 
+              onClick={() => navigate('professores_gestao')}
+              className="p-5 rounded-2xl bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 cursor-pointer hover:scale-[1.02] transition-transform flex items-center gap-4"
+            >
+              <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shrink-0">
+                <GraduationCap className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="text-xs font-medium text-emerald-100 uppercase tracking-wider">Professores</div>
+                <div className="text-2xl font-black mt-0.5">85</div>
+                <div className="text-[11px] text-emerald-200">Ativos</div>
+              </div>
+            </div>
+
+            {/* Card 3: Matrículas */}
+            <div 
+              onClick={() => setActiveTab('matriculas')}
+              className="p-5 rounded-2xl bg-amber-500 text-white shadow-lg shadow-amber-500/20 cursor-pointer hover:scale-[1.02] transition-transform flex items-center gap-4"
+            >
+              <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shrink-0">
+                <IdCard className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="text-xs font-medium text-amber-100 uppercase tracking-wider">Matrículas</div>
+                <div className="text-2xl font-black mt-0.5">320</div>
+                <div className="text-[11px] text-amber-100">Este ano</div>
+              </div>
+            </div>
+
+            {/* Card 4: Pagamentos */}
+            <div 
+              onClick={() => navigate('pagamentos')}
+              className="p-5 rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-600/20 cursor-pointer hover:scale-[1.02] transition-transform flex items-center gap-4"
+            >
+              <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shrink-0">
+                <CreditCard className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="text-xs font-medium text-indigo-100 uppercase tracking-wider">Pagamentos</div>
+                <div className="text-2xl font-black mt-0.5">€125.430</div>
+                <div className="text-[11px] text-indigo-200">Total</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Linha Central: Movimentos Financeiros + Tarefas Pendentes */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            
+            {/* 1. Movimentos Financeiros (Gráfico de Linhas Suaves) (Col 7) */}
+            <div className="lg:col-span-7 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                    <span>Movimentos Financeiros</span>
+                  </h3>
+                  <button
+                    onClick={() => navigate('relatorios_financeiros')}
+                    className="text-xs font-semibold text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <span>Ver Relatório</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* Smooth Line Chart SVG */}
+                <div className="relative pt-4 pb-2">
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1 font-mono">
+                    <span>75k €</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1 font-mono">
+                    <span>50k €</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1 font-mono">
+                    <span>25k €</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 mb-2 font-mono">
+                    <span>0 €</span>
+                  </div>
+
+                  {/* SVG Chart */}
+                  <div className="w-full h-36">
+                    <svg className="w-full h-full overflow-visible" viewBox="0 0 500 120" preserveAspectRatio="none">
+                      {/* Grid lines */}
+                      <line x1="0" y1="10" x2="500" y2="10" stroke="#94a3b8" strokeDasharray="3 3" strokeOpacity="0.25" />
+                      <line x1="0" y1="45" x2="500" y2="45" stroke="#94a3b8" strokeDasharray="3 3" strokeOpacity="0.25" />
+                      <line x1="0" y1="80" x2="500" y2="80" stroke="#94a3b8" strokeDasharray="3 3" strokeOpacity="0.25" />
+                      <line x1="0" y1="115" x2="500" y2="115" stroke="#94a3b8" strokeDasharray="3 3" strokeOpacity="0.25" />
+
+                      {/* Area Gradient */}
+                      <defs>
+                        <linearGradient id="secAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#0ea5e9" stopOpacity="0.35" />
+                          <stop offset="100%" stopColor="#0ea5e9" stopOpacity="0.0" />
+                        </linearGradient>
+                      </defs>
+
+                      {/* Line & Area */}
+                      <path
+                        d="M 10 90 Q 60 70 100 75 T 190 60 T 280 85 T 375 40 T 490 20 L 490 115 L 10 115 Z"
+                        fill="url(#secAreaGrad)"
+                      />
+                      <path
+                        d="M 10 90 Q 60 70 100 75 T 190 60 T 280 85 T 375 40 T 490 20"
+                        fill="none"
+                        stroke="#0284c7"
+                        strokeWidth="3.5"
+                        strokeLinecap="round"
+                      />
+
+                      {/* Dots on line */}
+                      <circle cx="10" cy="90" r="4.5" fill="#0284c7" stroke="#ffffff" strokeWidth="2" />
+                      <circle cx="100" cy="75" r="4.5" fill="#0284c7" stroke="#ffffff" strokeWidth="2" />
+                      <circle cx="190" cy="60" r="4.5" fill="#0284c7" stroke="#ffffff" strokeWidth="2" />
+                      <circle cx="280" cy="85" r="4.5" fill="#0284c7" stroke="#ffffff" strokeWidth="2" />
+                      <circle cx="375" cy="40" r="4.5" fill="#0284c7" stroke="#ffffff" strokeWidth="2" />
+                      <circle cx="490" cy="20" r="4.5" fill="#0284c7" stroke="#ffffff" strokeWidth="2" />
+                    </svg>
+                  </div>
+
+                  {/* X Axis Months */}
+                  <div className="flex items-center justify-between text-xs text-slate-500 font-semibold pt-2">
+                    <span>Jan</span>
+                    <span>Feb</span>
+                    <span>Mar</span>
+                    <span>Abr</span>
+                    <span>Mai</span>
+                    <span>Jun</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Tarefas Pendentes (Col 5) */}
+            <div className="lg:col-span-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-bold text-sm text-slate-900 dark:text-white">
+                    Tarefas Pendentes
+                  </h3>
+                  <button
+                    onClick={() => setActiveTab('inscricoes')}
+                    className="text-xs font-semibold text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <span>Ver Todas</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  {/* Task 1 */}
+                  <div 
+                    onClick={() => navigate('pagamentos')}
+                    className="p-3.5 rounded-xl border border-rose-200 dark:border-rose-950/60 bg-rose-50/60 dark:bg-rose-950/20 hover:bg-rose-100/70 flex items-center justify-between text-xs cursor-pointer transition"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-rose-500 text-white flex items-center justify-center shrink-0">
+                        <AlertCircle className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="font-bold text-slate-900 dark:text-white">Confirmar pagamentos em falta</div>
+                        <div className="text-[11px] text-slate-500">(12 alunos pendentes)</div>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-400" />
+                  </div>
+
+                  {/* Task 2 */}
+                  <div 
+                    onClick={() => navigate('studio')}
+                    className="p-3.5 rounded-xl border border-sky-200 dark:border-sky-950/60 bg-sky-50/60 dark:bg-sky-950/20 hover:bg-sky-100/70 flex items-center justify-between text-xs cursor-pointer transition"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-sky-600 text-white flex items-center justify-center shrink-0">
+                        <Award className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="font-bold text-slate-900 dark:text-white">Emitir certificados</div>
+                        <div className="text-[11px] text-slate-500">(48 certificados SIVEC prontos)</div>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-400" />
+                  </div>
+
+                  {/* Task 3 */}
+                  <div 
+                    onClick={() => setActiveTab('matriculas')}
+                    className="p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-950/60 bg-emerald-50/60 dark:bg-emerald-950/20 hover:bg-emerald-100/70 flex items-center justify-between text-xs cursor-pointer transition"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                        <CheckCircle2 className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="font-bold text-slate-900 dark:text-white">Validar matrículas</div>
+                        <div className="text-[11px] text-slate-500">(23 candidaturas completas)</div>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-400" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          {/* Linha Inferior: Acesso Rápido 4 Cartões Grandes (Conforme Imagem) */}
+          <div>
+            <h3 className="font-bold text-sm text-slate-900 dark:text-white mb-3">
+              Acesso Rápido
+            </h3>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              {/* 1. Gerir Alunos */}
+              <button
+                onClick={() => setActiveTab('alunos')}
+                className="p-5 rounded-2xl bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-900/60 hover:bg-sky-100 text-slate-900 dark:text-white flex flex-col items-center justify-center gap-2 cursor-pointer transition shadow-xs"
+              >
+                <div className="w-10 h-10 rounded-xl bg-sky-600 text-white flex items-center justify-center">
+                  <Users className="w-5 h-5" />
+                </div>
+                <span className="font-bold text-xs">Gerir Alunos</span>
+              </button>
+
+              {/* 2. Processar Pagamentos */}
+              <button
+                onClick={() => navigate('pagamentos')}
+                className="p-5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/60 hover:bg-emerald-100 text-slate-900 dark:text-white flex flex-col items-center justify-center gap-2 cursor-pointer transition shadow-xs"
+              >
+                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center">
+                  <CreditCard className="w-5 h-5" />
+                </div>
+                <span className="font-bold text-xs">Processar Pagamentos</span>
+              </button>
+
+              {/* 3. Emitir Pautas */}
+              <button
+                onClick={() => navigate('pautas')}
+                className="p-5 rounded-2xl bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-900/60 hover:bg-purple-100 text-slate-900 dark:text-white flex flex-col items-center justify-center gap-2 cursor-pointer transition shadow-xs"
+              >
+                <div className="w-10 h-10 rounded-xl bg-purple-600 text-white flex items-center justify-center">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <span className="font-bold text-xs">Emitir Pautas</span>
+              </button>
+
+              {/* 4. Gerar Relatórios */}
+              <button
+                onClick={() => navigate('relatorios_academicos')}
+                className="p-5 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/60 hover:bg-amber-100 text-slate-900 dark:text-white flex flex-col items-center justify-center gap-2 cursor-pointer transition shadow-xs"
+              >
+                <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center">
+                  <BarChart3 className="w-5 h-5" />
+                </div>
+                <span className="font-bold text-xs">Gerar Relatórios</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

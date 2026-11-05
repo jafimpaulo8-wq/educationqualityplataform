@@ -210,21 +210,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
             </div>
 
-            {/* Entrar com Código MTW / CEO */}
-            <button
-              type="button"
-              onClick={() => onNavigateToPlatform('code')}
-              className={`flex items-center gap-1.5 ml-1 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
-                isLight
-                  ? 'bg-amber-50 hover:bg-amber-100 text-amber-950 border-amber-300 shadow-2xs'
-                  : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border-amber-500/30'
-              }`}
-              title="Aceder com Código MTW (CEO, Diretor, Secretaria, Professor, Aluno)"
-            >
-              <KeyRound className="w-3.5 h-3.5 text-amber-500" />
-              <span>Entrar com Código</span>
-            </button>
-
             {/* Gestão SIGAR (Botão de Autenticação) */}
             <button
               type="button"
@@ -247,14 +232,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               title="Alternar Tema"
             >
               {isLight ? <Sun className="w-4 h-4 text-amber-500" /> : <Moon className="w-4 h-4 text-sky-400" />}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => onNavigateToPlatform('code')}
-              className="px-2.5 py-2 rounded-xl bg-amber-500 text-slate-950 font-black text-[11px] shadow-sm cursor-pointer"
-            >
-              Código
             </button>
 
             <button

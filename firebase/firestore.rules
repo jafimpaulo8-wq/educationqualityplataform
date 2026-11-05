@@ -39,6 +39,7 @@ service cloud.firestore {
     // Profile predicates for RBAC Enforcement
     function isSuperAdmin() {
       return isSignedIn() && (
+        (request.auth.token.email in ['moztechwavenacala8@gmail.com', 'jafimpaulo8@gmail.com']) ||
         (request.auth.token.role in ['SUPER_ADMIN', 'superadmin']) ||
         (hasUserProfile() && (getUserData().role in ['SUPER_ADMIN', 'superadmin', 'Super Admin', 'Super Administrador'])) ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))

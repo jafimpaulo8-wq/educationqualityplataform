@@ -202,20 +202,6 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
               <ArrowRight className="w-4 h-4" />
             </button>
 
-            {/* Quick Master Access with Code Button */}
-            <button
-              type="button"
-              onClick={() => onOpenAuthModal('code')}
-              className={`flex items-center gap-2 px-5 py-3.5 rounded-2xl font-bold text-sm border transition-all cursor-pointer ${
-                isLight 
-                  ? 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300 shadow-2xs' 
-                  : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border-amber-500/30'
-              }`}
-            >
-              <KeyRound className="w-4 h-4 text-amber-500" />
-              <span>Entrar com Código MTW / CEO</span>
-            </button>
-
             <button
               type="button"
               onClick={onOpenPublicVerify}
@@ -228,53 +214,6 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
               <Search className="w-4 h-4 text-sky-500" />
               <span>Verificação SIVEC</span>
             </button>
-
-            <button
-              type="button"
-              onClick={onOpenRegisterInstitution}
-              className={`flex items-center gap-2 px-5 py-3.5 rounded-2xl font-semibold text-sm border transition-all cursor-pointer ${
-                isLight 
-                  ? 'bg-white hover:bg-slate-50 text-slate-700 border-slate-300 shadow-2xs' 
-                  : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-800 hover:border-slate-700'
-              }`}
-            >
-              <Building2 className="w-4 h-4 text-emerald-500" />
-              <span>Registar Centro / Instituição</span>
-            </button>
-          </div>
-
-          {/* CEO Master Code Access Card */}
-          <div className={`max-w-2xl mx-auto mt-8 p-4 rounded-2xl border text-left transition-all ${
-            isLight
-              ? 'bg-gradient-to-r from-amber-50 via-orange-50/50 to-white border-amber-300 shadow-sm'
-              : 'bg-gradient-to-r from-amber-950/30 via-slate-900 to-slate-900 border-amber-500/30'
-          }`}>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="p-1 rounded-lg bg-amber-500/20 text-amber-600 dark:text-amber-400">
-                    <KeyRound className="w-4 h-4" />
-                  </span>
-                  <span className={`text-xs font-bold ${isLight ? 'text-amber-950' : 'text-amber-300'}`}>
-                    É o CEO ou Cadastrador de Centros?
-                  </span>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 font-bold border border-amber-300">
-                    MOZTECHWAVE CORE
-                  </span>
-                </div>
-                <p className={`text-xs ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
-                  Insira o código mestre soberano <strong className="font-mono text-amber-700 dark:text-amber-300">MTW-CEO-MASTER-2026</strong> na aba de código para cadastrar centros e delegar perfis.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => onOpenAuthModal('code')}
-                className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition cursor-pointer shadow-sm shrink-0 flex items-center justify-center gap-1.5"
-              >
-                <span>Acessar via Código</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
           </div>
 
           {/* Quick Certificate Verification Box */}

@@ -517,14 +517,14 @@ export function getDefaultRouteForRole(role: string): AppRoute {
     case 'DIRETOR':
       return 'centro_dashboard';
     case 'SECRETARIA':
-      return 'candidatos_gestao';
+      return 'experiencia_secretaria';
     case 'FINANCEIRO':
-      return 'financeiro';
+      return 'experiencia_financeiro';
     case 'PROFESSOR':
     case 'FORMADOR':
       return 'portal_professor';
     case 'PORTEIRO':
-      return 'portaria_acesso';
+      return 'experiencia_porteiro';
     case 'ALUNO':
     case 'RESPONSAVEL':
       return 'portal_aluno';

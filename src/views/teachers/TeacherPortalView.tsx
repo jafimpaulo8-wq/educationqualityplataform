@@ -28,7 +28,12 @@ import {
   Radio,
   FileArchive,
   FileCode,
-  Link as LinkIcon
+  Link as LinkIcon,
+  Star,
+  CreditCard,
+  Bell,
+  Info,
+  Mail
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { Teacher, ClassGroup, Student, ClassLesson, LessonMaterial } from '../../types';
@@ -54,7 +59,7 @@ export const TeacherPortalView: React.FC = () => {
   } = useApp();
 
   // Selected sub-view
-  const [activeTab, setActiveTab] = useState<'turmas' | 'alunos' | 'aulas' | 'presenca' | 'pauta' | 'comunicacao' | 'online'>('turmas');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'turmas' | 'alunos' | 'aulas' | 'presenca' | 'pauta' | 'comunicacao' | 'online'>('dashboard');
 
   // Selected entities
   const [selectedClassId, setSelectedClassId] = useState<string>(teacherAssignedClasses[0]?.id || '');
@@ -328,6 +333,18 @@ export const TeacherPortalView: React.FC = () => {
       {/* Navigation Sub-Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-800 pb-2 overflow-x-auto">
         <button
+          onClick={() => setActiveTab('dashboard')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+            activeTab === 'dashboard'
+              ? 'bg-blue-600 text-white shadow-md shadow-blue-950/40'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+          }`}
+        >
+          <GraduationCap className="w-4 h-4" />
+          <span>Início (Dashboard)</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('turmas')}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
             activeTab === 'turmas'
@@ -411,6 +428,434 @@ export const TeacherPortalView: React.FC = () => {
           <span>Iniciar Aula Online</span>
         </button>
       </div>
+
+      {/* TAB 0: DASHBOARD INTEGRADO PROFISSIONAL (CONFORME IMAGEM DE REFERÊNCIA) */}
+      {activeTab === 'dashboard' && (
+        <div className="space-y-6 animate-fadeIn">
+          {/* Header Superior do Portal */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-2 border-b border-slate-200 dark:border-slate-800">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-600/30">
+                <Users className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">
+                  Portal do Professor
+                </h2>
+                <span className="text-xs text-slate-500 dark:text-slate-400">
+                  Gestão Académica, Pautas e Presenças • {activeInstitution?.name || 'Centro Céu Azul'}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 self-end sm:self-auto">
+              <div className="relative p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                <Bell className="w-4 h-4" />
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                  3
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs">
+                <img
+                  src={activeTeacher?.photoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'}
+                  alt="Professor"
+                  className="w-8 h-8 rounded-full object-cover border border-blue-500"
+                />
+                <div className="text-left">
+                  <div className="text-xs font-bold text-slate-900 dark:text-white truncate max-w-[130px]">
+                    {activeTeacher?.fullName || 'Prof. António Silva'}
+                  </div>
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                    <span>Professor</span>
+                    <span className="text-[9px]">▾</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Banner de Boas-Vindas */}
+          <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-sky-600 via-blue-600 to-indigo-700 p-6 sm:p-8 text-white shadow-xl shadow-blue-900/20">
+            <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="space-y-1.5">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 backdrop-blur-md text-[11px] font-semibold tracking-wide">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Ano Letivo 2026 • Semestre Ativo</span>
+                </div>
+                <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
+                  Bem-vindo, {activeTeacher?.fullName || 'Professor António Silva'}!
+                </h1>
+                <p className="text-xs sm:text-sm text-blue-100 max-w-xl leading-relaxed">
+                  Gestão académica e financeira na ponta dos seus dedos. Controle turmas, presenças, notas e pautas com integração ao Firebase.
+                </p>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setIsCreatingLessonModal(true)}
+                  className="px-4 py-2.5 rounded-2xl bg-white text-blue-900 font-bold text-xs hover:bg-blue-50 transition shadow-md cursor-pointer flex items-center gap-1.5"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Nova Aula</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Background graphic elements */}
+            <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-radial from-white/10 to-transparent pointer-events-none" />
+          </div>
+
+          {/* 4 Cartões Informativos (Conforme Imagem) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Card 1: As Minhas Turmas */}
+            <div 
+              onClick={() => setActiveTab('turmas')}
+              className="p-5 rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/20 cursor-pointer hover:scale-[1.02] transition-transform flex items-center gap-4"
+            >
+              <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shrink-0">
+                <GraduationCap className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="text-xs font-medium text-blue-100 uppercase tracking-wider">As Minhas Turmas</div>
+                <div className="text-2xl font-black mt-0.5">{teacherAssignedClasses.length || 5}</div>
+                <div className="text-[11px] text-blue-200">Ativas</div>
+              </div>
+            </div>
+
+            {/* Card 2: Os Meus Alunos */}
+            <div 
+              onClick={() => setActiveTab('alunos')}
+              className="p-5 rounded-2xl bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 cursor-pointer hover:scale-[1.02] transition-transform flex items-center gap-4"
+            >
+              <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shrink-0">
+                <Users className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="text-xs font-medium text-emerald-100 uppercase tracking-wider">Os Meus Alunos</div>
+                <div className="text-2xl font-black mt-0.5">{teacherAssignedStudents.length || 120}</div>
+                <div className="text-[11px] text-emerald-200">Total</div>
+              </div>
+            </div>
+
+            {/* Card 3: Avaliações Pendentes */}
+            <div 
+              onClick={() => setActiveTab('pauta')}
+              className="p-5 rounded-2xl bg-amber-500 text-white shadow-lg shadow-amber-500/20 cursor-pointer hover:scale-[1.02] transition-transform flex items-center gap-4"
+            >
+              <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shrink-0">
+                <Star className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="text-xs font-medium text-amber-100 uppercase tracking-wider">Avaliações Pendentes</div>
+                <div className="text-2xl font-black mt-0.5">48</div>
+                <div className="text-[11px] text-amber-100">Para lançar</div>
+              </div>
+            </div>
+
+            {/* Card 4: Pagamentos em Falta */}
+            <div 
+              onClick={() => navigate('pagamentos')}
+              className="p-5 rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-600/20 cursor-pointer hover:scale-[1.02] transition-transform flex items-center gap-4"
+            >
+              <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shrink-0">
+                <CreditCard className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="text-xs font-medium text-indigo-100 uppercase tracking-wider">Pagamentos em Falta</div>
+                <div className="text-2xl font-black mt-0.5">12</div>
+                <div className="text-[11px] text-indigo-200">Alunos</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Linha Central: Turmas Recentes + Resumo Financeiro + Ações Rápidas */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            
+            {/* 1. Turmas Recentes (Col 5) */}
+            <div className="lg:col-span-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                    <span>Turmas Recentes</span>
+                  </h3>
+                  <button
+                    onClick={() => setActiveTab('turmas')}
+                    className="text-xs font-semibold text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <span>Ver Todas</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
+                        <th className="pb-2.5 font-semibold">Turma</th>
+                        <th className="pb-2.5 font-semibold">Disciplina</th>
+                        <th className="pb-2.5 font-semibold text-center">Nº Alunos</th>
+                        <th className="pb-2.5 font-semibold text-right">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                      {[
+                        { turma: '10.º A', disciplina: 'Matemática', alunos: 28 },
+                        { turma: '10.º B', disciplina: 'Português', alunos: 27 },
+                        { turma: '11.º A', disciplina: 'Física e Química', alunos: 26 },
+                        { turma: '12.º A', disciplina: 'Informática', alunos: 24 },
+                        { turma: '12.º B', disciplina: 'Inglês', alunos: 25 },
+                      ].map((row, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                          <td className="py-2.5 font-bold text-slate-800 dark:text-slate-200">{row.turma}</td>
+                          <td className="py-2.5 text-slate-600 dark:text-slate-300">{row.disciplina}</td>
+                          <td className="py-2.5 text-center font-mono text-slate-700 dark:text-slate-300">{row.alunos}</td>
+                          <td className="py-2.5 text-right">
+                            <button
+                              onClick={() => setActiveTab('turmas')}
+                              className="px-2.5 py-1 rounded-lg bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 hover:bg-sky-100 font-bold text-[11px] cursor-pointer transition"
+                            >
+                              Ver
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Resumo Financeiro (Minhas Turmas) - Donut Chart (Col 4) */}
+            <div className="lg:col-span-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-bold text-sm text-slate-900 dark:text-white">
+                    Resumo Financeiro <span className="text-slate-400 text-xs font-normal">(Minhas Turmas)</span>
+                  </h3>
+                  <button
+                    onClick={() => navigate('pagamentos')}
+                    className="text-xs font-semibold text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <span>Ver Detalhes</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* SVG Donut Chart */}
+                <div className="relative flex items-center justify-center my-4">
+                  <svg className="w-36 h-36 transform -rotate-90" viewBox="0 0 100 100">
+                    <circle cx="50" cy="50" r="38" fill="transparent" stroke="#e2e8f0" strokeWidth="12" className="dark:stroke-slate-800" />
+                    {/* Pagos 74% - Emerald */}
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="38"
+                      fill="transparent"
+                      stroke="#10b981"
+                      strokeWidth="12"
+                      strokeDasharray="238.76"
+                      strokeDashoffset="62.07"
+                      strokeLinecap="round"
+                    />
+                    {/* Em Falta 18% - Orange */}
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="38"
+                      fill="transparent"
+                      stroke="#f97316"
+                      strokeWidth="12"
+                      strokeDasharray="238.76"
+                      strokeDashoffset="195.78"
+                      strokeLinecap="round"
+                    />
+                    {/* Isentos 8% - Blue/Purple */}
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="38"
+                      fill="transparent"
+                      stroke="#6366f1"
+                      strokeWidth="12"
+                      strokeDasharray="238.76"
+                      strokeDashoffset="219.65"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                    <span className="text-base font-black text-slate-900 dark:text-white">€4.850</span>
+                    <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Total</span>
+                  </div>
+                </div>
+
+                {/* Legend */}
+                <div className="space-y-1.5 pt-2 text-xs">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                      <span className="text-slate-600 dark:text-slate-300">Pagos</span>
+                    </div>
+                    <span className="font-bold text-slate-900 dark:text-white font-mono">74%</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-orange-500" />
+                      <span className="text-slate-600 dark:text-slate-300">Em Falta</span>
+                    </div>
+                    <span className="font-bold text-slate-900 dark:text-white font-mono">18%</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-indigo-500" />
+                      <span className="text-slate-600 dark:text-slate-300">Isentos</span>
+                    </div>
+                    <span className="font-bold text-slate-900 dark:text-white font-mono">8%</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 3. Ações Rápidas (Col 3) */}
+            <div className="lg:col-span-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
+              <div>
+                <h3 className="font-bold text-sm text-slate-900 dark:text-white mb-3">
+                  Ações Rápidas
+                </h3>
+
+                <div className="space-y-2.5">
+                  <button
+                    onClick={() => setActiveTab('pauta')}
+                    className="w-full p-2.5 rounded-xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/60 dark:bg-blue-950/30 hover:bg-blue-100 flex items-center gap-3 text-left transition cursor-pointer"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center shrink-0">
+                      <Award className="w-4 h-4" />
+                    </div>
+                    <span className="text-xs font-bold text-blue-950 dark:text-blue-200">
+                      Registar Avaliações
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => navigate('pagamentos')}
+                    className="w-full p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/60 dark:bg-emerald-950/30 hover:bg-emerald-100 flex items-center gap-3 text-left transition cursor-pointer"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                      <CreditCard className="w-4 h-4" />
+                    </div>
+                    <span className="text-xs font-bold text-emerald-950 dark:text-emerald-200">
+                      Consultar Pagamentos
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => navigate('studio')}
+                    className="w-full p-2.5 rounded-xl border border-purple-200 dark:border-purple-900/60 bg-purple-50/60 dark:bg-purple-950/30 hover:bg-purple-100 flex items-center gap-3 text-left transition cursor-pointer"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-purple-600 text-white flex items-center justify-center shrink-0">
+                      <Sparkles className="w-4 h-4" />
+                    </div>
+                    <span className="text-xs font-bold text-purple-950 dark:text-purple-200">
+                      Emitir Certificado
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab('comunicacao')}
+                    className="w-full p-2.5 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/30 hover:bg-amber-100 flex items-center gap-3 text-left transition cursor-pointer"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0">
+                      <Mail className="w-4 h-4" />
+                    </div>
+                    <span className="text-xs font-bold text-amber-950 dark:text-amber-200">
+                      Comunicar com Alunos
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          {/* Linha Inferior: Notificações Recentes + Calendário Académico */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            
+            {/* Notificações Recentes */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-bold text-sm text-slate-900 dark:text-white">
+                  Notificações Recentes
+                </h3>
+                <button
+                  onClick={() => setActiveTab('comunicacao')}
+                  className="text-xs font-semibold text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <span>Ver Todas</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              <div className="space-y-2.5">
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-3">
+                    <div className="w-7 h-7 rounded-lg bg-sky-500/10 text-sky-600 flex items-center justify-center shrink-0">
+                      <Info className="w-4 h-4" />
+                    </div>
+                    <span className="text-slate-700 dark:text-slate-300 font-medium">
+                      Nova avaliação lançada na turma 10.º A – Matemática
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-slate-400 shrink-0">Há 1 hora</span>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-3">
+                    <div className="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-600 flex items-center justify-center shrink-0">
+                      <CheckCircle2 className="w-4 h-4" />
+                    </div>
+                    <span className="text-slate-700 dark:text-slate-300 font-medium">
+                      Pagamento recebido – Maria Santos
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-slate-400 shrink-0">Há 2 horas</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Calendário Académico */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-bold text-sm text-slate-900 dark:text-white">
+                  Calendário Académico
+                </h3>
+                <button
+                  onClick={() => navigate('calendario')}
+                  className="text-xs font-semibold text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <span>Ver Calendário</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              <div className="p-3.5 rounded-xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/50 dark:bg-blue-950/20 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center shrink-0">
+                    <Calendar className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="font-bold text-blue-950 dark:text-blue-200">Hoje</div>
+                    <div className="text-slate-600 dark:text-slate-400">Aula – Matemática (10.º A)</div>
+                  </div>
+                </div>
+                <span className="font-mono font-bold text-blue-700 dark:text-blue-300 bg-white dark:bg-slate-800 px-2.5 py-1 rounded-lg border border-blue-200 dark:border-slate-700">
+                  09:00 – 10:00
+                </span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
 
       {/* TAB 1: VER TURMAS ATRIBUÍDAS */}
       {activeTab === 'turmas' && (

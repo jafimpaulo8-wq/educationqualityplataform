@@ -1201,8 +1201,11 @@ export interface PaymentTransaction {
 export type CandidateStatus = 
   | 'Pendente' 
   | 'Em Análise' 
+  | 'Documentação Pendente'
+  | 'Correcção Solicitada'
   | 'Aprovada' 
   | 'Rejeitada' 
+  | 'Aguardando Matrícula'
   | 'Matriculado' 
   | 'Aguardando Pagamento' 
   | 'Concluída';
@@ -1222,6 +1225,25 @@ export interface CandidateAttachedDoc {
   url?: string;
   verified: boolean;
   uploadedAt: string;
+  rejectionReason?: string;
+}
+
+export interface StudentInvitation {
+  id: string;
+  token: string;
+  studentId: string;
+  studentCode: string;
+  studentName: string;
+  studentEmail: string;
+  institutionId: string;
+  branchId?: string;
+  expiresAt: string; // ISO string
+  used: boolean;
+  usedAt?: string;
+  usedByUid?: string;
+  revoked?: boolean;
+  createdAt: string;
+  createdBy: string;
 }
 
 export interface RegistrationApplication {
@@ -1230,7 +1252,7 @@ export interface RegistrationApplication {
   branchId?: string;
   code: string; // e.g. SIGAR-MZ-2026-8941 ou CAND-2026-8941
   fullName: string;
-  documentType: 'BI' | 'Passaporte' | 'DIRE';
+  documentType: 'BI' | 'Passaporte' | 'DIRE' | 'Cédula';
   documentNumber: string;
   email: string;
   phone: string;
@@ -1238,7 +1260,7 @@ export interface RegistrationApplication {
   city: string;
   address?: string;
   birthDate: string;
-  gender: 'Masculino' | 'Feminino';
+  gender: 'Masculino' | 'Feminino' | 'Outro';
   guardianName?: string;
   guardianPhone?: string;
   courseId: string;
@@ -1248,6 +1270,7 @@ export interface RegistrationApplication {
   status: CandidateStatus;
   photoUrl: string;
   createdAt: string;
+  updatedAt?: string;
   paymentStatus: 'Pago' | 'Pendente';
   paymentReference: string;
   paymentAmount?: number;
@@ -1263,6 +1286,9 @@ export interface RegistrationApplication {
   convertedAt?: string;
   convertedClassId?: string;
   convertedClassName?: string;
+  termsAccepted?: boolean;
+  termsAcceptedAt?: string;
+  privacyAccepted?: boolean;
   confirmationSent?: {
     email: boolean;
     sms: boolean;
@@ -1318,6 +1344,7 @@ export type AppRoute =
   | 'moztechwave_core'
   | 'public_portal'
   | 'inscricao_publica'
+  | 'ativar_conta'
   | 'inscricao_privada'
   | 'candidatos_gestao'
   | 'cursos_gestao'

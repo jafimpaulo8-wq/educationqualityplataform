@@ -112,47 +112,56 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
       case 'PROFESSOR':
       case 'FORMADOR':
         return [
-          { label: 'Dashboard Professor', route: 'portal_professor', icon: <School className="w-4 h-4 text-sky-400" /> },
-          { label: 'Minhas Turmas', route: 'turmas_gestao', icon: <Layers className="w-4 h-4 text-emerald-400" /> },
-          { label: 'Meus Alunos', route: 'alunos_list', icon: <Users className="w-4 h-4 text-blue-400" /> },
-          { label: 'Lançamento de Notas', route: 'avaliacoes', icon: <FileText className="w-4 h-4 text-amber-400" /> },
-          { label: 'Diário de Classe / Presenças', route: 'diario_professor', icon: <ClipboardList className="w-4 h-4 text-indigo-400" /> },
-          { label: 'Horários', route: 'horarios_calendario', icon: <Calendar className="w-4 h-4 text-teal-400" /> },
-          { label: 'Materiais & Tarefas', route: 'tarefas', icon: <CheckSquare className="w-4 h-4 text-orange-400" /> }
+          { label: 'Início', route: 'portal_professor', icon: <School className="w-4 h-4 text-white" /> },
+          { label: 'O Meu Perfil', route: 'moztechwave_id', icon: <UserCheck className="w-4 h-4 text-blue-200" /> },
+          { label: 'Turmas', route: 'turmas_gestao', icon: <Layers className="w-4 h-4 text-blue-200" /> },
+          { label: 'Alunos', route: 'alunos_list', icon: <Users className="w-4 h-4 text-blue-200" /> },
+          { label: 'Avaliações', route: 'avaliacoes', icon: <FileText className="w-4 h-4 text-blue-200" /> },
+          { label: 'Pagamentos', route: 'pagamentos', icon: <CreditCard className="w-4 h-4 text-blue-200" /> },
+          { label: 'Certificados', route: 'studio', icon: <Award className="w-4 h-4 text-blue-200" /> },
+          { label: 'Document Studio', route: 'studio_editor', icon: <BookOpen className="w-4 h-4 text-blue-200" /> },
+          { label: 'Comunicações', route: 'comunicados', icon: <Calendar className="w-4 h-4 text-blue-200" /> },
+          { label: 'Definições', route: 'configuracoes_instituicao', icon: <Settings className="w-4 h-4 text-blue-200" /> }
         ];
 
       case 'SECRETARIA':
         return [
-          { label: 'Dashboard Secretaria', route: 'candidatos_gestao', icon: <ClipboardList className="w-4 h-4 text-sky-400" /> },
-          { label: 'Inscrição Privada / Balcão', route: 'inscricao_privada', icon: <Lock className="w-4 h-4 text-amber-400" />, badge: 'Balcão' },
-          { label: 'Inscrição Pública (Portal)', route: 'inscricao_publica', icon: <Globe className="w-4 h-4 text-emerald-400" /> },
-          { label: 'Alunos', route: 'alunos_list', icon: <Users className="w-4 h-4 text-blue-400" /> },
-          { label: 'Matrículas / Inscrições', route: 'alunos_cadastrar', icon: <PlusCircle className="w-4 h-4 text-emerald-400" />, badge: 'Novo' },
-          { label: 'Turmas', route: 'turmas_gestao', icon: <Layers className="w-4 h-4 text-indigo-400" /> },
-          { label: 'Transferências', route: 'alunos_perfil', icon: <GitBranch className="w-4 h-4 text-amber-400" /> },
-          { label: 'Emissão de Documentos', route: 'contratos', icon: <FileText className="w-4 h-4 text-teal-400" /> },
-          { label: 'Certificados', route: 'studio', icon: <Award className="w-4 h-4 text-amber-400" />, badge: 'SIVEC' },
-          { label: 'Relatórios Académicos', route: 'relatorios_academicos', icon: <FileSpreadsheet className="w-4 h-4 text-rose-400" /> }
+          { label: 'Início', route: 'experiencia_secretaria', icon: <ClipboardList className="w-4 h-4 text-white" /> },
+          { label: 'Alunos', route: 'alunos_list', icon: <Users className="w-4 h-4 text-emerald-200" /> },
+          { label: 'Professores', route: 'professores_gestao', icon: <School className="w-4 h-4 text-emerald-200" /> },
+          { label: 'Turmas', route: 'turmas_gestao', icon: <Layers className="w-4 h-4 text-emerald-200" /> },
+          { label: 'Matrículas', route: 'alunos_cadastrar', icon: <PlusCircle className="w-4 h-4 text-emerald-200" />, badge: 'Novo' },
+          { label: 'Pagamentos', route: 'pagamentos', icon: <DollarSign className="w-4 h-4 text-emerald-200" /> },
+          { label: 'Pautas', route: 'pautas', icon: <FileSpreadsheet className="w-4 h-4 text-emerald-200" /> },
+          { label: 'Certificados', route: 'studio', icon: <Award className="w-4 h-4 text-emerald-200" />, badge: 'SIVEC' },
+          { label: 'SIVEC', route: 'sivec_verify', icon: <ShieldCheck className="w-4 h-4 text-emerald-200" /> },
+          { label: 'Document Studio', route: 'studio_editor', icon: <BookOpen className="w-4 h-4 text-emerald-200" /> },
+          { label: 'Relatórios', route: 'relatorios_academicos', icon: <FileText className="w-4 h-4 text-emerald-200" /> },
+          { label: 'Definições', route: 'configuracoes_instituicao', icon: <Settings className="w-4 h-4 text-emerald-200" /> }
         ];
 
       case 'FINANCEIRO':
         return [
-          { label: 'Dashboard Financeiro', route: 'financeiro', icon: <DollarSign className="w-4 h-4 text-emerald-400" /> },
-          { label: 'Caixa Escolar', route: 'caixa_escolar', icon: <CreditCard className="w-4 h-4 text-sky-400" /> },
-          { label: 'Pagamentos / Mensalidades', route: 'pagamentos', icon: <DollarSign className="w-4 h-4 text-teal-400" /> },
-          { label: 'Contas a Receber', route: 'financial_manager', icon: <FileText className="w-4 h-4 text-indigo-400" /> },
-          { label: 'Contas a Pagar', route: 'financeiro_modulo29', icon: <FileSpreadsheet className="w-4 h-4 text-rose-400" /> },
-          { label: 'Recibos', route: 'pagamentos', icon: <Award className="w-4 h-4 text-amber-400" /> },
-          { label: 'Relatórios Financeiros', route: 'relatorios_financeiros', icon: <Layers className="w-4 h-4 text-orange-400" /> }
+          { label: 'Início', route: 'experiencia_financeiro', icon: <DollarSign className="w-4 h-4 text-white" /> },
+          { label: 'Caixa Escolar', route: 'caixa_escolar', icon: <CreditCard className="w-4 h-4 text-amber-300" /> },
+          { label: 'Mensalidades & Propinas', route: 'pagamentos', icon: <DollarSign className="w-4 h-4 text-emerald-300" /> },
+          { label: 'Contas a Receber', route: 'financial_manager', icon: <FileText className="w-4 h-4 text-sky-300" /> },
+          { label: 'Contas a Pagar', route: 'financeiro_modulo29', icon: <FileSpreadsheet className="w-4 h-4 text-rose-300" /> },
+          { label: 'M-Pesa & e-Mola', route: 'experiencia_financeiro', icon: <Coins className="w-4 h-4 text-amber-300" /> },
+          { label: 'Recibos & Faturas', route: 'experiencia_financeiro', icon: <Award className="w-4 h-4 text-teal-300" /> },
+          { label: 'Relatórios & DRE', route: 'relatorios_financeiros', icon: <Layers className="w-4 h-4 text-purple-300" /> },
+          { label: 'Definições', route: 'configuracoes_financeiras', icon: <Settings className="w-4 h-4 text-slate-300" /> }
         ];
 
       case 'PORTEIRO':
         return [
-          { label: 'Dashboard Portaria', route: 'portaria_acesso', icon: <DoorOpen className="w-4 h-4 text-amber-400" /> },
-          { label: 'Registo de Entrada / Saída', route: 'controlo_entrada', icon: <CheckSquare className="w-4 h-4 text-emerald-400" /> },
-          { label: 'Leitura de Cartões / QR Code', route: 'aluno_qrcode', icon: <QrCode className="w-4 h-4 text-sky-400" /> },
-          { label: 'Consulta Rápida de Alunos', route: 'alunos_list', icon: <Users className="w-4 h-4 text-blue-400" /> },
-          { label: 'Histórico do Dia', route: 'portaria_acesso', icon: <Calendar className="w-4 h-4 text-indigo-400" /> }
+          { label: 'Início', route: 'experiencia_porteiro', icon: <DoorOpen className="w-4 h-4 text-white" /> },
+          { label: 'Controlo de Acessos', route: 'controlo_entrada', icon: <CheckSquare className="w-4 h-4 text-slate-300" /> },
+          { label: 'Visitantes', route: 'experiencia_porteiro', icon: <Users className="w-4 h-4 text-slate-300" /> },
+          { label: 'Entregas/Levantamentos', route: 'experiencia_porteiro', icon: <Layers className="w-4 h-4 text-slate-300" /> },
+          { label: 'Comunicações', route: 'comunicados', icon: <Calendar className="w-4 h-4 text-slate-300" /> },
+          { label: 'Estado da Escola', route: 'portaria_acesso', icon: <ShieldCheck className="w-4 h-4 text-slate-300" /> },
+          { label: 'Definições', route: 'moztechwave_id', icon: <Settings className="w-4 h-4 text-slate-300" /> }
         ];
 
       case 'CEO':
@@ -205,6 +214,46 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
 
   const hasMultipleRoles = userAuthorizedRolesList.length > 1;
 
+  // Determine Theme Style based on canonical active role matching reference image
+  let sidebarBg = isLight ? 'bg-white border-r border-slate-200 text-slate-800 shadow-sm' : 'bg-[#090d16] border-r border-slate-800 text-slate-100';
+  let headerBg = isLight ? 'border-slate-200 bg-slate-50' : 'border-slate-800 bg-[#0d1527]/90';
+  let activeItemStyle = 'bg-blue-600 text-white font-bold shadow-md shadow-blue-600/30';
+  let inactiveItemStyle = isLight ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100' : 'text-slate-300 hover:text-white hover:bg-[#111c35]';
+  let brandSubtext = isLight ? 'text-slate-500' : 'text-slate-400';
+  let brandIcon = <GraduationCap className="w-5 h-5 text-white" />;
+
+  if (!isLight) {
+    if (canonicalActive === 'PROFESSOR' || canonicalActive === 'FORMADOR') {
+      sidebarBg = 'bg-[#1b3260] border-r border-[#24427e] text-white';
+      headerBg = 'bg-[#15274d] border-[#24427e]';
+      activeItemStyle = 'bg-[#2563eb] text-white font-bold shadow-md shadow-blue-900/40';
+      inactiveItemStyle = 'text-blue-100 hover:text-white hover:bg-white/10';
+      brandSubtext = 'text-blue-200';
+      brandIcon = <GraduationCap className="w-5 h-5 text-white" />;
+    } else if (canonicalActive === 'SECRETARIA') {
+      sidebarBg = 'bg-[#064e3b] border-r border-[#065f46] text-white';
+      headerBg = 'bg-[#043d2e] border-[#065f46]';
+      activeItemStyle = 'bg-[#059669] text-white font-bold shadow-md shadow-emerald-900/40';
+      inactiveItemStyle = 'text-emerald-100 hover:text-white hover:bg-white/10';
+      brandSubtext = 'text-emerald-200';
+      brandIcon = <Building2 className="w-5 h-5 text-white" />;
+    } else if (canonicalActive === 'PORTEIRO') {
+      sidebarBg = 'bg-[#0b1322] border-r border-[#1e293b] text-white';
+      headerBg = 'bg-[#070b12] border-[#1e293b]';
+      activeItemStyle = 'bg-[#1e293b] text-white font-bold border border-slate-700 shadow-md';
+      inactiveItemStyle = 'text-slate-300 hover:text-white hover:bg-white/10';
+      brandSubtext = 'text-slate-400';
+      brandIcon = <DoorOpen className="w-5 h-5 text-white" />;
+    } else if (canonicalActive === 'FINANCEIRO') {
+      sidebarBg = 'bg-[#0a1628] border-r border-amber-900/40 text-white';
+      headerBg = 'bg-[#06101d] border-amber-900/30';
+      activeItemStyle = 'bg-gradient-to-r from-amber-600 to-emerald-600 text-white font-bold shadow-md shadow-amber-900/30';
+      inactiveItemStyle = 'text-amber-100/80 hover:text-white hover:bg-white/10';
+      brandSubtext = 'text-amber-200';
+      brandIcon = <DollarSign className="w-5 h-5 text-white" />;
+    }
+  }
+
   return (
     <>
       {/* Mobile Backdrop */}
@@ -217,51 +266,98 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
 
       {/* Main Sidebar Element */}
       <aside 
-        className={`fixed top-0 bottom-0 left-0 w-72 flex flex-col z-50 transition-transform duration-300 ease-in-out lg:translate-x-0 ${
-          isLight ? 'bg-white border-r border-slate-200 text-slate-800 shadow-sm' : 'bg-[#090d16] border-r border-slate-800 text-slate-100'
-        } ${
+        className={`fixed top-0 bottom-0 left-0 w-72 flex flex-col z-50 transition-transform duration-300 ease-in-out lg:translate-x-0 ${sidebarBg} ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
         {/* Brand & Institution Header */}
-        <div className={`p-4 border-b flex items-center justify-between transition-colors ${
-          isLight ? 'border-slate-200 bg-slate-50' : 'border-slate-800 bg-[#0d1527]/90'
-        }`}>
+        <div className={`p-4 border-b flex items-center justify-between transition-colors ${headerBg}`}>
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-black text-sm shadow-md shadow-blue-600/30">
-              S
+            <div className="w-9 h-9 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center shrink-0 shadow-md">
+              {brandIcon}
             </div>
             <div>
               <div className="flex items-center gap-1.5">
-                <span className={`font-black text-sm tracking-wider ${isLight ? 'text-slate-900' : 'text-white'}`}>SIGAR</span>
-                <span className={`text-[10px] px-1 rounded font-bold border ${
-                  isLight ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-blue-500/20 text-blue-400 border-blue-500/30'
-                }`}>PRO</span>
+                <span className="font-black text-sm tracking-wider text-white">SIGAR PRO</span>
               </div>
-              <p className={`text-[10px] truncate max-w-[145px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                {activeInstitution.name}
+              <p className={`text-[10px] truncate max-w-[155px] font-medium ${brandSubtext}`}>
+                Sistema Integrado de Gestão
               </p>
             </div>
           </div>
           
           <button 
             onClick={onCloseMobile}
-            className={`p-1 rounded-lg lg:hidden transition-colors ${
-              isLight ? 'text-slate-500 hover:text-slate-900' : 'text-slate-400 hover:text-white'
-            }`}
+            className="p-1 rounded-lg lg:hidden text-slate-300 hover:text-white transition-colors cursor-pointer"
             aria-label="Fechar navegação móvel"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
+        {/* Super Admin Sovereign 4-Portals Quick Jump */}
+        {isSuper && (
+          <div className="px-3 py-2 border-b border-amber-500/30 bg-amber-500/10 space-y-1">
+            <div className="flex items-center justify-between text-[10px] font-bold text-amber-300">
+              <span>Ambientes (4 Portais):</span>
+              <span className="text-[9px] uppercase font-mono bg-amber-500/20 px-1 rounded">Super Admin</span>
+            </div>
+            <div className="grid grid-cols-4 gap-1 pt-0.5">
+              <button
+                onClick={() => {
+                  handleNav('portal_professor');
+                }}
+                title="Portal do Professor"
+                className={`p-1 rounded text-center text-[10px] font-bold truncate transition-all cursor-pointer ${
+                  currentRoute === 'portal_professor' ? 'bg-blue-600 text-white font-black' : 'bg-slate-900/80 text-blue-300 hover:bg-blue-900/50'
+                }`}
+              >
+                Prof
+              </button>
+              <button
+                onClick={() => {
+                  handleNav('experiencia_secretaria');
+                }}
+                title="Portal da Secretaria"
+                className={`p-1 rounded text-center text-[10px] font-bold truncate transition-all cursor-pointer ${
+                  currentRoute === 'experiencia_secretaria' ? 'bg-emerald-600 text-white font-black' : 'bg-slate-900/80 text-emerald-300 hover:bg-emerald-900/50'
+                }`}
+              >
+                Secr
+              </button>
+              <button
+                onClick={() => {
+                  handleNav('experiencia_financeiro');
+                }}
+                title="Portal Financeiro"
+                className={`p-1 rounded text-center text-[10px] font-bold truncate transition-all cursor-pointer ${
+                  currentRoute === 'experiencia_financeiro' ? 'bg-amber-600 text-white font-black' : 'bg-slate-900/80 text-amber-300 hover:bg-amber-900/50'
+                }`}
+              >
+                Fin
+              </button>
+              <button
+                onClick={() => {
+                  handleNav('experiencia_porteiro');
+                }}
+                title="Portal do Porteiro"
+                className={`p-1 rounded text-center text-[10px] font-bold truncate transition-all cursor-pointer ${
+                  currentRoute === 'experiencia_porteiro' ? 'bg-slate-700 text-white font-black' : 'bg-slate-900/80 text-slate-300 hover:bg-slate-800'
+                }`}
+              >
+                Port
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Institution / Filial Context Banner */}
         <div className={`px-4 py-2 border-b flex items-center justify-between text-xs transition-colors ${
-          isLight ? 'bg-slate-100/80 border-slate-200' : 'bg-[#070b12] border-slate-800/80'
+          isLight ? 'bg-slate-100/80 border-slate-200' : 'bg-black/20 border-white/10'
         }`}>
           <div className="flex items-center gap-2 truncate">
-            <MapPin className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-            <span className={`text-[11px] font-semibold truncate ${isLight ? 'text-slate-700' : 'text-slate-400'}`}>
+            <MapPin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span className={`text-[11px] font-semibold truncate ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
               {activeBranchId === 'todas' ? 'Todas as Filiais' : (activeInstitution.branches?.find(b => b.id === activeBranchId)?.name || 'Filial Principal')}
             </span>
           </div>
@@ -270,9 +366,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
             <button
               onClick={() => setShowAddBranchModal(true)}
               title="Adicionar Nova Filial / Delegação"
-              className={`p-1 rounded-md text-amber-500 transition-all cursor-pointer ${
-                isLight ? 'hover:bg-slate-200' : 'hover:bg-slate-800'
-              }`}
+              className="p-1 rounded-md text-amber-400 hover:bg-white/10 transition-all cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
             </button>
@@ -281,16 +375,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
 
         {/* Role Identity Tag */}
         <div className={`px-4 py-2 border-b flex items-center justify-between transition-colors ${
-          isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-slate-800/80'
+          isLight ? 'bg-slate-50 border-slate-200' : 'bg-black/30 border-white/10'
         }`}>
           <span className={`text-[10px] font-mono font-bold uppercase tracking-wider flex items-center gap-1.5 ${
-            isLight ? 'text-slate-600' : 'text-slate-400'
+            isLight ? 'text-slate-600' : 'text-slate-300'
           }`}>
-            <Lock className="w-3 h-3 text-amber-500" />
-            Painel Autorizado:
+            <Lock className="w-3 h-3 text-amber-400" />
+            Ambiente:
           </span>
           <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${
-            isLight ? 'text-amber-800 bg-amber-50 border-amber-200' : 'text-amber-300 bg-amber-500/10 border-amber-500/20'
+            isLight ? 'text-amber-800 bg-amber-50 border-amber-200' : 'text-amber-300 bg-amber-500/10 border-amber-500/30'
           }`}>
             {canonicalActive}
           </span>
@@ -306,11 +400,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
                 type="button"
                 onClick={() => handleNav(item.route)}
                 className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer text-left ${
-                  isActive
-                    ? 'bg-blue-600 text-white font-bold shadow-md shadow-blue-600/30'
-                    : isLight
-                      ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                      : 'text-slate-300 hover:text-white hover:bg-[#111c35]'
+                  isActive ? activeItemStyle : inactiveItemStyle
                 }`}
               >
                 <div className="flex items-center gap-2.5 truncate">
@@ -322,9 +412,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
                   <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold uppercase shrink-0 ${
                     isActive 
                       ? 'bg-amber-400 text-slate-950 font-black' 
-                      : isLight 
-                        ? 'bg-slate-200 text-slate-700' 
-                        : 'bg-slate-800 text-slate-400'
+                      : 'bg-black/30 text-white/90 border border-white/20'
                   }`}>
                     {item.badge}
                   </span>
@@ -392,9 +480,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
             </button>
           )}
 
-          <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1 font-mono">
-            <span>SIVEC Conectado</span>
-            <span>SIGAR PRO • MZ</span>
+          <div className="flex items-center justify-between pt-1">
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-[10px] font-bold text-slate-300 font-mono">SIGAR PRO v3.0.0</span>
+            </div>
+            <span className="text-[9px] text-slate-500 font-mono">SIVEC Online</span>
           </div>
         </div>
       </aside>

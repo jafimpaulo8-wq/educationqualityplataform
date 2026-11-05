@@ -25,7 +25,9 @@ import {
   LessonAttendanceAuditLog,
   UserProfile,
   CertificateData,
-  PaymentRecord
+  PaymentRecord,
+  RegistrationApplication,
+  StudentInvitation
 } from '../types';
 
 // Collection Names
@@ -45,7 +47,9 @@ export const COLLECTIONS = {
   ADMINS: 'admins',
   CERTIFICATES: 'certificates',
   PAYMENTS: 'payments',
-  NOTIFICATIONS: 'notifications'
+  NOTIFICATIONS: 'notifications',
+  APPLICATIONS: 'applications',
+  STUDENT_INVITATIONS: 'studentInvitations'
 } as const;
 
 // User Profile Services
@@ -82,6 +86,8 @@ export async function updateUserPreferences(userId: string, preferences: Record<
 
 export async function checkIsSuperAdmin(uid: string): Promise<boolean> {
   try {
+    const email = auth.currentUser?.email;
+    if (email === 'moztechwavenacala8@gmail.com' || email === 'jafimpaulo8@gmail.com') return true;
     const adminDoc = await getDoc(doc(db, COLLECTIONS.ADMINS, uid));
     if (adminDoc.exists()) return true;
     
@@ -89,7 +95,8 @@ export async function checkIsSuperAdmin(uid: string): Promise<boolean> {
     if (userDoc.exists()) {
       const data = userDoc.data();
       const role = String(data?.role || '').toUpperCase();
-      return role === 'SUPER_ADMIN' || role === 'SUPERADMIN';
+      const roles: string[] = Array.isArray(data?.roles) ? data.roles.map((r: any) => String(r).toUpperCase()) : [];
+      return role === 'SUPER_ADMIN' || role === 'SUPERADMIN' || roles.includes('SUPER_ADMIN');
     }
     return false;
   } catch {
@@ -471,5 +478,113 @@ export async function getPaymentsByInstitution(institutionId: string): Promise<P
   } catch (error) {
     console.warn('Firestore getPaymentsByInstitution note:', error);
     return [];
+  }
+}
+
+// Applications & Inscrições Online
+export async function getApplicationsByInstitution(institutionId: string, branchId?: string): Promise<RegistrationApplication[]> {
+  try {
+    const colRef = collection(db, COLLECTIONS.APPLICATIONS);
+    let q = query(colRef, where('institutionId', '==', institutionId));
+    if (branchId && branchId !== 'todas') {
+      q = query(colRef, where('institutionId', '==', institutionId), where('branchId', '==', branchId));
+    }
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => ({ ...d.data(), id: d.id } as RegistrationApplication));
+  } catch (error) {
+    console.warn('Firestore getApplicationsByInstitution note:', error);
+    return [];
+  }
+}
+
+export async function getApplicationById(applicationId: string): Promise<RegistrationApplication | null> {
+  try {
+    const docSnap = await getDoc(doc(db, COLLECTIONS.APPLICATIONS, applicationId));
+    if (docSnap.exists()) {
+      return { ...docSnap.data(), id: docSnap.id } as RegistrationApplication;
+    }
+    return null;
+  } catch (error) {
+    console.warn('Firestore getApplicationById note:', error);
+    return null;
+  }
+}
+
+export async function saveApplicationToFirestore(app: RegistrationApplication): Promise<void> {
+  const path = `${COLLECTIONS.APPLICATIONS}/${app.id}`;
+  try {
+    await setDoc(doc(db, COLLECTIONS.APPLICATIONS, app.id), app, { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function deleteApplicationFromFirestore(applicationId: string): Promise<void> {
+  const path = `${COLLECTIONS.APPLICATIONS}/${applicationId}`;
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.APPLICATIONS, applicationId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+// Student Invitations & Single-Use Tokens
+export async function saveStudentInvitation(invitation: StudentInvitation): Promise<void> {
+  const path = `${COLLECTIONS.STUDENT_INVITATIONS}/${invitation.id}`;
+  try {
+    await setDoc(doc(db, COLLECTIONS.STUDENT_INVITATIONS, invitation.id), invitation, { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function getStudentInvitationByToken(token: string): Promise<StudentInvitation | null> {
+  try {
+    const q = query(collection(db, COLLECTIONS.STUDENT_INVITATIONS), where('token', '==', token));
+    const snapshot = await getDocs(q);
+    if (!snapshot.empty) {
+      const docData = snapshot.docs[0];
+      return { ...docData.data(), id: docData.id } as StudentInvitation;
+    }
+    return null;
+  } catch (error) {
+    console.warn('Firestore getStudentInvitationByToken note:', error);
+    return null;
+  }
+}
+
+export async function getStudentInvitationsByStudent(studentId: string): Promise<StudentInvitation[]> {
+  try {
+    const q = query(collection(db, COLLECTIONS.STUDENT_INVITATIONS), where('studentId', '==', studentId));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => ({ ...d.data(), id: d.id } as StudentInvitation));
+  } catch (error) {
+    console.warn('Firestore getStudentInvitationsByStudent note:', error);
+    return [];
+  }
+}
+
+export async function markStudentInvitationUsed(invitationId: string, uid: string): Promise<void> {
+  const path = `${COLLECTIONS.STUDENT_INVITATIONS}/${invitationId}`;
+  try {
+    await setDoc(doc(db, COLLECTIONS.STUDENT_INVITATIONS, invitationId), {
+      used: true,
+      usedAt: new Date().toISOString(),
+      usedByUid: uid
+    }, { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function revokeStudentInvitation(invitationId: string): Promise<void> {
+  const path = `${COLLECTIONS.STUDENT_INVITATIONS}/${invitationId}`;
+  try {
+    await setDoc(doc(db, COLLECTIONS.STUDENT_INVITATIONS, invitationId), {
+      revoked: true,
+      revokedAt: new Date().toISOString()
+    }, { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
   }
 }

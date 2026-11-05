@@ -220,6 +220,7 @@ interface AppContextType {
   authorizedRoles: UserRole[];
   switchRole: (role: UserRole) => boolean;
   hasSigarProfile: boolean;
+  setHasSigarProfile: (val: boolean) => void;
   userProfile: UserProfile | null;
 
   // Firebase Auth & Cloud Status
@@ -1314,10 +1315,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           let effectiveInstId = '';
           let effectiveBranchId = 'todas';
 
-          if (user.email === 'jafimpaulo8@gmail.com') {
-            // Mandato: Jafim Paulo é DIRETOR do Centro Infantil Céu Azul (NÃO Super Admin)
+          if (user.email === 'moztechwavenacala8@gmail.com') {
+            // Super Administrador Master Global SIGAR PRO
+            effectiveRole = 'SUPER_ADMIN';
+            userAuthRoles = ['SUPER_ADMIN', 'ADMIN_INSTITUICAO', 'DIRETOR', 'SECRETARIA', 'FINANCEIRO', 'PROFESSOR', 'PORTEIRO', 'ALUNO'];
+            effectiveInstId = CEU_AZUL_INSTITUTION_ID;
+            effectiveBranchId = 'todas';
+            setUserProfile({
+              id: user.uid,
+              name: 'Super Administrador Global',
+              email: 'moztechwavenacala8@gmail.com',
+              role: 'SUPER_ADMIN',
+              roles: ['SUPER_ADMIN', 'ADMIN_INSTITUICAO', 'DIRETOR', 'SECRETARIA', 'FINANCEIRO', 'PROFESSOR', 'PORTEIRO', 'ALUNO'],
+              institutionId: CEU_AZUL_INSTITUTION_ID,
+              branchId: 'todas',
+              status: 'Ativo'
+            });
+            setHasSigarProfile(true);
+          } else if (user.email === 'jafimpaulo8@gmail.com') {
+            // Mandato: Jafim Paulo é DIRETOR do Centro Infantil Céu Azul e SUPER ADMIN soberano
             effectiveRole = 'DIRETOR';
-            userAuthRoles = ['DIRETOR'];
+            userAuthRoles = ['DIRETOR', 'SUPER_ADMIN'];
             effectiveInstId = CEU_AZUL_INSTITUTION_ID;
             effectiveBranchId = 'branch-ceu-azul-main';
             setUserProfile({
@@ -1325,7 +1343,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               name: 'Jafim Paulo Rupia',
               email: 'jafimpaulo8@gmail.com',
               role: 'DIRETOR',
-              roles: ['DIRETOR'],
+              roles: ['DIRETOR', 'SUPER_ADMIN'],
               institutionId: CEU_AZUL_INSTITUTION_ID,
               branchId: 'branch-ceu-azul-main',
               status: 'Ativo'
@@ -7894,6 +7912,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         authorizedRoles,
         switchRole,
         hasSigarProfile,
+        setHasSigarProfile,
         userProfile,
         firebaseUser,
         isFirebaseConnected,
