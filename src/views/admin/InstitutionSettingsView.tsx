@@ -27,20 +27,22 @@ import {
   ShieldCheck,
   RefreshCw,
   Stamp,
-  PenTool
+  PenTool,
+  Globe
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { useToast } from '../../context/ToastContext';
 import { useTranslation } from '../../i18n/LanguageContext';
 import { soundManager } from '../../utils/audio';
-import { Institution, InstitutionPrefixes, FinancialSettings } from '../../types';
+import { Institution, InstitutionPrefixes, FinancialSettings, OnlineRegistrationConfig } from '../../types';
+import { OnlineRegistrationSettingsPanel } from '../../components/settings/OnlineRegistrationSettingsPanel';
 
 export const InstitutionSettingsView: React.FC = () => {
   const { activeInstitution, updateInstitution } = useApp();
   const { success, error } = useToast();
   const { t, language } = useTranslation();
 
-  const [activeTab, setActiveTab] = useState<'geral' | 'prefixos' | 'assinatura_carimbo' | 'modelos' | 'regras_mensagens'>('geral');
+  const [activeTab, setActiveTab] = useState<'geral' | 'prefixos' | 'assinatura_carimbo' | 'modelos' | 'regras_mensagens' | 'inscricoes_online'>('geral');
   const [saving, setSaving] = useState(false);
 
   // Form states initialized with activeInstitution data
@@ -295,6 +297,18 @@ export const InstitutionSettingsView: React.FC = () => {
           >
             <MessageSquare className="w-4 h-4 text-emerald-400" />
             <span>{t('institution.tab_rules', 'Regras & Mensagens')}</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('inscricoes_online')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap transition-all cursor-pointer ${
+              activeTab === 'inscricoes_online'
+                ? 'bg-emerald-600 text-white shadow-md'
+                : 'bg-[#0d1527] text-slate-400 hover:text-white border border-slate-800'
+            }`}
+          >
+            <Globe className="w-4 h-4 text-emerald-400" />
+            <span>Inscrições Online</span>
           </button>
         </div>
       </div>
@@ -1158,6 +1172,19 @@ export const InstitutionSettingsView: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Tab 6: Inscrições Online (8 Secções Requisito 2B) */}
+      {activeTab === 'inscricoes_online' && (
+        <OnlineRegistrationSettingsPanel
+          institution={activeInstitution}
+          onSave={async (updatedConfig, updatedSlug) => {
+            updateInstitution(activeInstitution.id, {
+              onlineRegistrationConfig: updatedConfig,
+              slug: updatedSlug || activeInstitution.slug
+            });
+          }}
+        />
       )}
     </div>
   );

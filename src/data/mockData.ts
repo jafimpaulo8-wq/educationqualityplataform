@@ -310,6 +310,8 @@ export const INITIAL_INSTITUTIONS: Institution[] = [
       lastSync: 'Hoje, 11:42'
     },
     certificateCurrentSequence: 1042,
+    slug: 'cftpm-moztechwave',
+    slugAliases: ['cftpm', 'cftpm-nacala', 'inst-1', 'mtw-cf-0001', 'cftpm-al'],
     onlineRegistrationConfig: DEFAULT_ONLINE_REGISTRATION_CONFIG
   },
   {

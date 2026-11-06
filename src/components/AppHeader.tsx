@@ -20,7 +20,8 @@ import {
   DollarSign,
   Coins,
   Sun,
-  Moon
+  Moon,
+  Palette
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/LanguageContext';
@@ -53,6 +54,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
     activeInstitutionWallet,
     activeUserWallet,
     themeMode,
+    themePreset,
+    setThemePreset,
+    openAppearanceModal,
     toggleThemeMode
   } = useApp();
 
@@ -301,18 +305,83 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           </button>
         )}
 
-        {/* Theme Mode Toggle (Fundo Branco vs Escuro) */}
+        {/* Interruptor Rápido Claro / Escuro suave / Escuro no Cabeçalho (Requisito 6) */}
+        <div className={`hidden sm:flex items-center p-0.5 rounded-xl border ${
+          isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#0b1120] border-slate-800'
+        }`} title="Interruptor Rápido de Tema (Claro / Escuro suave / Escuro)">
+          <button
+            type="button"
+            onClick={() => setThemePreset('claro')}
+            className={`px-2 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition-all cursor-pointer ${
+              themePreset === 'claro'
+                ? 'bg-white text-blue-600 shadow-xs font-bold'
+                : isLight ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-slate-200'
+            }`}
+            title="Tema Claro (#F4F6FA)"
+          >
+            <Sun className="w-3.5 h-3.5 text-amber-500" />
+            <span className="hidden md:inline">Claro</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setThemePreset('escuro-suave')}
+            className={`px-2 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition-all cursor-pointer ${
+              themePreset === 'escuro-suave'
+                ? 'bg-slate-800 text-sky-300 shadow-xs font-bold'
+                : isLight ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-slate-200'
+            }`}
+            title="Tema Escuro suave (#1E293B)"
+          >
+            <Moon className="w-3.5 h-3.5 text-sky-400" />
+            <span className="hidden md:inline">Suave</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setThemePreset('escuro')}
+            className={`px-2 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition-all cursor-pointer ${
+              themePreset === 'escuro'
+                ? 'bg-slate-950 text-indigo-300 shadow-xs font-bold border border-slate-700'
+                : isLight ? 'text-slate-600 hover:text-slate-900' : 'text-slate-400 hover:text-slate-200'
+            }`}
+            title="Tema Escuro Padrão (#090D16)"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+            <span className="hidden md:inline">Escuro</span>
+          </button>
+        </div>
+
+        {/* Mobile Quick Switcher Toggle */}
         <button
+          type="button"
           onClick={toggleThemeMode}
           aria-label="Alternar Tema"
-          className={`p-2 rounded-xl border cursor-pointer transition-all flex items-center justify-center ${
+          className={`sm:hidden p-2 rounded-xl border cursor-pointer transition-all flex items-center justify-center ${
             isLight
               ? 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100 shadow-xs'
               : 'bg-[#0d1527] border-slate-800 text-slate-300 hover:text-white'
           }`}
-          title={isLight ? 'Fundo Branco Ativo (Clique para Escuro)' : 'Fundo Escuro Ativo (Clique para Branco)'}
+          title={`Tema Atual: ${themePreset}. Clique para alternar.`}
         >
           {isLight ? <Sun className="w-4 h-4 text-amber-600" /> : <Moon className="w-4 h-4 text-sky-400" />}
+        </button>
+
+        {/* Botão de Acesso a Perfil > Aparência (Requisito 6) */}
+        <button
+          type="button"
+          onClick={openAppearanceModal}
+          aria-label="Personalizar Aparência"
+          className={`p-2 rounded-xl border cursor-pointer transition-all flex items-center justify-center ${
+            themePreset === 'personalizado'
+              ? 'bg-purple-950/70 border-purple-500 text-purple-300 ring-2 ring-purple-500/30'
+              : isLight
+                ? 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
+                : 'bg-[#0d1527] border-slate-800 text-slate-300 hover:text-white'
+          }`}
+          title="Perfil > Aparência (Tema Personalizado e Contraste WCAG AA)"
+        >
+          <Palette className="w-4 h-4 text-purple-400" />
         </button>
 
         {/* Notification Bell */}

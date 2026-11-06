@@ -199,18 +199,45 @@ import {
   saveAttendanceAuditToFirestore,
   getCertificatesByInstitution,
   getPaymentsByInstitution,
+  getApplicationsByInstitution,
+  saveApplicationToFirestore,
+  deleteApplicationFromFirestore,
   saveUserProfile, 
   getUserProfile,
   updateUserPreferences,
+  getUserPreferences,
+  saveUserPreferences,
   checkIsSuperAdmin
 } from '../services/firestoreService';
 import { authService } from '../auth/authService';
 import { toCanonicalRole } from '../types/rbac';
 import { getDefaultRouteForRole, getRoleDisplayName } from '../security/routeSecurity';
+import {
+  ThemePreset,
+  UserThemePreference,
+  ThemeVariables,
+  PRESET_THEMES,
+  calculateCustomTheme,
+  applyThemeToDom,
+  loadCachedThemePreference,
+  saveCachedThemePreference,
+  getSystemPreferredTheme,
+  isLightColor
+} from '../theme/themeConfig';
 
 interface AppContextType {
-  themeMode: 'branco' | 'escuro';
-  setThemeMode: (mode: 'branco' | 'escuro') => void;
+  themePreset: ThemePreset;
+  setThemePreset: (preset: ThemePreset) => void;
+  themeVariables: ThemeVariables;
+  userThemePreference: UserThemePreference;
+  saveThemePreference: (pref: UserThemePreference) => Promise<void>;
+  resetThemeToDefault: () => void;
+  isAppearanceModalOpen: boolean;
+  setIsAppearanceModalOpen: (open: boolean) => void;
+  openAppearanceModal: () => void;
+  closeAppearanceModal: () => void;
+  themeMode: 'branco' | 'escuro' | ThemePreset;
+  setThemeMode: (mode: 'branco' | 'escuro' | ThemePreset) => void;
   toggleThemeMode: () => void;
   currentRoute: AppRoute;
   routeParams: Record<string, any>;
@@ -724,56 +751,99 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [hasSigarProfile, setHasSigarProfile] = useState<boolean>(true);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
-  // Theme Management (Fundo Branco vs Escuro - Default 'branco' as requested)
-  const [themeMode, setThemeModeState] = useState<'branco' | 'escuro'>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('sigar_theme');
-      if (saved === 'escuro') return 'escuro';
-    }
-    return 'branco';
+  // ==========================================================
+  // SISTEMA UNIFICADO DE TEMAS VISUAIS — SIGAR PRO (Requisitos 1 a 8)
+  // ==========================================================
+  const [userThemePref, setUserThemePref] = useState<UserThemePreference>(() => {
+    return loadCachedThemePreference();
   });
+  const [isAppearanceModalOpen, setIsAppearanceModalOpen] = useState(false);
 
-  const setThemeMode = (mode: 'branco' | 'escuro') => {
-    setThemeModeState(mode);
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem('sigar_theme', mode);
-        if (mode === 'branco') {
-          document.documentElement.classList.remove('dark');
-          document.documentElement.classList.add('light');
-          document.body.classList.remove('dark', 'bg-slate-950', 'text-slate-100');
-          document.body.classList.add('bg-white', 'text-slate-900');
-        } else {
-          document.documentElement.classList.add('dark');
-          document.documentElement.classList.remove('light');
-          document.body.classList.add('dark', 'bg-slate-950', 'text-slate-100');
-          document.body.classList.remove('bg-white', 'text-slate-900');
-        }
-      } catch (e) {
-        console.error('Erro ao guardar tema:', e);
-      }
+  // Calcula as variáveis CSS do tema atual
+  const themeVariables = useMemo<ThemeVariables>(() => {
+    if (userThemePref.theme === 'personalizado') {
+      const custom = calculateCustomTheme(
+        userThemePref.background || '#090D16',
+        userThemePref.accent || '#3B82F6'
+      );
+      return custom.variables;
     }
-  };
+    return PRESET_THEMES[userThemePref.theme] || PRESET_THEMES.escuro;
+  }, [userThemePref]);
 
-  const toggleThemeMode = () => {
-    setThemeMode(themeMode === 'branco' ? 'escuro' : 'branco');
-  };
+  const themePreset: ThemePreset = userThemePref.theme;
 
+  // Retrocompatibilidade para componentes que checam themeMode === 'branco' ou 'escuro'
+  const themeMode: 'branco' | 'escuro' | ThemePreset = useMemo(() => {
+    if (themePreset === 'claro') return 'branco';
+    if (themePreset === 'escuro' || themePreset === 'escuro-suave') return 'escuro';
+    return isLightColor(themeVariables.bg) ? 'branco' : 'escuro';
+  }, [themePreset, themeVariables.bg]);
+
+  // Aplica as variáveis CSS ao DOM sempre que mudarem
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      if (themeMode === 'branco') {
-        document.documentElement.classList.remove('dark');
-        document.documentElement.classList.add('light');
-        document.body.classList.remove('dark', 'bg-slate-950', 'text-slate-100');
-        document.body.classList.add('bg-white', 'text-slate-900');
-      } else {
-        document.documentElement.classList.add('dark');
-        document.documentElement.classList.remove('light');
-        document.body.classList.add('dark', 'bg-slate-950', 'text-slate-100');
-        document.body.classList.remove('bg-white', 'text-slate-900');
+    applyThemeToDom(themeVariables, userThemePref.theme);
+  }, [themeVariables, userThemePref.theme]);
+
+  // Salva preferência no cache local e no Firestore se autenticado (Requisito 8)
+  const saveThemePreference = async (pref: UserThemePreference) => {
+    setUserThemePref(pref);
+    saveCachedThemePreference(pref);
+
+    if (firebaseUser?.uid) {
+      try {
+        await saveUserPreferences(firebaseUser.uid, {
+          theme: pref.theme,
+          background: pref.background,
+          accent: pref.accent,
+          updatedAt: new Date().toISOString()
+        });
+      } catch (err) {
+        console.warn('[Tema] Erro não-bloqueante ao sincronizar preferência com Firestore:', err);
       }
     }
-  }, [themeMode]);
+  };
+
+  const setThemePreset = (preset: ThemePreset) => {
+    saveThemePreference({
+      ...userThemePref,
+      theme: preset
+    });
+  };
+
+  // Suporte à retrocompatibilidade de setThemeMode
+  const setThemeMode = (mode: 'branco' | 'escuro' | ThemePreset) => {
+    if (mode === 'branco') {
+      setThemePreset('claro');
+    } else if (mode === 'escuro') {
+      setThemePreset('escuro');
+    } else {
+      setThemePreset(mode);
+    }
+  };
+
+  // Interruptor Rápido do Cabeçalho (Requisito 6): Claro -> Escuro suave -> Escuro -> Claro
+  const toggleThemeMode = () => {
+    if (userThemePref.theme === 'claro') {
+      setThemePreset('escuro-suave');
+    } else if (userThemePref.theme === 'escuro-suave') {
+      setThemePreset('escuro');
+    } else {
+      setThemePreset('claro');
+    }
+  };
+
+  // Repor padrão do dispositivo (Requisito 6 & 7)
+  const resetThemeToDefault = () => {
+    const systemDefault = getSystemPreferredTheme();
+    saveThemePreference({
+      theme: systemDefault,
+      updatedAt: new Date().toISOString()
+    });
+  };
+
+  const openAppearanceModal = () => setIsAppearanceModalOpen(true);
+  const closeAppearanceModal = () => setIsAppearanceModalOpen(false);
 
   const setActiveRole = (role: UserRole) => {
     const isSuper = (authorizedRoles || []).map(r => toCanonicalRole(r)).includes('SUPER_ADMIN');
@@ -1304,6 +1374,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const isSuper = await checkIsSuperAdmin(user.uid);
           const existing = await getUserProfile(user.uid);
 
+          // Carrega preferências visuais personalizadas do Firestore (Requisito 8)
+          try {
+            const cloudPref = await getUserPreferences(user.uid);
+            if (cloudPref && ['claro', 'escuro-suave', 'escuro', 'personalizado'].includes(cloudPref.theme)) {
+              setUserThemePref(cloudPref);
+              saveCachedThemePreference(cloudPref);
+            }
+          } catch (themeErr) {
+            console.warn('[Tema] Erro não-bloqueante ao carregar userPreferences da nuvem:', themeErr);
+          }
+
           if (existing?.preferences?.onboardingCompleted !== undefined) {
             setOnboardingCompleted(Boolean(existing.preferences.onboardingCompleted));
           } else {
@@ -1506,7 +1587,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 cloudLessons,
                 cloudSchedules,
                 cloudTransfers,
-                cloudCash
+                cloudCash,
+                cloudApplications
               ] = await Promise.all([
                 getStudentsByInstitution(effectiveInstId, effectiveBranchId),
                 getCoursesByInstitution(effectiveInstId),
@@ -1517,7 +1599,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 getLessonsByInstitution(effectiveInstId),
                 getSchedulesByInstitution(effectiveInstId),
                 getTransfersByInstitution(effectiveInstId),
-                getCashSessionsByInstitution(effectiveInstId)
+                getCashSessionsByInstitution(effectiveInstId),
+                getApplicationsByInstitution(effectiveInstId, effectiveBranchId)
               ]);
 
               setAllStudents(cloudStudents || []);
@@ -1530,6 +1613,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               setAllSchedules(cloudSchedules || []);
               setAllClassTransfers(cloudTransfers || []);
               setAllCashSessions(cloudCash || []);
+              if (cloudApplications && cloudApplications.length > 0) {
+                setAllApplications(cloudApplications);
+              }
             }
           }
         } catch (e) {
@@ -2701,19 +2787,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const addApplication = (newApp: Omit<RegistrationApplication, 'id' | 'code' | 'createdAt'>): RegistrationApplication => {
+    const targetInst = allInstitutions.find(i => i.id === newApp.institutionId) 
+      || (newApp.institutionId === 'ceu-azul-nacala' ? CEU_AZUL_INSTITUTION : activeInstitution);
     const randomSeq = Math.floor(1000 + Math.random() * 9000);
-    const prefix = activeInstitution.prefixes?.candidatePrefix || `${activeInstitution.code || 'MTW'}-CAND`;
+    const prefix = targetInst.prefixes?.candidatePrefix || `${targetInst.code || 'SIGAR'}-CAND`;
     const code = `${prefix}-2026-${randomSeq}`;
-    const targetBranch = newApp.branchId || (activeBranchId !== 'todas' ? activeBranchId : (activeInstitution.branches?.[0]?.id || 'branch-1-maputo'));
+    const targetBranch = newApp.branchId || (targetInst.branches?.[0]?.id || 'branch-main');
     const createdAt = new Date().toLocaleString('pt-MZ');
 
     const application: RegistrationApplication = {
       ...newApp,
       id: `reg-${Date.now()}`,
       code,
-      institutionId: newApp.institutionId || activeInstitution.id,
+      institutionId: newApp.institutionId || targetInst.id,
       branchId: targetBranch,
       createdAt,
+      updatedAt: createdAt,
       status: newApp.status || 'Pendente',
       confirmationSent: {
         email: true,
@@ -2727,26 +2816,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setAllApplications(prev => [application, ...prev]);
 
-    // If coursesConfig has this course, bump filledVacancies
-    if (activeInstitution.onlineRegistrationConfig?.coursesConfig) {
-      setAllInstitutions(prev => prev.map(inst => {
-        if (inst.id === activeInstitution.id && inst.onlineRegistrationConfig) {
-          return {
-            ...inst,
-            onlineRegistrationConfig: {
-              ...inst.onlineRegistrationConfig,
-              coursesConfig: inst.onlineRegistrationConfig.coursesConfig.map(cc => {
-                if (cc.courseId === newApp.courseId) {
-                  return { ...cc, filledVacancies: Math.min(cc.vacancies, (cc.filledVacancies || 0) + 1) };
-                }
-                return cc;
-              })
-            }
-          };
-        }
-        return inst;
-      }));
-    }
+    // Persist application directly to Firestore without client-side vacancies decrement
+    saveApplicationToFirestore(application).catch(err => console.warn('Firestore sync application error:', err));
 
     addNotification({
       title: `Nova Inscrição Online: ${application.fullName}`,
@@ -2760,7 +2831,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateApplication = (id: string, updates: Partial<RegistrationApplication>) => {
-    setAllApplications(prev => prev.map(app => app.id === id ? { ...app, ...updates } : app));
+    let updatedApp: RegistrationApplication | null = null;
+    setAllApplications(prev => prev.map(app => {
+      if (app.id === id) {
+        updatedApp = { ...app, ...updates, updatedAt: new Date().toISOString() };
+        return updatedApp;
+      }
+      return app;
+    }));
+    if (updatedApp) {
+      saveApplicationToFirestore(updatedApp).catch(err => console.warn('Firestore sync update application error:', err));
+    }
   };
 
   const approveApplication = (id: string, notes: string, actorName = 'Secretaria Acadêmica') => {
@@ -2774,7 +2855,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           status: 'Aprovada',
           analysisNotes: notes,
           analyzedBy: actorName,
-          analyzedAt: timestamp
+          analyzedAt: timestamp,
+          updatedAt: new Date().toISOString()
         };
         return approvedCandidate;
       }
@@ -2782,6 +2864,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }));
 
     if (approvedCandidate) {
+      saveApplicationToFirestore(approvedCandidate).catch(err => console.warn('Firestore sync approve application error:', err));
       addNotification({
         title: `Candidatura Aprovada: ${(approvedCandidate as RegistrationApplication).fullName}`,
         message: `Inscrição ${(approvedCandidate as RegistrationApplication).code} deferida pela secretaria. Candidato liberado para matrícula.`,
@@ -2803,7 +2886,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           rejectionReason,
           analysisNotes: notes,
           analyzedBy: actorName,
-          analyzedAt: timestamp
+          analyzedAt: timestamp,
+          updatedAt: new Date().toISOString()
         };
         return rejectedCandidate;
       }
@@ -2811,6 +2895,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }));
 
     if (rejectedCandidate) {
+      saveApplicationToFirestore(rejectedCandidate).catch(err => console.warn('Firestore sync reject application error:', err));
       addNotification({
         title: `Candidatura Indeferida: ${(rejectedCandidate as RegistrationApplication).fullName}`,
         message: `Motivo registrado: ${rejectionReason}`,
@@ -2830,6 +2915,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!candidate) return null;
 
     const targetClass = classes.find(c => c.id === classId);
+
+    // Duplicate check: check if student with same BI or email already exists in institution
+    const existingStudent = allStudents.find(s => 
+      s.institutionId === (candidate.institutionId || activeInstitution.id) &&
+      (
+        (s.documentNumber && s.documentNumber.trim().toLowerCase() === candidate.documentNumber.trim().toLowerCase()) ||
+        (s.email && candidate.email && s.email.trim().toLowerCase() === candidate.email.trim().toLowerCase())
+      )
+    );
+
+    if (existingStudent) {
+      addNotification({
+        title: 'Candidato Já Cadastrado como Aluno',
+        message: `O candidato ${candidate.fullName} já possui registo de estudante ativo com o código ${existingStudent.code}. O processo foi associado.`,
+        type: 'warning'
+      });
+      // Link candidate to existing student
+      setAllApplications(prev => prev.map(app => {
+        if (app.id === candidateId) {
+          const updated: RegistrationApplication = {
+            ...app,
+            status: 'Matriculado',
+            convertedStudentId: existingStudent.id,
+            convertedStudentCode: existingStudent.code,
+            convertedAt: new Date().toLocaleString('pt-MZ'),
+            convertedClassId: existingStudent.classGroupId || classId,
+            convertedClassName: existingStudent.classGroupName || targetClass?.name || 'Turma Designada',
+            updatedAt: new Date().toISOString()
+          };
+          saveApplicationToFirestore(updated).catch(err => console.warn('Firestore sync candidate conversion error:', err));
+          return updated;
+        }
+        return app;
+      }));
+      return existingStudent;
+    }
+
     const attachedDocs: StudentAttachedDocument[] = (candidate.documents || []).map((d, idx) => ({
       id: `doc-std-${Date.now()}-${idx}`,
       name: d.name,
@@ -2907,15 +3029,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Update the candidate record so it links to the new student
     setAllApplications(prev => prev.map(app => {
       if (app.id === candidateId) {
-        return {
+        const updated: RegistrationApplication = {
           ...app,
           status: 'Matriculado',
           convertedStudentId: createdStudent.id,
           convertedStudentCode: createdStudent.code,
           convertedAt: new Date().toLocaleString('pt-MZ'),
           convertedClassId: classId,
-          convertedClassName: targetClass?.name || 'Turma Designada'
+          convertedClassName: targetClass?.name || 'Turma Designada',
+          updatedAt: new Date().toISOString()
         };
+        saveApplicationToFirestore(updated).catch(err => console.warn('Firestore sync candidate conversion error:', err));
+        return updated;
       }
       return app;
     }));
@@ -2933,6 +3058,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const deleteApplication = (id: string) => {
     setAllApplications(prev => prev.filter(app => app.id !== id));
+    deleteApplicationFromFirestore(id).catch(err => console.warn('Firestore sync delete application error:', err));
     addNotification({
       title: 'Candidatura Removida',
       message: 'O processo de inscrição do candidato foi removido com sucesso.',
@@ -7901,6 +8027,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   return (
     <AppContext.Provider
       value={{
+        themePreset,
+        setThemePreset,
+        themeVariables,
+        userThemePreference: userThemePref,
+        saveThemePreference,
+        resetThemeToDefault,
+        isAppearanceModalOpen,
+        setIsAppearanceModalOpen,
+        openAppearanceModal,
+        closeAppearanceModal,
         themeMode,
         setThemeMode,
         toggleThemeMode,

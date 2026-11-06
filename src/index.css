@@ -15,6 +15,20 @@
   --mtw-success: #10B981;
   --mtw-warning: #F59E0B;
   --mtw-danger: #EF4444;
+
+  /* SIGAR PRO Unified Theme Variables Defaults */
+  --theme-bg: #090D16;
+  --theme-card: #0F172A;
+  --theme-border: #1E293B;
+  --theme-text: #F8FAFC;
+  --theme-text-muted: #94A3B8;
+  --theme-accent: #3B82F6;
+  --theme-accent-hover: #2563EB;
+  --theme-accent-text: #FFFFFF;
+  --theme-success: #10B981;
+  --theme-error: #EF4444;
+  --theme-warning: #F59E0B;
+  --theme-info: #0284C7;
 }
 
 @layer base {
@@ -22,14 +36,43 @@
     scroll-behavior: smooth;
   }
   body {
-    background-color: #ffffff;
-    color: #0f172a;
-    transition: background-color 0.2s ease, color 0.2s ease;
+    background-color: var(--theme-bg, #090d16);
+    color: var(--theme-text, #f8fafc);
+    transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  }
+  body.light {
+    background-color: var(--theme-bg, #f4f6fa);
+    color: var(--theme-text, #111827);
   }
   body.dark {
-    background-color: #090d16;
-    color: #f8fafc;
+    background-color: var(--theme-bg, #090d16);
+    color: var(--theme-text, #f8fafc);
   }
+}
+
+/* Theme Utilities for Seamless Component Adoption */
+.theme-bg {
+  background-color: var(--theme-bg) !important;
+}
+.theme-card {
+  background-color: var(--theme-card) !important;
+  border-color: var(--theme-border) !important;
+}
+.theme-border {
+  border-color: var(--theme-border) !important;
+}
+.theme-text {
+  color: var(--theme-text) !important;
+}
+.theme-text-muted {
+  color: var(--theme-text-muted) !important;
+}
+.theme-accent-btn {
+  background-color: var(--theme-accent) !important;
+  color: var(--theme-accent-text) !important;
+}
+.theme-accent-btn:hover {
+  background-color: var(--theme-accent-hover) !important;
 }
 
 /* Custom subtle scrollbar */

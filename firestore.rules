@@ -205,10 +205,30 @@ service cloud.firestore {
       allow delete: if isSuperAdmin();
     }
 
-    // Public Registration Applications (Portal do Aluno)
+    // Public Institutions by Slug (Portais Públicos Isolados)
+    // Permite get público pelo slug exato; proíbe listagem global para evitar raspagem; escrita restrita a administradores
+    match /publicInstitutions/{slug} {
+      allow get: if true;
+      allow list: if false;
+      allow write: if isInstAdmin(request.resource.data.institutionId) || isSuperAdmin();
+    }
+
+    // Public Registration Applications (Candidaturas & Admissões Online)
     match /applications/{appId} {
-      allow create: if true; // Public candidate registration
-      allow get, list, update, delete: if isSecretaria(resource.data.institutionId);
+      allow create: if request.resource.data.institutionId != null && request.resource.data.fullName != null;
+      allow get: if true; // Permite consulta direta por código/ID pelo próprio candidato
+      allow list: if isSecretaria(resource.data.institutionId) || isSuperAdmin();
+      allow update: if isSecretaria(resource.data.institutionId) || isSuperAdmin();
+      allow delete: if isSecretaria(resource.data.institutionId) || isSuperAdmin();
+    }
+
+    // Student Invitations & Single-Use Activation Tokens (Convites Portal do Aluno)
+    match /studentInvitations/{invId} {
+      allow get: if true; // Token verification & activation portal
+      allow list: if isSecretaria(resource.data.institutionId) || isSuperAdmin(); // Proíbe listagem pública indiscriminada
+      allow create: if isSecretaria(request.resource.data.institutionId) || isSuperAdmin();
+      allow update: if true; // Permite marcar used: true na ativação de conta
+      allow delete: if isInstAdmin(resource.data.institutionId) || isSuperAdmin();
     }
 
     // 56. BANCO DE DADOS - MODULAR COLLECTIONS & PERMISSIONS
@@ -443,13 +463,35 @@ service cloud.firestore {
       allow write: if isSuperAdmin();
     }
 
-    // 87. MOZTECHWAVE ID — IDENTIDADE CENTRAL
-    match /moztechwave_identities/{mwId} {
-      allow get, list: if isSignedIn() && (
-        isSuperAdmin() || 
-        resource.data.email == request.auth.token.email
-      );
-      allow write: if isSuperAdmin();
+    // 88. PREFERÊNCIAS VISUAIS DE TEMA DO UTILIZADOR (Requisito 8)
+    // Documento: /userPreferences/{userId}
+    // Acesso: Apenas o próprio utilizador pode ler (get) e gravar (create, update)
+    // Listagem proibida (sem listagem)
+    // Campos estritamente limitados: ['theme', 'background', 'accent', 'updatedAt']
+    // Validação de formato hex e valores permitidos de tema
+    function isValidHexColor(c) {
+      return c is string && c.matches('^#[0-9A-Fa-f]{6}$');
+    }
+
+    function isValidUserPreference() {
+      let data = request.resource.data;
+      let allowedKeys = ['theme', 'background', 'accent', 'updatedAt'];
+      return data.keys().hasOnly(allowedKeys) &&
+        ('theme' in data) &&
+        data.theme in ['claro', 'escuro-suave', 'escuro', 'personalizado'] &&
+        (!('background' in data) || isValidHexColor(data.background)) &&
+        (!('accent' in data) || isValidHexColor(data.accent)) &&
+        (data.theme != 'personalizado' || (
+          ('background' in data) && isValidHexColor(data.background) &&
+          ('accent' in data) && isValidHexColor(data.accent)
+        ));
+    }
+
+    match /userPreferences/{userId} {
+      allow get: if isSelf(userId);
+      allow list: if false; // Proibida listagem global de preferências
+      allow create, update: if isSelf(userId) && isValidUserPreference();
+      allow delete: if isSelf(userId);
     }
   }
 }

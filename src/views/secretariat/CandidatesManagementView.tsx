@@ -39,18 +39,20 @@ import {
   Sliders,
   History,
   FileSpreadsheet,
-  Lock
+  Lock,
+  KeyRound
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useApp } from '../../context/AppContext';
 import { useToast } from '../../context/ToastContext';
 import { soundManager } from '../../utils/audio';
-import { RegistrationApplication, StudentStatus, OnlineRegistrationConfig, OnlineCourseConfig } from '../../types';
+import { RegistrationApplication, StudentStatus, OnlineRegistrationConfig, OnlineCourseConfig, Student } from '../../types';
 import { hasPermission } from '../../types/rbac';
 import { EmptyState } from '../../components/common/EmptyState';
 import { ConfirmationModal } from '../../components/common/ConfirmationModal';
 import { RecordHistoryModal } from '../../components/common/RecordHistoryModal';
 import { RecordDetailsModal, DetailField } from '../../components/common/RecordDetailsModal';
+import { StudentInvitationModal } from '../../components/students/StudentInvitationModal';
 
 export const CandidatesManagementView: React.FC = () => {
   const { 
@@ -147,6 +149,10 @@ export const CandidatesManagementView: React.FC = () => {
   const [rejectionReason, setRejectionReason] = useState('Documentação ilegível ou incompleta');
   const [rejectionCustomNotes, setRejectionCustomNotes] = useState('');
 
+  // Correction Request Modal State
+  const [showCorrectionModal, setShowCorrectionModal] = useState(false);
+  const [correctionNote, setCorrectionNote] = useState('');
+
   // Conversion to Student Modal State
   const [showConvertModal, setShowConvertModal] = useState(false);
   const [targetClassId, setTargetClassId] = useState<string>('');
@@ -157,6 +163,8 @@ export const CandidatesManagementView: React.FC = () => {
     studentName: string;
     className: string;
   } | null>(null);
+  const [createdStudentForInvitation, setCreatedStudentForInvitation] = useState<Student | null>(null);
+  const [invitationModalStudent, setInvitationModalStudent] = useState<Student | null>(null);
 
   // Configuration Edit State (Local copy synced from onlineRegistrationConfig)
   const [cfgIsOpen, setCfgIsOpen] = useState(onlineRegistrationConfig.isOpen);
@@ -258,6 +266,47 @@ export const CandidatesManagementView: React.FC = () => {
     info('Candidatura Deferida como Rejeitada', `A candidatura #${selectedCandidate.code} foi rejeitada pelo motivo: ${finalReason}`);
   };
 
+  // Handle Correction Request Action
+  const handleRequestCorrection = () => {
+    if (!selectedCandidate || !correctionNote.trim()) {
+      toastError('Nota Obrigatória', 'Informe o que o candidato precisa corrigir ou anexar.');
+      return;
+    }
+    const updatedNote = reviewNotes 
+      ? `${reviewNotes}\n[Correcção Solicitada]: ${correctionNote.trim()}`
+      : `[Correcção Solicitada]: ${correctionNote.trim()}`;
+    updateApplication(selectedCandidate.id, {
+      status: 'Correcção Solicitada',
+      analysisNotes: updatedNote
+    });
+    setSelectedCandidate(prev => prev ? {
+      ...prev,
+      status: 'Correcção Solicitada',
+      analysisNotes: updatedNote
+    } : null);
+    setShowCorrectionModal(false);
+    setCorrectionNote('');
+    success('Correcção Solicitada', `O candidato #${selectedCandidate.code} foi notificado para rectificar a candidatura.`);
+  };
+
+  // Handle Mark Pending Documents Action
+  const handleMarkPendingDocs = () => {
+    if (!selectedCandidate) return;
+    const updatedNote = reviewNotes 
+      ? `${reviewNotes}\n[Doc. Pendente]: Documentação de suporte pendente de conferência.`
+      : 'Documentação de suporte pendente de conferência.';
+    updateApplication(selectedCandidate.id, {
+      status: 'Documentação Pendente',
+      analysisNotes: updatedNote
+    });
+    setSelectedCandidate(prev => prev ? {
+      ...prev,
+      status: 'Documentação Pendente',
+      analysisNotes: updatedNote
+    } : null);
+    info('Documentação Pendente', `Candidatura #${selectedCandidate.code} marcada como aguardando documentos.`);
+  };
+
   // Handle Convert to Student Action
   const handleConvert = () => {
     if (!selectedCandidate) return;
@@ -286,6 +335,7 @@ export const CandidatesManagementView: React.FC = () => {
         studentName: createdStudent.fullName,
         className: createdStudent.classGroupName
       });
+      setCreatedStudentForInvitation(createdStudent);
       setShowConvertModal(false);
       setSelectedCandidate(prev => prev ? { 
         ...prev, 
@@ -737,6 +787,41 @@ export const CandidatesManagementView: React.FC = () => {
       {/* Main Tab Content */}
       {activeTab === 'candidatos' ? (
         <div className="space-y-4">
+          {/* Quick Status Filter Pills */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs scrollbar-thin">
+            {[
+              { id: 'todos', label: 'Todas', count: applications.length },
+              { id: 'Pendente', label: 'Submetida', count: applications.filter(a => a.status === 'Pendente').length },
+              { id: 'Em Análise', label: 'Em Análise', count: applications.filter(a => a.status === 'Em Análise').length },
+              { id: 'Documentação Pendente', label: 'Doc. Pendente', count: applications.filter(a => a.status === 'Documentação Pendente').length },
+              { id: 'Correcção Solicitada', label: 'Correcção Solicitada', count: applications.filter(a => a.status === 'Correcção Solicitada').length },
+              { id: 'Aprovada', label: 'Aprovada', count: applications.filter(a => a.status === 'Aprovada').length },
+              { id: 'Aguardando Matrícula', label: 'Aguardando Matrícula', count: applications.filter(a => a.status === 'Aguardando Matrícula').length },
+              { id: 'Matriculado', label: 'Matriculada', count: applications.filter(a => a.status === 'Matriculado').length },
+              { id: 'Rejeitada', label: 'Rejeitada', count: applications.filter(a => a.status === 'Rejeitada').length }
+            ].map(pill => (
+              <button
+                key={pill.id}
+                onClick={() => {
+                  setSelectedStatusFilter(pill.id);
+                  soundManager.playClick();
+                }}
+                className={`px-3 py-1.5 rounded-xl font-medium shrink-0 flex items-center gap-1.5 transition-all cursor-pointer border ${
+                  selectedStatusFilter === pill.id
+                    ? 'bg-emerald-500 text-slate-950 font-bold border-emerald-400 shadow-sm'
+                    : 'bg-slate-900/90 text-slate-300 border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                <span>{pill.label}</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                  selectedStatusFilter === pill.id ? 'bg-slate-950/20 text-slate-950 font-black' : 'bg-slate-800 text-slate-400'
+                }`}>
+                  {pill.count}
+                </span>
+              </button>
+            ))}
+          </div>
+
           {/* Filter Bar */}
           <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800/80 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
             {/* Search Input */}
@@ -767,13 +852,15 @@ export const CandidatesManagementView: React.FC = () => {
                 onChange={e => setSelectedStatusFilter(e.target.value)}
                 className="px-3 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 focus:outline-none focus:border-emerald-500/60 cursor-pointer"
               >
-                <option value="todos">Todos os Estados</option>
-                <option value="Pendente">Pendente</option>
+                <option value="todos">Todas (Todos os Estados)</option>
+                <option value="Pendente">Submetida (Pendente)</option>
                 <option value="Em Análise">Em Análise</option>
+                <option value="Documentação Pendente">Documentação Pendente</option>
+                <option value="Correcção Solicitada">Correcção Solicitada</option>
                 <option value="Aprovada">Aprovada</option>
-                <option value="Matriculado">Matriculado</option>
+                <option value="Aguardando Matrícula">Aguardando Matrícula</option>
+                <option value="Matriculado">Matriculada</option>
                 <option value="Rejeitada">Rejeitada</option>
-                <option value="Aguardando Pagamento">Aguardando Pagamento</option>
               </select>
 
               {/* Course Select */}
@@ -1373,7 +1460,7 @@ export const CandidatesManagementView: React.FC = () => {
                   <label key={key} className="flex items-center gap-2 text-slate-300 cursor-pointer p-2 rounded-lg bg-slate-950 border border-slate-800/80">
                     <input
                       type="checkbox"
-                      checked={value}
+                      checked={value === true || value === 'obrigatorio'}
                       onChange={e => setCfgRequiredFields({ ...cfgRequiredFields, [key]: e.target.checked })}
                       className="rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-0 cursor-pointer"
                     />
@@ -1669,18 +1756,49 @@ export const CandidatesManagementView: React.FC = () => {
 
             {/* Modal Footer: Action Buttons */}
             <div className="p-4 border-t border-slate-800 bg-slate-950/80 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   onClick={() => setShowRejectModal(true)}
                   disabled={selectedCandidate.status === 'Matriculado'}
-                  className="px-3.5 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <XCircle className="w-4 h-4" />
-                  Indeferir / Rejeitar
+                  Indeferir
+                </button>
+
+                <button
+                  onClick={() => setShowCorrectionModal(true)}
+                  disabled={selectedCandidate.status === 'Matriculado'}
+                  className="px-3 py-2 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 text-purple-300 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <AlertTriangle className="w-4 h-4 text-purple-400" />
+                  Solicitar Correcção
+                </button>
+
+                <button
+                  onClick={handleMarkPendingDocs}
+                  disabled={selectedCandidate.status === 'Matriculado'}
+                  className="px-3 py-2 rounded-xl bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/30 text-orange-300 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <FileText className="w-4 h-4 text-orange-400" />
+                  Doc. Pendente
                 </button>
               </div>
 
               <div className="flex items-center gap-2.5">
+                <button
+                  onClick={() => {
+                    updateApplication(selectedCandidate.id, { status: 'Aguardando Matrícula' });
+                    setSelectedCandidate(prev => prev ? { ...prev, status: 'Aguardando Matrícula' } : null);
+                    info('Aguardando Matrícula', `Candidatura #${selectedCandidate.code} marcada como aguardando formalização de matrícula.`);
+                  }}
+                  disabled={selectedCandidate.status === 'Matriculado'}
+                  className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-teal-300 flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40"
+                >
+                  <Clock className="w-4 h-4 text-teal-400" />
+                  Aguardando Matrícula
+                </button>
+
                 <button
                   onClick={handleApprove}
                   disabled={selectedCandidate.status === 'Aprovada' || selectedCandidate.status === 'Matriculado'}
@@ -1756,6 +1874,49 @@ export const CandidatesManagementView: React.FC = () => {
               >
                 <XCircle className="w-4 h-4" />
                 Confirmar Indeferimento
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Correction Request Modal */}
+      {showCorrectionModal && selectedCandidate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl">
+            <h3 className="text-base font-bold text-white flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-purple-400" />
+              Solicitar Correcção ao Candidato
+            </h3>
+            <p className="text-xs text-slate-400">
+              Descreva as correcções necessárias nos dados ou documentos de <strong className="text-white">{selectedCandidate.fullName}</strong>.
+            </p>
+
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-slate-300">Instruções de Correcção</label>
+              <textarea
+                rows={4}
+                value={correctionNote}
+                onChange={e => setCorrectionNote(e.target.value)}
+                placeholder="Exemplo: O documento de identificação (BI) está ilegível ou expirado. Por favor, reenvie uma cópia nítida frente e verso..."
+                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-purple-500"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => { setShowCorrectionModal(false); setCorrectionNote(''); }}
+                className="px-3.5 py-2 text-xs font-semibold text-slate-400 hover:text-white cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleRequestCorrection}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs rounded-xl transition-all cursor-pointer shadow-md"
+              >
+                Notificar & Solicitar Correcção
               </button>
             </div>
           </div>
@@ -1917,10 +2078,21 @@ export const CandidatesManagementView: React.FC = () => {
             <div className="flex flex-col gap-2 pt-2">
               <button
                 onClick={() => {
+                  if (createdStudentForInvitation) {
+                    setInvitationModalStudent(createdStudentForInvitation);
+                  }
+                }}
+                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-emerald-500 hover:from-amber-400 hover:to-emerald-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all shadow-md shadow-emerald-500/20"
+              >
+                <KeyRound className="w-4 h-4" />
+                Emitir Convite de Acesso ao Portal do Aluno
+              </button>
+              <button
+                onClick={() => {
                   setConversionSuccessResult(null);
                   navigate('alunos_list');
                 }}
-                className="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all shadow-md"
+                className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all"
               >
                 <Users className="w-4 h-4" />
                 Ir para Gestão de Alunos
@@ -1934,6 +2106,19 @@ export const CandidatesManagementView: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal de Emissão do Convite do Portal do Aluno */}
+      {invitationModalStudent && (
+        <StudentInvitationModal
+          isOpen={!!invitationModalStudent}
+          onClose={() => setInvitationModalStudent(null)}
+          student={invitationModalStudent}
+          institution={activeInstitution}
+          onAuditLog={(action, details) => {
+            console.log(`[Audit Invitations] ${action}: ${details}`);
+          }}
+        />
       )}
 
       {/* Modal Inscrever Candidato (Balcão / Presencial) */}

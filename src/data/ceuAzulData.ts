@@ -80,6 +80,144 @@ export const CEU_AZUL_INSTITUTION: Institution & {
     dueDay: 10,
     mpesaNumber: '853 181 189',
     emolaNumber: '864 826 647'
+  },
+  slug: 'ceu-azul',
+  slugAliases: ['ceu-azul-nacala', 'centro-infantil-ceu-azul', 'ceu-azul-001'],
+  onlineRegistrationConfig: {
+    institutionId: CEU_AZUL_INSTITUTION_ID,
+    isOpen: true,
+    title: 'Inscrições & Matrículas 2026 — Centro Infantil Céu Azul',
+    description: 'Acolhimento humanizado, segurança integral e estimulação precoce com amor para o seu filho em Nacala-Porto. Submeta a candidatura digital para garantir vaga nas turmas do ano letivo 2026.',
+    startDate: '2026-01-01',
+    endDate: '2026-12-31',
+    academicYear: '2026',
+    semester: 'Ano Letivo Completo',
+    requiredFields: {
+      email: 'opcional',
+      phone: 'obrigatorio',
+      documentNumber: 'opcional',
+      birthDate: 'obrigatorio',
+      gender: 'obrigatorio',
+      province: 'obrigatorio',
+      city: 'obrigatorio',
+      address: 'obrigatorio',
+      guardianName: 'obrigatorio',
+      guardianPhone: 'obrigatorio',
+      guardianRelationship: 'obrigatorio',
+      authorizedPickupPersons: 'obrigatorio'
+    },
+    requiredDocuments: [
+      'Cédula de Nascimento ou Assento da Criança',
+      'Boletim / Cartão de Vacinas Atualizado',
+      'Fotocópia do BI / Identificação dos Pais ou Encarregados',
+      'Fotografia recente tipo passe da criança (fundo branco)'
+    ],
+    customQuestions: [
+      {
+        id: 'q_ceu_1',
+        question: 'Horário de acolhimento pretendido para a criança:',
+        type: 'select',
+        options: [
+          'Período da Manhã (07h00 às 12h00)',
+          'Período da Tarde (12h30 às 17h00)',
+          'Tempo Integral (07h00 às 17h00 - com almoço e repouso)'
+        ],
+        required: true
+      },
+      {
+        id: 'q_ceu_2',
+        question: 'A criança já frequentou anteriormente outro berçário ou centro infantil?',
+        type: 'boolean',
+        required: true
+      },
+      {
+        id: 'q_ceu_3',
+        question: 'Com quem a criança reside habitualmente?',
+        type: 'select',
+        options: [
+          'Com ambos os Pais',
+          'Apenas com a Mãe',
+          'Apenas com o Pai',
+          'Com Avós / Familiares Próximos',
+          'Com Tutor Legal'
+        ],
+        required: true
+      }
+    ],
+    coursesConfig: [
+      {
+        courseId: 'ceu-bercario',
+        courseName: 'Bebeteca & Berçário (0 a 12 Meses)',
+        category: 'Educação Infantil',
+        active: true,
+        price: 1000,
+        monthlyFee: 3500,
+        duration: 'Ano Letivo 2026',
+        requirements: ['Crianças de 3 meses a 1 ano', 'Cartão de vacinas em dia', 'Encarregado identificado'],
+        vacancies: 12,
+        filledVacancies: 5,
+        regimes: ['Laboral'],
+        shifts: ['Manhã', 'Tarde', 'Integral']
+      },
+      {
+        courseId: 'ceu-creche',
+        courseName: 'Creche & Maternal (1 a 2 Anos)',
+        category: 'Educação Infantil',
+        active: true,
+        price: 1000,
+        monthlyFee: 3200,
+        duration: 'Ano Letivo 2026',
+        requirements: ['Crianças de 1 a 2 anos completos', 'Cartão de vacinas regularizado'],
+        vacancies: 15,
+        filledVacancies: 8,
+        regimes: ['Laboral'],
+        shifts: ['Manhã', 'Tarde', 'Integral']
+      },
+      {
+        courseId: 'ceu-jardim-1',
+        courseName: 'Jardim 1 (3 Anos)',
+        category: 'Educação Infantil',
+        active: true,
+        price: 1000,
+        monthlyFee: 3000,
+        duration: 'Ano Letivo 2026',
+        requirements: ['Idade de 3 anos até 31 de Março', 'Boletim de saúde'],
+        vacancies: 18,
+        filledVacancies: 12,
+        regimes: ['Laboral'],
+        shifts: ['Manhã', 'Tarde', 'Integral']
+      },
+      {
+        courseId: 'ceu-jardim-2',
+        courseName: 'Jardim 2 (4 Anos)',
+        category: 'Educação Infantil',
+        active: true,
+        price: 1000,
+        monthlyFee: 3000,
+        duration: 'Ano Letivo 2026',
+        requirements: ['Idade de 4 anos', 'Boletim de saúde'],
+        vacancies: 20,
+        filledVacancies: 14,
+        regimes: ['Laboral'],
+        shifts: ['Manhã', 'Tarde', 'Integral']
+      },
+      {
+        courseId: 'ceu-pre-escolar',
+        courseName: 'Pré-Escolar & Alfabetização Inicial (5 Anos)',
+        category: 'Educação Infantil',
+        active: true,
+        price: 1000,
+        monthlyFee: 3000,
+        duration: 'Ano Letivo 2026',
+        requirements: ['Idade de 5 anos', 'Preparação para 1ª Classe do Ensino Primário'],
+        vacancies: 20,
+        filledVacancies: 16,
+        regimes: ['Laboral'],
+        shifts: ['Manhã', 'Tarde', 'Integral']
+      }
+    ],
+    autoApproveOnPayment: false,
+    confirmationMessageTemplate: 'Recebemos com alegria a candidatura do(a) seu(sua) filho(a) no Centro Infantil Céu Azul! A nossa equipa pedagógica entrará em contacto via WhatsApp ou telefone para agendamento da visita e formalização da matrícula.'
   }
 };
 

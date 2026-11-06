@@ -45,7 +45,8 @@ import {
   RotateCcw,
   ShieldAlert,
   FileCheck2,
-  ChevronDown
+  ChevronDown,
+  KeyRound
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { 
@@ -60,6 +61,7 @@ import {
   getStudentStatusBadgeStyle
 } from '../../types';
 import { hasPermission } from '../../types/rbac';
+import { StudentInvitationModal } from '../../components/students/StudentInvitationModal';
 
 export const StudentProfileView: React.FC = () => {
   const { 
@@ -79,6 +81,8 @@ export const StudentProfileView: React.FC = () => {
     addStudentDocument,
     lessons
   } = useApp();
+
+  const [showInvitationModal, setShowInvitationModal] = useState(false);
 
   // 18 Tabs solicitadas pelo usuário:
   type ProfileTab = 
@@ -435,6 +439,16 @@ export const StudentProfileView: React.FC = () => {
               <span>Alterar Estado</span>
             </button>
           )}
+
+          {/* Student Portal Access Invitation Button */}
+          <button
+            onClick={() => setShowInvitationModal(true)}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold shadow-md shadow-blue-600/20 cursor-pointer transition-all active:scale-95"
+            title="Gerar e Enviar Convite de Acesso ao Portal do Aluno"
+          >
+            <KeyRound className="w-3.5 h-3.5 text-amber-300" />
+            <span>Convite Portal do Aluno</span>
+          </button>
 
           {/* WhatsApp Direct */}
           <button
@@ -815,6 +829,41 @@ export const StudentProfileView: React.FC = () => {
               <span className="text-slate-400">Contacto de Emergência:</span>
               <p className="font-bold text-amber-400 text-sm font-mono">{selectedStudent.emergencyContact}</p>
             </div>
+          </div>
+
+          {/* Credenciais & Acesso ao Portal do Aluno */}
+          <div className="p-5 rounded-2xl bg-[#0b1220] border border-blue-500/20 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 shrink-0">
+                <KeyRound className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="font-bold text-white text-sm">Acesso Oficial ao Portal do Aluno</h4>
+                  {selectedStudent.userId ? (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      Conta Ativada
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      Acesso Não Ativado
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  E-mail de autenticação: <strong className="text-slate-300">{selectedStudent.email || 'Não definido'}</strong> • UID: <span className="font-mono text-slate-400">{selectedStudent.userId || 'Aguardando ativação'}</span>
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowInvitationModal(true)}
+              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md shadow-blue-600/20 flex items-center justify-center gap-1.5 cursor-pointer shrink-0 transition-all"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+              <span>Gerenciar Convite & Acesso</span>
+            </button>
           </div>
 
           {/* Observações */}
@@ -2065,6 +2114,24 @@ export const StudentProfileView: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Student Invitation to Portal Modal */}
+      {selectedStudent && (
+        <StudentInvitationModal
+          student={selectedStudent}
+          institution={activeInstitution}
+          isOpen={showInvitationModal}
+          onClose={() => setShowInvitationModal(false)}
+          onAuditLog={(action, details) => {
+            addStudentAuditEntry(selectedStudent.id, {
+              actorName: activeInstitution.representativeName || 'Secretaria Acadêmica',
+              actorRole: 'Secretaria',
+              action,
+              details
+            });
+          }}
+        />
       )}
     </div>
   );

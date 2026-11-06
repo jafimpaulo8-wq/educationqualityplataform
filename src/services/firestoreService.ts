@@ -49,7 +49,8 @@ export const COLLECTIONS = {
   PAYMENTS: 'payments',
   NOTIFICATIONS: 'notifications',
   APPLICATIONS: 'applications',
-  STUDENT_INVITATIONS: 'studentInvitations'
+  STUDENT_INVITATIONS: 'studentInvitations',
+  USER_PREFERENCES: 'userPreferences'
 } as const;
 
 // User Profile Services
@@ -588,3 +589,63 @@ export async function revokeStudentInvitation(invitationId: string): Promise<voi
     handleFirestoreError(error, OperationType.UPDATE, path);
   }
 }
+
+// ==========================================================
+// PREFERÊNCIAS VISUAIS DE TEMA DO UTILIZADOR (Requisito 8)
+// ==========================================================
+export interface StoredUserPreference {
+  theme: 'claro' | 'escuro-suave' | 'escuro' | 'personalizado';
+  background?: string;
+  accent?: string;
+  updatedAt: string;
+}
+
+export async function getUserPreferences(uid: string): Promise<StoredUserPreference | null> {
+  if (!uid) return null;
+  const path = `${COLLECTIONS.USER_PREFERENCES}/${uid}`;
+  try {
+    const docSnap = await getDoc(doc(db, COLLECTIONS.USER_PREFERENCES, uid));
+    if (docSnap.exists()) {
+      return docSnap.data() as StoredUserPreference;
+    }
+    return null;
+  } catch (error) {
+    console.warn(`[Tema] Erro não-bloqueante ao obter userPreferences de ${uid}:`, error);
+    return null;
+  }
+}
+
+export async function saveUserPreferences(uid: string, pref: StoredUserPreference): Promise<void> {
+  if (!uid) return;
+  const path = `${COLLECTIONS.USER_PREFERENCES}/${uid}`;
+
+  // Validação estrita: campos proibidos são descartados (Requisito 8: sem outros campos)
+  const payload: StoredUserPreference = {
+    theme: pref.theme,
+    updatedAt: pref.updatedAt || new Date().toISOString()
+  };
+
+  if (pref.theme === 'personalizado') {
+    if (pref.background && /^#[0-9A-Fa-f]{6}$/.test(pref.background)) {
+      payload.background = pref.background.toUpperCase();
+    }
+    if (pref.accent && /^#[0-9A-Fa-f]{6}$/.test(pref.accent)) {
+      payload.accent = pref.accent.toUpperCase();
+    }
+  } else {
+    // Para temas fixos, apenas guarda se explicitamente fornecido com formato válido
+    if (pref.background && /^#[0-9A-Fa-f]{6}$/.test(pref.background)) {
+      payload.background = pref.background.toUpperCase();
+    }
+    if (pref.accent && /^#[0-9A-Fa-f]{6}$/.test(pref.accent)) {
+      payload.accent = pref.accent.toUpperCase();
+    }
+  }
+
+  try {
+    await setDoc(doc(db, COLLECTIONS.USER_PREFERENCES, uid), payload);
+  } catch (error) {
+    console.warn(`[Tema] Erro não-bloqueante ao salvar userPreferences em ${path}:`, error);
+  }
+}
+

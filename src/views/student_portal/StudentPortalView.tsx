@@ -87,7 +87,7 @@ const SUB_NAV_ITEMS: SubNavItem[] = [
 ];
 
 export const StudentPortalView: React.FC = () => {
-  const { students, authenticatedStudent, activeInstitution, activeBranch, firebaseUser, allCertificates } = useApp();
+  const { students, authenticatedStudent, activeInstitution, activeBranch, firebaseUser, allCertificates, activeRole } = useApp();
 
   // Aluno autenticado real no Firebase (PARTE 10)
   const currentStudent = useMemo<Student | null>(() => {
@@ -99,9 +99,15 @@ export const StudentPortalView: React.FC = () => {
         const matchByEmail = students.find(s => s.email?.toLowerCase() === firebaseUser.email?.toLowerCase());
         if (matchByEmail) return matchByEmail;
       }
+      // Se for papel ALUNO ou estudante logado, não mostrar outros alunos
+      const isStudentRole = (activeRole as string) === 'ALUNO' || (activeRole as string) === 'aluno';
+      if (isStudentRole) {
+        return null;
+      }
     }
+    // Modo de demonstração / visualização administrativa
     return students[0] || null;
-  }, [authenticatedStudent, firebaseUser, students]);
+  }, [authenticatedStudent, firebaseUser, students, activeRole]);
 
   const [activeTab, setActiveTab] = useState<PortalTabId>('inicio');
 

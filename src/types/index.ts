@@ -202,6 +202,45 @@ export interface Institution {
   studentPermissions?: Partial<StudentPortalPermissions>;
   accessCode?: string;
   ownerEmail?: string;
+  slug?: string;
+  slugAliases?: string[];
+}
+
+export interface PublicInstitution {
+  id: string;
+  institutionId: string;
+  slug: string;
+  slugAliases?: string[];
+  name: string;
+  code: string;
+  sigla?: string;
+  type: InstitutionType | string;
+  nuit?: string;
+  licenseNumber?: string;
+  phone: string;
+  phoneAlt?: string;
+  email: string;
+  whatsapp?: string;
+  address: string;
+  city: string;
+  province: string;
+  logoUrl?: string;
+  slogan?: string;
+  primaryColor?: string;
+  accentColor?: string;
+  branches?: Branch[];
+  onlineRegistrationConfig: OnlineRegistrationConfig;
+  paymentMethods?: {
+    mpesa?: string;
+    emola?: string;
+    bankName?: string;
+    accountNumber?: string;
+    nib?: string;
+    instructions?: string;
+  };
+  termsAndConditions?: string;
+  privacyPolicy?: string;
+  updatedAt: string;
 }
 
 export interface InstitutionFeatureModules {
@@ -263,17 +302,24 @@ export interface OnlineRegistrationCustomQuestion {
   required: boolean;
 }
 
+export type FieldRequirementStatus = 'obrigatorio' | 'opcional' | 'oculto' | boolean;
+
 export interface OnlineRegistrationRequiredFields {
-  email: boolean;
-  phone: boolean;
-  documentNumber: boolean;
-  birthDate: boolean;
-  gender: boolean;
-  province: boolean;
-  city: boolean;
-  address: boolean;
-  guardianName: boolean;
-  guardianPhone: boolean;
+  email: FieldRequirementStatus;
+  phone: FieldRequirementStatus;
+  documentNumber: FieldRequirementStatus;
+  birthDate: FieldRequirementStatus;
+  gender: FieldRequirementStatus;
+  province: FieldRequirementStatus;
+  city: FieldRequirementStatus;
+  address: FieldRequirementStatus;
+  guardianName: FieldRequirementStatus;
+  guardianPhone: FieldRequirementStatus;
+  guardianRelationship?: FieldRequirementStatus;
+  authorizedPickupPersons?: FieldRequirementStatus;
+  nuit?: FieldRequirementStatus;
+  previousSchool?: FieldRequirementStatus;
+  [key: string]: FieldRequirementStatus | undefined;
 }
 
 export interface OnlineRegistrationConfig {

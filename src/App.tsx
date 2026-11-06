@@ -60,6 +60,7 @@ import { RBACMatrixView } from './views/admin/RBACMatrixView';
 import { CandidatesManagementView } from './views/secretariat/CandidatesManagementView';
 import { PrivateRegistrationView } from './views/secretariat/PrivateRegistrationView';
 import { PublicRegistrationView } from './views/public/PublicRegistrationView';
+import { AtivarContaView } from './views/auth/AtivarContaView';
 import { PublicSivecVerifyPage } from './views/sivec/PublicSivecVerifyPage';
 import { CoursesManagementView } from './views/courses/CoursesManagementView';
 import { TeachersManagementView } from './views/teachers/TeachersManagementView';
@@ -93,6 +94,7 @@ import { MozcoinBuyView } from './views/mozcoin/MozcoinBuyView';
 import { MozcoinAdminApprovalView } from './views/mozcoin/MozcoinAdminApprovalView';
 import { MoztechwaveIdPortalView } from './views/auth/MoztechwaveIdPortalView';
 import { SigarAuthModal } from './components/common/SigarAuthModal';
+import { AppearanceModal } from './components/theme/AppearanceModal';
 import { LanguageProvider } from './i18n/LanguageContext';
 import { PublicPortalLanding } from './components/public/PublicPortalLanding';
 import { SigarOnboardingTour } from './components/onboarding/SigarOnboardingTour';
@@ -211,8 +213,29 @@ const MainAppContent: React.FC = () => {
     );
   }
 
-  // If browsing the dedicated Online Registration Public Page
-  if (currentRoute === 'inscricao_publica') {
+  // Dedicated Account Activation Page (/ativar-conta?token=... or /ativar-conta/:token or #ativar-conta)
+  const hash = typeof window !== 'undefined' ? window.location.hash : '';
+  const isActivateUrl = pathname.startsWith('/ativar-conta') || hash.includes('ativar-conta');
+  if (isActivateUrl || currentRoute === 'ativar_conta') {
+    return (
+      <AtivarContaView 
+        onActivated={() => {
+          if (typeof window !== 'undefined' && window.location.pathname.startsWith('/ativar-conta')) {
+            window.history.pushState(null, '', '/');
+          }
+          navigate('portal_aluno');
+        }} 
+      />
+    );
+  }
+
+  // If browsing the dedicated Online Registration Public Page or institution-specific URL (/instituicao/:slug/inscricoes or #instituicoes/:slug/inscricoes)
+  const isInstitutionInscricoes = 
+    ((pathname.includes('/instituicao') || pathname.includes('/instituicoes') || hash.includes('instituicao') || hash.includes('instituicoes')) 
+      && (pathname.includes('/inscricoes') || hash.includes('/inscricoes'))) ||
+    currentRoute === 'inscricao_publica';
+
+  if (isInstitutionInscricoes) {
     return <PublicRegistrationView />;
   }
 
@@ -447,6 +470,8 @@ const MainAppContent: React.FC = () => {
         return <CoursesManagementView />;
       case 'inscricao_publica':
         return <PublicRegistrationView />;
+      case 'ativar_conta':
+        return <AtivarContaView onActivated={() => navigate('portal_aluno')} />;
       case 'inscricao_privada':
         return <PrivateRegistrationView />;
       case 'configuracoes_instituicao':
