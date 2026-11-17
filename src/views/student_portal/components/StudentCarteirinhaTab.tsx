@@ -3,6 +3,8 @@ import { Student } from '../../../types';
 import { useApp } from '../../../context/AppContext';
 import { RealQRCode } from '../../../components/common/RealQRCode';
 import { printIsolatedElement } from '../../../utils/printHelper';
+import { InstitutionLogoBadge } from '../../../components/common/InstitutionLogoBadge';
+import { resolveInstitutionIdentity } from '../../../utils/institutionIdentity';
 import { 
   CreditCard, 
   Printer, 
@@ -11,7 +13,8 @@ import {
   CheckCircle2, 
   Sparkles, 
   RotateCw,
-  Award
+  Award,
+  User
 } from 'lucide-react';
 
 interface StudentCarteirinhaTabProps {
@@ -20,11 +23,10 @@ interface StudentCarteirinhaTabProps {
 
 export const StudentCarteirinhaTab: React.FC<StudentCarteirinhaTabProps> = ({ currentStudent }) => {
   const { activeInstitution } = useApp();
+  const identity = resolveInstitutionIdentity(activeInstitution);
   const [cardSide, setCardSide] = useState<'frente' | 'verso'>('frente');
 
-  const verificationUrl = typeof window !== 'undefined'
-    ? `${window.location.origin}/verificar/aluno/${encodeURIComponent(currentStudent.code || currentStudent.id)}`
-    : `https://portal.moztechwave.co.mz/verificar/aluno/${currentStudent.code || currentStudent.id}`;
+  const verificationUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/verificar/aluno/${encodeURIComponent(currentStudent.code || currentStudent.id)}`;
 
   const handlePrint = () => {
     printIsolatedElement('student-card-render-container', `Carteirinha_${currentStudent.code}`);
@@ -83,14 +85,12 @@ export const StudentCarteirinhaTab: React.FC<StudentCarteirinhaTabProps> = ({ cu
             <div className="absolute -left-10 -top-10 w-40 h-40 rounded-full bg-indigo-500/10 blur-xl pointer-events-none" />
 
             {/* Topo do cartão */}
-            <div className="flex items-start justify-between relative z-10">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center font-black text-xs text-emerald-300">
-                  MTW
-                </div>
-                <div>
-                  <h3 className="text-xs font-black tracking-wider uppercase">
-                    {activeInstitution?.name || 'Moztechwave Institute'}
+            <div className="flex items-start justify-between relative z-10 gap-2">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <InstitutionLogoBadge institution={activeInstitution} size="sm" rounded="xl" />
+                <div className="min-w-0">
+                  <h3 className="text-xs font-black tracking-wider uppercase truncate">
+                    {identity.officialName}
                   </h3>
                   <p className="text-[9px] text-emerald-400 uppercase tracking-widest font-mono">
                     CARTÃO DE ESTUDANTE • 2026
@@ -98,7 +98,7 @@ export const StudentCarteirinhaTab: React.FC<StudentCarteirinhaTabProps> = ({ cu
                 </div>
               </div>
 
-              <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/40 text-[9px] font-mono text-emerald-300 font-bold">
+              <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/40 text-[9px] font-mono text-emerald-300 font-bold shrink-0">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 VÁLIDO
               </div>
@@ -106,11 +106,17 @@ export const StudentCarteirinhaTab: React.FC<StudentCarteirinhaTabProps> = ({ cu
 
             {/* Centro do cartão */}
             <div className="flex items-center gap-4 relative z-10 my-2">
-              <img
-                src={currentStudent.photoUrl || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80`}
-                alt={currentStudent.fullName}
-                className="w-16 h-20 rounded-xl object-cover border-2 border-emerald-400/60 shadow-md shrink-0"
-              />
+              <div className="w-16 h-20 rounded-xl border-2 border-emerald-400/60 shadow-md shrink-0 bg-slate-800 flex items-center justify-center overflow-hidden">
+                {currentStudent.photoUrl ? (
+                  <img
+                    src={currentStudent.photoUrl}
+                    alt={currentStudent.fullName}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <User className="w-7 h-7 text-slate-400" />
+                )}
+              </div>
 
               <div className="space-y-1 min-w-0">
                 <p className="text-[10px] text-slate-400 uppercase font-mono">Nome do Estudante</p>
@@ -170,8 +176,8 @@ export const StudentCarteirinhaTab: React.FC<StudentCarteirinhaTabProps> = ({ cu
             </div>
 
             <div className="border-t border-slate-700/60 pt-2 flex items-center justify-between text-[9px] text-slate-400">
-              <span>Emissão: SIVEC / SIGAR Nacional</span>
-              <span className="font-mono">www.moztechwave.co.mz</span>
+              <span>Emissão: {identity.shortName} • SIGAR PRO</span>
+              <span className="font-mono">{identity.website || identity.email || 'SIGAR PRO'}</span>
             </div>
           </div>
         )}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Globe, 
   Sliders, 
@@ -93,13 +93,7 @@ export const OnlineRegistrationSettingsPanel: React.FC<OnlineRegistrationSetting
   const [endDate, setEndDate] = useState(initialConfig.endDate || '');
 
   // Slug oficial
-  const defaultSlug = institution.slug || (
-    institution.id === 'ceu-azul-nacala' 
-      ? 'ceu-azul' 
-      : institution.id === 'inst-1' 
-        ? 'cftpm-moztechwave' 
-        : institution.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-  );
+  const defaultSlug = institution.slug || normalizeSlug(institution.name) || institution.id;
   const [slug, setSlug] = useState(defaultSlug);
 
   // 2. Campos do Formulário
@@ -133,9 +127,9 @@ export const OnlineRegistrationSettingsPanel: React.FC<OnlineRegistrationSetting
   const [newDocText, setNewDocText] = useState('');
 
   // 5. Métodos de Pagamento
-  const [mpesaNumber, setMpesaNumber] = useState(institution.financialSettings?.mpesaNumber || institution.phone || '84');
-  const [emolaNumber, setEmolaNumber] = useState(institution.financialSettings?.emolaNumber || '86');
-  const [bankInfo, setBankInfo] = useState(institution.financialSettings?.bankInfo || 'Millennium BIM / BCI');
+  const [mpesaNumber, setMpesaNumber] = useState(institution.financialSettings?.mpesaNumber || institution.phone || '');
+  const [emolaNumber, setEmolaNumber] = useState(institution.financialSettings?.emolaNumber || '');
+  const [bankInfo, setBankInfo] = useState(institution.financialSettings?.bankInfo || '');
 
   // 6. Termos e Privacidade
   const [termsText, setTermsText] = useState(
@@ -153,6 +147,51 @@ export const OnlineRegistrationSettingsPanel: React.FC<OnlineRegistrationSetting
     initialConfig.confirmationMessageTemplate || 
     `Agradecemos a sua candidatura na ${institution.name}! A nossa equipa entrará em contacto via WhatsApp ou telefone para agendamento e formalização da matrícula.`
   );
+
+  useEffect(() => {
+    setIsOpen(initialConfig.isOpen ?? true);
+    setTitle(initialConfig.title || '');
+    setDescription(initialConfig.description || '');
+    setAcademicYear(initialConfig.academicYear || '2026');
+    setSemester(initialConfig.semester || 'Ano Completo');
+    setStartDate(initialConfig.startDate || '');
+    setEndDate(initialConfig.endDate || '');
+    setSlug(institution.slug || normalizeSlug(institution.name) || institution.id);
+    setFieldRequirements({
+      email: initialConfig.requiredFields?.email ?? 'opcional',
+      phone: initialConfig.requiredFields?.phone ?? 'obrigatorio',
+      documentNumber: initialConfig.requiredFields?.documentNumber ?? 'obrigatorio',
+      birthDate: initialConfig.requiredFields?.birthDate ?? 'obrigatorio',
+      gender: initialConfig.requiredFields?.gender ?? 'obrigatorio',
+      province: initialConfig.requiredFields?.province ?? 'obrigatorio',
+      city: initialConfig.requiredFields?.city ?? 'obrigatorio',
+      address: initialConfig.requiredFields?.address ?? 'obrigatorio',
+      guardianName: initialConfig.requiredFields?.guardianName ?? 'obrigatorio',
+      guardianPhone: initialConfig.requiredFields?.guardianPhone ?? 'obrigatorio',
+      guardianRelationship: initialConfig.requiredFields?.guardianRelationship ?? (institution.type === 'centro_infantil' ? 'obrigatorio' : 'oculto'),
+      authorizedPickupPersons: initialConfig.requiredFields?.authorizedPickupPersons ?? (institution.type === 'centro_infantil' ? 'obrigatorio' : 'oculto'),
+      nuit: initialConfig.requiredFields?.nuit ?? 'opcional',
+      previousSchool: initialConfig.requiredFields?.previousSchool ?? 'opcional'
+    });
+    setCourses(initialConfig.coursesConfig || []);
+    setDocuments(initialConfig.requiredDocuments || []);
+    setMpesaNumber(institution.financialSettings?.mpesaNumber || institution.phone || '');
+    setEmolaNumber(institution.financialSettings?.emolaNumber || '');
+    setBankInfo(institution.financialSettings?.bankInfo || '');
+    setTermsText(
+      `1. A submissão da candidatura na ${institution.name} constitui manifestação de interesse e não confere garantia automática de admissão.\n2. A homologação da matrícula depende da validação física dos documentos originais pela Secretaria.\n3. A taxa de inscrição não é reembolsável após análise do processo.`
+    );
+    setPrivacyText(
+      `A ${institution.name} garante a salvaguarda e o tratamento confidencial dos dados recolhidos para fins exclusivamente de matrícula académica e segurança escolar, nos termos da legislação moçambicana.`
+    );
+    setContactPhone(institution.phone || '');
+    setContactWhatsapp(institution.whatsapp || institution.phone || '');
+    setContactEmail(institution.email || '');
+    setConfirmationTemplate(
+      initialConfig.confirmationMessageTemplate ||
+      `Agradecemos a sua candidatura na ${institution.name}! A nossa equipa entrará em contacto via WhatsApp ou telefone para agendamento e formalização da matrícula.`
+    );
+  }, [institution.id, initialConfig]);
 
   const publicUrl = getPublicRegistrationUrl({ ...institution, slug });
 
@@ -823,7 +862,7 @@ export const OnlineRegistrationSettingsPanel: React.FC<OnlineRegistrationSetting
                   type="text"
                   value={emolaNumber}
                   onChange={(e) => setEmolaNumber(e.target.value)}
-                  placeholder="Ex: 86 900 1200 ou 864 826 647"
+                  placeholder="Ex: 86 900 1200 ou 86 123 4567"
                   className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs focus:border-purple-500 focus:outline-hidden font-mono"
                 />
               </div>
@@ -966,7 +1005,7 @@ export const OnlineRegistrationSettingsPanel: React.FC<OnlineRegistrationSetting
                   type="text"
                   value={slug}
                   onChange={(e) => setSlug(normalizeSlug(e.target.value))}
-                  placeholder="ex: ceu-azul ou cftpm-moztechwave"
+                  placeholder="ex: nome-da-instituicao"
                   className="flex-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-mono font-bold focus:border-indigo-500 focus:outline-hidden"
                 />
                 <span className="text-xs font-mono text-slate-500 select-none">/inscricoes</span>

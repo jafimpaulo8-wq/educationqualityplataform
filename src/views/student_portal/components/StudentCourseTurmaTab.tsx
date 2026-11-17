@@ -1,6 +1,7 @@
 import React from 'react';
 import { Student } from '../../../types';
 import { useApp } from '../../../context/AppContext';
+import { resolveInstitutionIdentity } from '../../../utils/institutionIdentity';
 import { 
   GraduationCap, 
   Users, 
@@ -11,7 +12,8 @@ import {
   Send,
   CheckCircle2,
   Layers,
-  Award
+  Award,
+  User
 } from 'lucide-react';
 
 interface StudentCourseTurmaTabProps {
@@ -25,7 +27,8 @@ export const StudentCourseTurmaTab: React.FC<StudentCourseTurmaTabProps> = ({
   onRequestChange = () => {},
   mode = 'ambos'
 }) => {
-  const { students, courses, classes } = useApp();
+  const { students, courses, classes, activeInstitution } = useApp();
+  const identity = resolveInstitutionIdentity(activeInstitution);
 
   const currentCourse = courses.find(c => c.id === currentStudent.courseId || c.name === currentStudent.courseName);
   const currentClass = classes.find(cl => cl.id === currentStudent.classGroupId || cl.name === currentStudent.classGroupName);
@@ -49,7 +52,7 @@ export const StudentCourseTurmaTab: React.FC<StudentCourseTurmaTabProps> = ({
                 {currentStudent.courseName}
               </h2>
               <p className="text-xs text-slate-500 mt-1">
-                Certificação Reconhecida com Validação SIVEC e Nível Técnico Moztechwave (Qualificação Nacional Nível 5)
+                Programa académico gerido por {identity.officialName} • SIGAR PRO
               </p>
             </div>
 
@@ -183,11 +186,17 @@ export const StudentCourseTurmaTab: React.FC<StudentCourseTurmaTabProps> = ({
                         : 'bg-slate-50/60 border-slate-100 hover:bg-slate-50'
                     }`}
                   >
-                    <img
-                      src={colleague.photoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'}
-                      alt={colleague.fullName}
-                      className="w-10 h-10 rounded-xl object-cover border border-slate-200"
-                    />
+                    <div className="w-10 h-10 rounded-xl border border-slate-200 bg-slate-100 flex items-center justify-center overflow-hidden shrink-0">
+                      {colleague.photoUrl ? (
+                        <img
+                          src={colleague.photoUrl}
+                          alt={colleague.fullName}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <User className="w-5 h-5 text-slate-400" />
+                      )}
+                    </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
                         <p className="text-xs font-bold text-slate-900 truncate">

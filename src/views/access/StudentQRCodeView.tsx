@@ -31,6 +31,9 @@ import {
   PublicStudentInfo 
 } from '../../utils/studentQrSecurity';
 import { Student } from '../../types';
+import { InstitutionLogoBadge } from '../../components/common/InstitutionLogoBadge';
+import { resolveInstitutionIdentity } from '../../utils/institutionIdentity';
+import { RealQRCode } from '../../components/common/RealQRCode';
 
 export const StudentQRCodeView: React.FC = () => {
   const { 
@@ -45,8 +48,16 @@ export const StudentQRCodeView: React.FC = () => {
     addNotification
   } = useApp();
 
+  const identity = resolveInstitutionIdentity(activeInstitution);
+  const instStudents = identity.hasInstitution
+    ? students.filter(s => s.institutionId === activeInstitution.id)
+    : [];
+  const instClasses = identity.hasInstitution
+    ? classes.filter(c => c.institutionId === activeInstitution.id)
+    : [];
+
   // Selected student for active scan inspection
-  const [selectedStudentId, setSelectedStudentId] = useState<string>(students[0]?.id || '');
+  const [selectedStudentId, setSelectedStudentId] = useState<string>(instStudents[0]?.id || '');
   const [searchInput, setSearchInput] = useState('');
   const [selectedClassFilter, setSelectedClassFilter] = useState('todas');
   
@@ -66,13 +77,13 @@ export const StudentQRCodeView: React.FC = () => {
   // Current effective mode based on user permission and toggle
   const isOperatorMode = simulationMode === 'auth_operator' && isUserAuthenticatedOperator;
 
-  const currentStudent = students.find(s => s.id === selectedStudentId) || students[0];
+  const currentStudent = instStudents.find(s => s.id === selectedStudentId) || instStudents[0];
   const publicData: PublicStudentInfo | null = currentStudent 
-    ? getAuthorizedPublicStudentData(currentStudent, activeInstitution.name, activeInstitution.code)
+    ? getAuthorizedPublicStudentData(currentStudent, identity.officialName, identity.code)
     : null;
 
   // Filtered students for QR directory
-  const filteredStudents = students.filter(s => {
+  const filteredStudents = instStudents.filter(s => {
     const matchesClass = selectedClassFilter === 'todas' || s.classGroupId === selectedClassFilter;
     const matchesSearch = 
       s.fullName.toLowerCase().includes(searchInput.toLowerCase()) ||
@@ -119,7 +130,7 @@ export const StudentQRCodeView: React.FC = () => {
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchInput.trim()) return;
-    const found = students.find(s => 
+    const found = instStudents.find(s => 
       s.code.toLowerCase().includes(searchInput.toLowerCase()) ||
       s.fullName.toLowerCase().includes(searchInput.toLowerCase())
     );
@@ -138,11 +149,11 @@ export const StudentQRCodeView: React.FC = () => {
         <div className="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
           <div className="space-y-2">
             <div className="flex items-center gap-3">
-              <div className="p-3 bg-indigo-600/30 text-indigo-400 rounded-2xl border border-indigo-500/30">
-                <QrCode className="w-7 h-7" />
-              </div>
+              <InstitutionLogoBadge institution={activeInstitution} size="lg" rounded="2xl" />
               <div>
-                <span className="text-xs font-bold tracking-widest text-indigo-400 uppercase">Módulo 27</span>
+                <span className="text-xs font-bold tracking-widest text-indigo-400 uppercase">
+                  Módulo 27{identity.officialName ? ` • ${identity.officialName}` : ''}
+                </span>
                 <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
                   QR Code do Aluno & Controlo de Acesso
                 </h1>
@@ -234,7 +245,7 @@ export const StudentQRCodeView: React.FC = () => {
                   Simular Escaneamento Instantâneo de Aluno:
                 </span>
                 <div className="flex flex-wrap items-center justify-center gap-2">
-                  {students.slice(0, 5).map(s => {
+                  {instStudents.slice(0, 5).map(s => {
                     const isSelected = s.id === selectedStudentId;
                     return (
                       <button
@@ -265,7 +276,7 @@ export const StudentQRCodeView: React.FC = () => {
                   type="text"
                   value={searchInput}
                   onChange={e => setSearchInput(e.target.value)}
-                  placeholder="Digitar matrícula ou nome do aluno (Ex: MTW-AL-2026-0042)..."
+                  placeholder={`Digitar matrícula ou nome do aluno (Ex: ${identity.code || 'SIGAR'}-AL-2026-0042)...`}
                   className="w-full pl-9 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
@@ -348,7 +359,11 @@ export const StudentQRCodeView: React.FC = () => {
                     >
                       <div className="flex items-center gap-2.5">
                         <span className={`p-1.5 rounded-lg ${
-                          log.type === 'entrada' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-sky-500/20 text-sky-400'
+                          log.type === 'entrada'
+                            ? 'bg-emerald-500/20 text-emerald-400'
+                            : log.type === 'barrado'
+                            ? 'bg-rose-500/20 text-rose-400'
+                            : 'bg-sky-500/20 text-sky-400'
                         }`}>
                           {log.type === 'entrada' ? <LogIn className="w-3.5 h-3.5" /> : <LogOut className="w-3.5 h-3.5" />}
                         </span>
@@ -431,8 +446,8 @@ export const StudentQRCodeView: React.FC = () => {
                   </div>
                   
                   {/* Generated QR Graphic */}
-                  <div className="w-20 h-20 bg-slate-100 rounded-xl p-1.5 flex items-center justify-center border border-slate-300 shrink-0">
-                    <QrCode className="w-full h-full text-slate-950" />
+                  <div className="w-20 h-20 bg-white rounded-xl p-1 flex items-center justify-center border border-slate-300 shrink-0">
+                    <RealQRCode value={publicData.code} size={72} />
                   </div>
                 </div>
 
@@ -540,8 +555,8 @@ export const StudentQRCodeView: React.FC = () => {
               onChange={e => setSelectedClassFilter(e.target.value)}
               className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
-              <option value="todas">Todas as Turmas ({students.length} alunos)</option>
-              {classes.map(c => (
+              <option value="todas">Todas as Turmas ({instStudents.length} alunos)</option>
+              {instClasses.map(c => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
@@ -584,8 +599,8 @@ export const StudentQRCodeView: React.FC = () => {
                   </div>
                   
                   {/* QR Preview Mini */}
-                  <div className="w-12 h-12 bg-white rounded-lg p-1 flex items-center justify-center shrink-0">
-                    <QrCode className="w-full h-full text-slate-950" />
+                  <div className="w-12 h-12 bg-white rounded-lg p-0.5 flex items-center justify-center shrink-0">
+                    <RealQRCode value={student.code} size={44} />
                   </div>
                 </div>
 

@@ -1895,7 +1895,7 @@ export const FinanceModuleView: React.FC = () => {
                     <div className="text-xl font-black uppercase tracking-tight text-slate-950">{activeInstitution.name}</div>
                     <div className="text-xs text-slate-600 font-semibold">{(activeInstitution as any).tagline || activeInstitution.type || 'Instituto Médio Técnico Profissional'}</div>
                     <div className="text-[11px] text-slate-500 mt-1">
-                      {activeInstitution.address} • NUIT: {activeInstitution.nuit || '400192831'} • Maputo, Moçambique
+                      {[activeInstitution.address, activeInstitution.nuit ? `NUIT: ${activeInstitution.nuit}` : '', activeInstitution.city || activeInstitution.province].filter(Boolean).join(' • ')}
                     </div>
                   </div>
                   <div className="text-right">

@@ -273,8 +273,7 @@ export const BoletimView: React.FC = () => {
             {activeInstitution.name}
           </h2>
           <p className="text-xs text-slate-600 max-w-xl mx-auto">
-            {activeInstitution.address} • NUIT: {activeInstitution.nuit || '400192841'} • Telefone: {activeInstitution.phone}
-            {activeBranch ? ` • Filial: ${activeBranch.name}` : ''}
+            {[activeInstitution.address, activeInstitution.nuit ? `NUIT: ${activeInstitution.nuit}` : '', activeInstitution.phone ? `Telefone: ${activeInstitution.phone}` : '', activeBranch ? `Filial: ${activeBranch.name}` : ''].filter(Boolean).join(' • ')}
           </p>
 
           <div className="pt-2">

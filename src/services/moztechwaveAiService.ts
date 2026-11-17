@@ -131,16 +131,28 @@ export async function processUserAiQuery(
       };
     }
 
-    // Processar extração via API ou Heurística
-    let draftData = await tryServerDocExtraction(attachedDocument, userRole);
-    if (!draftData) {
-      draftData = generateHeuristicStudentDraft(attachedDocument, courses);
+    // Processar extração real via API (/api/ai/extract-doc) sem dados fictícios de reserva
+    const extractionResult = await tryServerDocExtraction(attachedDocument, userRole);
+    if (!extractionResult.data) {
+      return {
+        id: `ai-msg-${Date.now()}`,
+        sender: 'assistant',
+        text: `⚠️ **NÃO FOI POSSÍVEL EXTRAIR OS DADOS AUTOMATICAMENTE**\n\nRecebi o ficheiro **"${attachedDocument.name}"**, mas o motor de leitura documental retornou falha: **${extractionResult.error || 'Serviço de extração indisponível ou sem chave GEMINI_API_KEY configurada no servidor'}**.\n\nPor segurança e conformidade (zero dados inventados), não foi gerado nenhum pré-cadastro automático. Verifique a configuração do servidor ou realize o cadastro manual pela Secretaria.`,
+        timestamp: new Date().toLocaleTimeString('pt-MZ', { hour: '2-digit', minute: '2-digit' }),
+        attachedDocument: {
+          name: attachedDocument.name,
+          type: attachedDocument.type,
+          previewUrl: attachedDocument.dataUrl
+        }
+      };
     }
+
+    const draftData = extractionResult.data;
 
     return {
       id: `ai-msg-${Date.now()}`,
       sender: 'assistant',
-      text: `📄 **DOCUMENTO ANALISADO COM SUCESSO!**\n\nProcessei o arquivo **"${attachedDocument.name}"** com a inteligência do Moztechwave AI.\n\nExtraí com precisão de **${draftData.confidenceScore}%** os dados cadastrais do formando para a instituição **${activeInstitution.name}**.\n\nRevise a ficha abaixo e clique em **"Confirmar e Cadastrar Aluno"** para efetivar a matrícula no sistema e gerar o processo oficial com o respectivo Browser de Condução.`,
+      text: `📄 **DOCUMENTO ANALISADO COM SUCESSO!**\n\nProcessei o arquivo **"${attachedDocument.name}"** com a inteligência do Moztechwave AI.\n\nExtraí os dados cadastrais do formando para a instituição **${activeInstitution.name}**.\n\nRevise a ficha abaixo e clique em **"Confirmar e Cadastrar Aluno"** para efetivar a matrícula no sistema.`,
       timestamp: new Date().toLocaleTimeString('pt-MZ', { hour: '2-digit', minute: '2-digit' }),
       attachedDocument: {
         name: attachedDocument.name,
@@ -517,7 +529,10 @@ Validação online: https://sivec.gov.mz/verificar?code=${sampleStudent.code}`;
   };
 }
 
-async function tryServerDocExtraction(doc: { name: string; type: string; dataUrl?: string; content?: string }, userRole: string) {
+async function tryServerDocExtraction(
+  doc: { name: string; type: string; dataUrl?: string; content?: string },
+  userRole: string
+): Promise<{ data: AiChatMessage['registrationDraft'] | null; error?: string }> {
   try {
     const res = await fetch('/api/ai/extract-doc', {
       method: 'POST',
@@ -533,40 +548,16 @@ async function tryServerDocExtraction(doc: { name: string; type: string; dataUrl
       const result = await res.json();
       if (result.success && result.data && result.data.fullName) {
         return {
-          ...result.data,
-          status: 'draft' as const
+          data: {
+            ...result.data,
+            status: 'draft' as const
+          }
         };
       }
+      return { data: null, error: result.error || 'O documento não continha campos identificáveis.' };
     }
-  } catch (err) {
-    console.warn('Fallback para extração heurística:', err);
+    return { data: null, error: `Erro HTTP ${res.status} ao contactar /api/ai/extract-doc` };
+  } catch (err: any) {
+    return { data: null, error: err?.message || 'Falha de rede ao contactar /api/ai/extract-doc' };
   }
-  return null;
-}
-
-function generateHeuristicStudentDraft(doc: { name: string; type: string }, courses: Course[]) {
-  // Gera dados estruturados realistas com base no nome do arquivo ou padrão de Moçambique
-  const cleanName = doc.name.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " ");
-  const randomBiNum = `${Math.floor(100000000000 + Math.random() * 899999999999)}B`;
-  const randomPhone = `+258 84 ${Math.floor(100 + Math.random() * 899)} ${Math.floor(1000 + Math.random() * 8999)}`;
-  const defaultCourse = courses[0]?.name || 'Engenharia de Software & DevOps';
-
-  return {
-    fullName: cleanName.length > 5 && !cleanName.toLowerCase().includes('documento') ? cleanName : 'Mariamo Salimo Chissano',
-    documentType: 'BI' as const,
-    documentNumber: randomBiNum,
-    birthDate: '2004-05-18',
-    gender: 'Feminino' as const,
-    phone: randomPhone,
-    email: 'mariamo.chissano@formando.co.mz',
-    province: 'Maputo Cidade',
-    city: 'Maputo',
-    address: 'Av. Eduardo Mondlane, Bairro Polana Cimento, Casa 42',
-    courseName: defaultCourse,
-    guardianName: 'Salimo Alberto Chissano',
-    guardianPhone: '+258 82 450 1200',
-    emergencyContact: '+258 84 311 9000',
-    confidenceScore: 94,
-    status: 'draft' as const
-  };
 }

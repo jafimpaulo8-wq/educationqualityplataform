@@ -15,6 +15,8 @@ import {
 import { StudioElement, DocumentFormat, DocumentSide, DocumentBackground } from '../../types/studio';
 import { Student, Institution, Course, ClassGroup } from '../../types';
 import { replaceDynamicVariables } from '../../utils/documentVariables';
+import { resolveInstitutionIdentity } from '../../utils/institutionIdentity';
+import { InstitutionLogoBadge } from '../../components/common/InstitutionLogoBadge';
 
 interface StudioCanvasProps {
   format: DocumentFormat;
@@ -180,7 +182,28 @@ export const StudioCanvas: React.FC<StudioCanvasProps> = ({
           </div>
         );
 
-      case 'logotipo':
+      case 'logotipo': {
+        const identity = resolveInstitutionIdentity(institution);
+        const logoSrc = identity.logoUrl || (element.imageUrl && !element.imageUrl.includes('images.unsplash.com') ? element.imageUrl : '');
+        return (
+          <div className="w-full h-full flex items-center justify-center overflow-hidden">
+            {logoSrc ? (
+              <img
+                src={logoSrc}
+                alt={identity.officialName || element.name}
+                className="w-full h-full object-contain pointer-events-none"
+                style={{
+                  borderRadius: `${element.borderRadius || 0}px`,
+                  opacity: element.opacity !== undefined ? element.opacity : 1
+                }}
+              />
+            ) : (
+              <InstitutionLogoBadge institution={institution} size="md" rounded="xl" />
+            )}
+          </div>
+        );
+      }
+
       case 'imagem':
         return (
           <div className="w-full h-full flex items-center justify-center overflow-hidden">
@@ -197,18 +220,20 @@ export const StudioCanvas: React.FC<StudioCanvasProps> = ({
             ) : (
               <div className="w-full h-full bg-slate-100 border-2 border-dashed border-slate-300 rounded flex flex-col items-center justify-center text-slate-400">
                 <ImageIcon className="w-6 h-6 mb-1" />
-                <span className="text-[10px]">Logotipo / Imagem</span>
+                <span className="text-[10px]">Imagem</span>
               </div>
             )}
           </div>
         );
 
-      case 'fotografia':
-        const photoSrc = isPreviewMode && selectedStudent?.photoUrl ? selectedStudent.photoUrl : (element.imageUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80');
+      case 'fotografia': {
+        const photoSrc = (isPreviewMode && selectedStudent?.photoUrl)
+          ? selectedStudent.photoUrl
+          : (element.imageUrl && !element.imageUrl.includes('images.unsplash.com') ? element.imageUrl : '');
         return (
           <div className="w-full h-full p-1">
             <div
-              className="w-full h-full overflow-hidden shadow-xs relative bg-slate-100"
+              className="w-full h-full overflow-hidden shadow-xs relative bg-slate-100 flex items-center justify-center"
               style={{
                 borderRadius: `${element.borderRadius || 8}px`,
                 borderWidth: `${element.borderWidth || 2}px`,
@@ -216,17 +241,24 @@ export const StudioCanvas: React.FC<StudioCanvasProps> = ({
                 borderStyle: 'solid'
               }}
             >
-              <img
-                src={photoSrc}
-                alt="Foto 3x4"
-                className="w-full h-full object-cover pointer-events-none"
-              />
+              {photoSrc ? (
+                <img
+                  src={photoSrc}
+                  alt="Foto 3x4"
+                  className="w-full h-full object-cover pointer-events-none"
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center text-slate-400">
+                  <User className="w-7 h-7" />
+                </div>
+              )}
               <span className="absolute bottom-0 inset-x-0 bg-slate-900/80 text-[8px] text-white text-center font-mono py-0.5">
                 3×4 OFICIAL
               </span>
             </div>
           </div>
         );
+      }
 
       case 'forma':
         return (
@@ -290,17 +322,28 @@ export const StudioCanvas: React.FC<StudioCanvasProps> = ({
           </div>
         );
 
-      case 'assinatura':
+      case 'assinatura': {
+        const identity = resolveInstitutionIdentity(institution);
+        const showDirectorImg = element.signerRole === 'Diretor Geral' && identity.signatureUrl && isPreviewMode;
+        const stampImg = identity.stampUrl && isPreviewMode;
         return (
           <div className="w-full h-full flex flex-col justify-end text-center space-y-1">
             <div className="w-4/5 mx-auto border-b border-slate-800 relative pb-1">
-              <span className="font-serif italic text-blue-900 font-bold text-xs sm:text-sm block">
-                {element.signerName ? evalText(element.signerName) : 'Assinatura Digital'}
-              </span>
+              {showDirectorImg ? (
+                <img src={identity.signatureUrl} alt="Assinatura" className="h-7 mx-auto object-contain" />
+              ) : (
+                <span className="font-serif italic text-blue-900 font-bold text-xs sm:text-sm block">
+                  {element.signerName ? evalText(element.signerName) : 'Assinatura Digital'}
+                </span>
+              )}
               {element.hasStampOnSignature && (
-                <div className="absolute -top-3 -right-2 w-8 h-8 rounded-full border border-emerald-600/40 bg-emerald-500/10 flex items-center justify-center text-[7px] text-emerald-800 font-black rotate-12">
-                  SELADO
-                </div>
+                stampImg ? (
+                  <img src={identity.stampUrl} alt="Carimbo" className="absolute -top-4 -right-2 w-9 h-9 object-contain opacity-85" />
+                ) : (
+                  <div className="absolute -top-3 -right-2 w-8 h-8 rounded-full border border-emerald-600/40 bg-emerald-500/10 flex items-center justify-center text-[7px] text-emerald-800 font-black rotate-12">
+                    SELADO
+                  </div>
+                )
               )}
             </div>
             <strong className="text-[10px] text-slate-900 block leading-tight">
@@ -311,9 +354,11 @@ export const StudioCanvas: React.FC<StudioCanvasProps> = ({
             </span>
           </div>
         );
+      }
 
-      case 'carimbo':
+      case 'carimbo': {
         const stampBorder = element.stampColor || '#059669';
+        const stampBottom = evalText(element.stampTextBottom || '{{instituicao}}');
         return (
           <div className="w-full h-full flex items-center justify-center select-none">
             <div
@@ -330,11 +375,12 @@ export const StudioCanvas: React.FC<StudioCanvasProps> = ({
                 {element.stampCenterText || 'HOMOLOGADO'}
               </div>
               <span className="text-[6.5px] font-bold block">
-                {element.stampTextBottom || 'SIVEC • MINISTÉRIO DA EDUCAÇÃO'}
+                {stampBottom}
               </span>
             </div>
           </div>
         );
+      }
 
       case 'qrcode':
         return (

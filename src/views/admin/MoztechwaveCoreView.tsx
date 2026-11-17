@@ -59,6 +59,7 @@ import { AuditLogEntry } from '../../types/audit';
 import { soundManager } from '../../utils/audio';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
+import { InstitutionLogoBadge } from '../../components/common/InstitutionLogoBadge';
 
 export type CoreTab = 
   | 'dashboard' 
@@ -515,7 +516,15 @@ export const MoztechwaveCoreView: React.FC = () => {
     e.preventDefault();
     if (!newUserName.trim()) return;
 
-    const targetInst = allInstitutions.find(i => i.id === newUserInstId) || allInstitutions[0];
+    const targetInst = allInstitutions.find(i => i.id === newUserInstId);
+    if (!targetInst) {
+      addNotification({
+        title: 'Selecione uma Instituição',
+        message: 'É obrigatório escolher explicitamente a instituição de destino antes de criar um utilizador.',
+        type: 'warning'
+      });
+      return;
+    }
     const rolePrefix = newUserRole === 'DIRETOR' ? 'ADM' :
                        newUserRole === 'SECRETARIA' ? 'SEC' :
                        newUserRole === 'PROFESSOR' || newUserRole === 'FORMADOR' ? 'PRO' :
@@ -721,21 +730,21 @@ export const MoztechwaveCoreView: React.FC = () => {
               HQ PLATFORM OWNER SUITE • NÍVEL 5 RESTRICTED
             </div>
             <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight flex items-center gap-3">
-              MOZTECHWAVE CORE
+              SIGAR PRO • GOVERNANÇA CENTRAL
               <span className="text-xs sm:text-sm font-mono font-semibold px-2.5 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                PROPRIETÁRIO
+                SUPER ADMIN
               </span>
             </h1>
             <p className="text-sm text-slate-400 max-w-2xl">
-              Centro de comando soberano da plataforma educacional multitenant. Governança central de 
-              <strong className="text-slate-200"> SIGAR</strong>, <strong className="text-amber-300"> SIVEC</strong>, <strong className="text-emerald-300"> MOZCOIN</strong> e <strong className="text-blue-300"> MOZTECHWAVE ID</strong>.
+              Centro de comando soberano da plataforma educacional multi-instituição. Governança central de 
+              <strong className="text-slate-200"> SIGAR PRO</strong>, <strong className="text-amber-300"> SIVEC</strong> e isolamento por instituição.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900/80 border border-slate-800 text-xs font-mono text-slate-300">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-              <span className="font-semibold text-white">Owner:</span> jafimpaulo8@gmail.com
+              <span className="font-semibold text-white">Sessão:</span> {firebaseUser?.email || 'Super Admin'}
             </div>
             <button
               onClick={runSecurityPenTest}
@@ -1021,15 +1030,18 @@ export const MoztechwaveCoreView: React.FC = () => {
                     return (
                       <tr key={inst.id} className="hover:bg-slate-850/40 transition-colors">
                         <td className="py-3.5 px-4">
-                          <div className="space-y-0.5">
-                            <div className="font-bold text-white flex items-center gap-2">
-                              {inst.name}
-                              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-amber-300">
-                                {inst.code}
-                              </span>
-                            </div>
-                            <div className="text-[11px] text-slate-400">
-                              Resp: {inst.representativeName || inst.directorName || 'Direção'} ({inst.email})
+                          <div className="flex items-center gap-3">
+                            <InstitutionLogoBadge institution={inst} size="sm" rounded="xl" />
+                            <div className="space-y-0.5">
+                              <div className="font-bold text-white flex items-center gap-2">
+                                {inst.name}
+                                <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-amber-300">
+                                  {inst.code}
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-slate-400">
+                                Resp: {inst.representativeName || inst.directorName || 'Não definido'} {inst.email ? `(${inst.email})` : ''}
+                              </div>
                             </div>
                           </div>
                         </td>

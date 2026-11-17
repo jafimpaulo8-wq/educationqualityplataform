@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { PermissionGate } from '../../components/PermissionGate';
 import { 
@@ -29,6 +29,8 @@ import {
 import { Student } from '../../types';
 import { RealQRCode } from '../../components/common/RealQRCode';
 import { printIsolatedElement } from '../../utils/printHelper';
+import { InstitutionLogoBadge } from '../../components/common/InstitutionLogoBadge';
+import { resolveInstitutionIdentity } from '../../utils/institutionIdentity';
 
 export const StudentCardGeneratorView: React.FC = () => {
   const { 
@@ -39,11 +41,21 @@ export const StudentCardGeneratorView: React.FC = () => {
     updateStudent
   } = useApp();
 
+  const identity = resolveInstitutionIdentity(activeInstitution);
+  const instStudents = useMemo(
+    () => (identity.hasInstitution ? students.filter(s => s.institutionId === activeInstitution.id) : []),
+    [students, identity.hasInstitution, activeInstitution.id]
+  );
+  const instClasses = useMemo(
+    () => (identity.hasInstitution ? classes.filter(c => c.institutionId === activeInstitution.id) : []),
+    [classes, identity.hasInstitution, activeInstitution.id]
+  );
+
   // Mode: Visualizar / Editar Cartão Individual vs Impressão em Lote Folha A4
   const [viewMode, setViewMode] = useState<'individual' | 'folha_a4'>('individual');
 
   // Selected Student
-  const [selectedStudentId, setSelectedStudentId] = useState<string>(students[0]?.id || '');
+  const [selectedStudentId, setSelectedStudentId] = useState<string>(instStudents[0]?.id || '');
   const [searchStudent, setSearchStudent] = useState<string>('');
   const [filterClass, setFilterClass] = useState<string>('todas');
   const [cardFaceFilter, setCardFaceFilter] = useState<'ambos' | 'frente' | 'verso'>('ambos');
@@ -65,22 +77,29 @@ export const StudentCardGeneratorView: React.FC = () => {
   // "ID card waiting" (espera de carta / emissão temporária) vs "ID card for operation" (cartão operacional liberado)
   const [cardOperationalState, setCardOperationalState] = useState<'ID card waiting' | 'ID card for operation'>('ID card for operation');
 
-  // Informações do Verso / Centro HSST
-  const [hsstCenterName, setHsstCenterName] = useState<string>('Centro de Formação & Segurança Ocupacional HSST');
-  const [hsstEmergencyContact, setHsstEmergencyContact] = useState<string>('+258 84 990 0110 / +258 82 000 1928');
+  // Informações do Verso / Instituição
+  const [hsstCenterName, setHsstCenterName] = useState<string>(identity.officialName || 'Segurança & Identificação Escolar');
+  const [hsstEmergencyContact, setHsstEmergencyContact] = useState<string>(identity.phone || identity.whatsapp || '');
   const [cardValidityDate, setCardValidityDate] = useState<string>('31/12/2026');
   const [customInstructions, setCustomInstructions] = useState<string>(
-    '1. Este cartão é pessoal e intransmissível.\n2. Obrigatório o porte diário e apresentação nos torniquetes da portaria.\n3. Em caso de extravio, comunicar imediatamente à Secretaria Central.'
+    '1. Este cartão é pessoal e intransmissível.\n2. Obrigatório o porte diário e apresentação nos acessos da instituição.\n3. Em caso de extravio, comunicar imediatamente à Secretaria.'
   );
+
+  useEffect(() => {
+    setHsstCenterName(identity.officialName || 'Segurança & Identificação Escolar');
+    setHsstEmergencyContact(identity.phone || identity.whatsapp || '');
+    setSelectedStudentId(instStudents[0]?.id || '');
+    setFilterClass('todas');
+  }, [activeInstitution.id, identity.officialName, identity.phone, identity.whatsapp]);
 
   // Aluno Selecionado
   const currentStudent: Student | undefined = useMemo(() => {
-    return students.find(s => s.id === selectedStudentId) || students[0];
-  }, [students, selectedStudentId]);
+    return instStudents.find(s => s.id === selectedStudentId) || instStudents[0];
+  }, [instStudents, selectedStudentId]);
 
   // Alunos Filtrados para Lote A4
   const filteredStudents = useMemo(() => {
-    return students.filter(s => {
+    return instStudents.filter(s => {
       const matchClass = filterClass === 'todas' || s.classGroupId === filterClass;
       const q = searchStudent.toLowerCase();
       const matchSearch = !searchStudent ||
@@ -89,7 +108,7 @@ export const StudentCardGeneratorView: React.FC = () => {
         s.courseName.toLowerCase().includes(q);
       return matchClass && matchSearch;
     });
-  }, [students, filterClass, searchStudent]);
+  }, [instStudents, filterClass, searchStudent]);
 
   // Upload de Imagem do Logotipo do Instituto
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -258,7 +277,7 @@ export const StudentCardGeneratorView: React.FC = () => {
                   onChange={(e) => setSelectedStudentId(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
                 >
-                  {students.map(s => (
+                  {instStudents.map(s => (
                     <option key={s.id} value={s.id}>
                       {s.code} - {s.fullName} ({s.classGroupName || 'Sem turma'})
                     </option>
@@ -522,7 +541,7 @@ export const StudentCardGeneratorView: React.FC = () => {
                         <MozambiqueFlagMini />
                         <div className="leading-tight">
                           <div className="font-black text-slate-900 text-[11px] uppercase tracking-tight line-clamp-1">
-                            {activeInstitution.name}
+                            {identity.officialName || 'Instituição de Ensino'}
                           </div>
                           <div className="text-[8px] text-slate-500 font-medium">
                             REPÚBLICA DE MOÇAMBIQUE • MINEDH / ANEP
@@ -534,12 +553,8 @@ export const StudentCardGeneratorView: React.FC = () => {
                       <div className="flex items-center gap-1">
                         {customLogoUrl ? (
                           <img src={customLogoUrl} alt="Logo" className="h-6 w-auto object-contain" />
-                        ) : activeInstitution.logoUrl ? (
-                          <img src={activeInstitution.logoUrl} alt="Logo" className="h-6 w-auto object-contain" />
                         ) : (
-                          <div className="px-1.5 py-0.5 rounded bg-slate-900 text-white font-mono text-[9px] font-bold">
-                            {activeInstitution.code || 'MTW'}
-                          </div>
+                          <InstitutionLogoBadge institution={activeInstitution} size="sm" rounded="lg" />
                         )}
                         <span className="text-[7px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 px-1 py-0.5 rounded border border-emerald-300">
                           SIVERC
@@ -551,11 +566,17 @@ export const StudentCardGeneratorView: React.FC = () => {
                     <div className="relative z-10 flex items-center gap-3 my-auto py-1">
                       {/* Foto */}
                       <div className="relative shrink-0">
-                        <img
-                          src={currentStudent.photoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200'}
-                          alt={currentStudent.fullName}
-                          className="w-16 h-20 rounded-lg object-cover border-2 border-slate-300 shadow-sm"
-                        />
+                        {currentStudent.photoUrl ? (
+                          <img
+                            src={currentStudent.photoUrl}
+                            alt={currentStudent.fullName}
+                            className="w-16 h-20 rounded-lg object-cover border-2 border-slate-300 shadow-sm"
+                          />
+                        ) : (
+                          <div className="w-16 h-20 rounded-lg bg-slate-100 border-2 border-slate-300 flex items-center justify-center text-slate-400">
+                            <User className="w-6 h-6" />
+                          </div>
+                        )}
                         <div className="absolute -bottom-1 -right-1 bg-emerald-600 text-white rounded-full p-0.5">
                           <CheckCircle className="w-3 h-3" />
                         </div>
@@ -596,8 +617,8 @@ export const StudentCardGeneratorView: React.FC = () => {
 
                       {/* QR Code de Leitura Rápida */}
                       <div className="shrink-0 flex flex-col items-center">
-                        <div className="w-14 h-14 bg-white p-1 rounded-lg border border-slate-300 flex items-center justify-center shadow-xs">
-                          <QrCode className="w-12 h-12 text-slate-950" />
+                        <div className="w-14 h-14 bg-white p-0.5 rounded-lg border border-slate-300 flex items-center justify-center shadow-xs">
+                          <RealQRCode value={currentStudent.code} size={50} />
                         </div>
                         <span className="text-[7px] font-mono text-slate-400 mt-0.5">SCAN PORTARIA</span>
                       </div>
@@ -607,7 +628,7 @@ export const StudentCardGeneratorView: React.FC = () => {
                     <div className="relative z-10 border-t border-slate-200 pt-1 flex items-center justify-between text-[8px] text-slate-600">
                       <div>
                         <span>BI / Doc: </span>
-                        <strong className="font-mono text-slate-900">{currentStudent.documentNumber || '1101928374M'}</strong>
+                        <strong className="font-mono text-slate-900">{currentStudent.documentNumber || '—'}</strong>
                       </div>
                       <div className="font-bold text-emerald-700 uppercase tracking-wider">
                         VÁLIDO EM TERRITÓRIO NACIONAL
@@ -683,8 +704,8 @@ export const StudentCardGeneratorView: React.FC = () => {
 
                       {/* QR de Validação Pública SIVERC no Verso */}
                       <div className="col-span-4 flex flex-col items-center justify-center border-l border-slate-200 pl-2">
-                        <div className="w-14 h-14 bg-white p-1 rounded-lg border border-slate-300 flex items-center justify-center shadow-xs">
-                          <QrCode className="w-12 h-12 text-slate-950" />
+                        <div className="w-14 h-14 bg-white p-0.5 rounded-lg border border-slate-300 flex items-center justify-center shadow-xs">
+                          <RealQRCode value={currentStudent.code} size={50} />
                         </div>
                         <span className="text-[6.5px] font-mono font-bold text-slate-500 mt-0.5 text-center">
                           AUTENTICAÇÃO SIVERC
@@ -695,7 +716,12 @@ export const StudentCardGeneratorView: React.FC = () => {
                     {/* Rodapé do Verso: Contactos Institucionais & Assinatura */}
                     <div className="relative z-10 border-t border-slate-200 pt-1 flex items-center justify-between text-[7.5px] text-slate-600">
                       <div>
-                        <span>Endereço: {activeInstitution.address} • Tel: {activeInstitution.phone}</span>
+                        <span>
+                          {[
+                            identity.address ? `Endereço: ${identity.address}` : '',
+                            identity.phone ? `Tel: ${identity.phone}` : ''
+                          ].filter(Boolean).join(' • ') || identity.officialName}
+                        </span>
                       </div>
                       <div className="text-right font-mono font-bold text-slate-800">
                         SIVEC-ID-{currentStudent.id.slice(-6).toUpperCase()}
@@ -789,8 +815,8 @@ export const StudentCardGeneratorView: React.FC = () => {
                     onChange={(e) => setFilterClass(e.target.value)}
                     className="bg-transparent text-xs text-white focus:outline-none cursor-pointer"
                   >
-                    <option value="todas" className="bg-slate-900">Todas as Turmas ({students.length})</option>
-                    {classes.map(c => (
+                    <option value="todas" className="bg-slate-900">Todas as Turmas ({instStudents.length})</option>
+                    {instClasses.map(c => (
                       <option key={c.id} value={c.id} className="bg-slate-900">{c.name}</option>
                     ))}
                   </select>
@@ -865,7 +891,7 @@ export const StudentCardGeneratorView: React.FC = () => {
                         <MozambiqueFlagMini />
                         <div className="leading-tight">
                           <div className="font-bold text-slate-900 text-[10px] uppercase line-clamp-1">
-                            {activeInstitution.name}
+                            {identity.officialName || 'Instituição de Ensino'}
                           </div>
                           <div className="text-[7.5px] text-slate-500">CARTEIRA DISCENTE OFICIAL</div>
                         </div>
@@ -877,11 +903,17 @@ export const StudentCardGeneratorView: React.FC = () => {
 
                     {/* Body */}
                     <div className="flex items-center gap-2.5">
-                      <img
-                        src={student.photoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200'}
-                        alt={student.fullName}
-                        className="w-14 h-18 rounded object-cover border border-slate-300 shrink-0"
-                      />
+                      {student.photoUrl ? (
+                        <img
+                          src={student.photoUrl}
+                          alt={student.fullName}
+                          className="w-14 h-18 rounded object-cover border border-slate-300 shrink-0"
+                        />
+                      ) : (
+                        <div className="w-14 h-18 rounded bg-slate-100 border border-slate-300 flex items-center justify-center text-slate-400 shrink-0">
+                          <User className="w-5 h-5" />
+                        </div>
+                      )}
                       <div className="flex-1 min-w-0 space-y-0.5 text-[8.5px]">
                         <div className="font-black text-slate-900 text-[10px] leading-tight line-clamp-1">
                           {student.fullName}
@@ -899,7 +931,7 @@ export const StudentCardGeneratorView: React.FC = () => {
 
                       <div className="shrink-0 text-center">
                         <div className="w-12 h-12 bg-white p-0.5 border border-slate-200 rounded flex items-center justify-center">
-                          <QrCode className="w-10 h-10 text-slate-900" />
+                          <RealQRCode value={student.code} size={42} />
                         </div>
                         <span className="text-[6.5px] font-mono text-slate-400 block mt-0.5">SIVERC</span>
                       </div>
@@ -907,7 +939,7 @@ export const StudentCardGeneratorView: React.FC = () => {
 
                     {/* Footer */}
                     <div className="border-t border-slate-200 pt-1 mt-2 flex items-center justify-between text-[7.5px] text-slate-500">
-                      <span>Doc: {student.documentNumber || '1101928374M'}</span>
+                      <span>Doc: {student.documentNumber || '—'}</span>
                       <span className="text-emerald-700 font-bold uppercase">Válido em Território Nacional</span>
                     </div>
 

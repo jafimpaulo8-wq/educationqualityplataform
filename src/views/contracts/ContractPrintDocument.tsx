@@ -236,7 +236,7 @@ export const ContractPrintDocument: React.FC<ContractPrintDocumentProps> = ({
                   />
                 ) : (
                   <div className="font-serif italic text-lg text-slate-900 border-b border-slate-400 px-6 py-1">
-                    {directorSig.signerName || contract.directorName || 'Eng. Paulo Jafim'}
+                    {directorSig.signerName || contract.directorName || institution.representativeName || 'Direção Geral'}
                   </div>
                 )}
                 <div className="flex items-center justify-center gap-1 text-[11px] text-blue-800 font-bold">
@@ -250,7 +250,7 @@ export const ContractPrintDocument: React.FC<ContractPrintDocumentProps> = ({
               </div>
             )}
             <div className="font-bold text-slate-950 text-xs uppercase tracking-wide">
-              {contract.directorName || 'Eng. Paulo Jafim'}
+              {contract.directorName || institution.representativeName || 'Direção Geral'}
             </div>
             <div className="text-[11px] text-slate-600">
               Pelo Primeiro Outorgante (Direção Geral)

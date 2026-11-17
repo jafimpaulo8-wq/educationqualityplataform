@@ -23,6 +23,8 @@ import { StudentNotificationsTab } from './components/StudentNotificationsTab';
 import { StudentCarteirinhaTab } from './components/StudentCarteirinhaTab';
 import { StudentSupportTab } from './components/StudentSupportTab';
 import { RealQRCode } from '../../components/common/RealQRCode';
+import { InstitutionLogoBadge } from '../../components/common/InstitutionLogoBadge';
+import { resolveInstitutionIdentity } from '../../utils/institutionIdentity';
 
 import { 
   Home,
@@ -88,6 +90,7 @@ const SUB_NAV_ITEMS: SubNavItem[] = [
 
 export const StudentPortalView: React.FC = () => {
   const { students, authenticatedStudent, activeInstitution, activeBranch, firebaseUser, allCertificates, activeRole } = useApp();
+  const identity = resolveInstitutionIdentity(activeInstitution);
 
   // Aluno autenticado real no Firebase (PARTE 10)
   const currentStudent = useMemo<Student | null>(() => {
@@ -151,25 +154,23 @@ export const StudentPortalView: React.FC = () => {
   const realDisplayName = currentStudent.fullName || firebaseUser?.displayName || 'Estudante';
   const realCourse = currentStudent.courseName || 'Curso sob alocação';
   const realTurma = (currentStudent as any).className || (currentStudent as any).classCode || 'Turma não atribuída';
-  const realBranch = currentStudent.branchName || activeBranch?.name || activeInstitution?.name || 'Campus Principal';
+  const realBranch = currentStudent.branchName || activeBranch?.name || (identity.hasInstitution ? identity.officialName : 'Campus Principal');
 
   return (
     <div id="student-portal-container" className="space-y-4 pb-12">
-      {/* 1. TOP HEADER: MOZTECHWAVE 🔔 👤 [Nome do Aluno] */}
+      {/* 1. TOP HEADER: Identidade da Instituição Ativa */}
       <header className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xl flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-sky-600 to-emerald-500 flex items-center justify-center text-white font-black text-xl shadow-lg shadow-sky-500/20">
-            M
-          </div>
+          <InstitutionLogoBadge institution={activeInstitution} size="md" rounded="2xl" />
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-black text-white text-base sm:text-lg tracking-wider">MOZTECHWAVE</span>
+              <span className="font-black text-white text-base sm:text-lg tracking-wider">{identity.shortName}</span>
               <span className="hidden sm:inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                SIVEC VERIFIED
+                SIGAR PRO
               </span>
             </div>
             <div className="text-[11px] text-slate-400 truncate max-w-[200px] sm:max-w-none">
-              {activeInstitution.name || 'Portal Académico'} • Portal do Estudante
+              {identity.officialName} • Portal do Estudante
             </div>
           </div>
         </div>
@@ -273,12 +274,16 @@ export const StudentPortalView: React.FC = () => {
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
                   <div className="flex items-center gap-5">
                     <div className="relative shrink-0">
-                      <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full border-4 border-sky-400 overflow-hidden shadow-lg bg-slate-800">
-                        <img 
-                          src={currentStudent.photoUrl || 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=300&auto=format&fit=crop&q=80'} 
-                          alt={realDisplayName}
-                          className="w-full h-full object-cover"
-                        />
+                      <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full border-4 border-sky-400 overflow-hidden shadow-lg bg-slate-800 flex items-center justify-center">
+                        {currentStudent.photoUrl ? (
+                          <img 
+                            src={currentStudent.photoUrl} 
+                            alt={realDisplayName}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <User className="w-10 h-10 text-slate-400" />
+                        )}
                       </div>
                       <span className="absolute bottom-1 right-1 w-5 h-5 rounded-full bg-emerald-500 border-2 border-slate-900 flex items-center justify-center text-[10px] text-white font-bold" title="Aluno Ativo">
                         ✓
@@ -321,7 +326,7 @@ export const StudentPortalView: React.FC = () => {
                       &ldquo;O conhecimento é o primeiro passo para grandes conquistas.&rdquo;
                     </p>
                     <span className="text-[10px] text-amber-400 font-mono mt-1 block">
-                      SIGAR PRO • MOZTECHWAVE
+                      SIGAR PRO{identity.hasInstitution ? ` • ${identity.shortName}` : ''}
                     </span>
                   </div>
                 </div>
@@ -664,29 +669,33 @@ export const StudentPortalView: React.FC = () => {
                     {/* Dark Card Preview (Image 3 design with Real QR) */}
                     <div className="rounded-2xl p-5 bg-gradient-to-br from-[#0c1a2e] via-[#091424] to-[#040912] text-white shadow-lg space-y-3.5 border border-slate-700">
                       <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                        <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center font-black text-xs">
-                            S
-                          </div>
-                          <div>
-                            <span className="text-xs font-black tracking-wider block leading-tight">SIGAR PRO</span>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <InstitutionLogoBadge institution={activeInstitution} size="xs" rounded="lg" />
+                          <div className="min-w-0">
+                            <span className="text-xs font-black tracking-wider block leading-tight truncate">{identity.shortName}</span>
                             <span className="text-[8px] text-slate-400 uppercase tracking-widest font-mono">Carteirinha Estudantil</span>
                           </div>
                         </div>
-                        <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
+                        <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shrink-0">
                           Activo
                         </span>
                       </div>
 
                       <div className="flex items-start gap-3">
-                        <img 
-                          src={currentStudent.photoUrl || 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=200&auto=format&fit=crop&q=80'}
-                          alt={realDisplayName}
-                          className="w-14 h-16 rounded-xl object-cover border border-sky-400 shrink-0"
-                        />
+                        <div className="w-14 h-16 rounded-xl border border-sky-400 shrink-0 bg-slate-800 flex items-center justify-center overflow-hidden">
+                          {currentStudent.photoUrl ? (
+                            <img 
+                              src={currentStudent.photoUrl}
+                              alt={realDisplayName}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <User className="w-6 h-6 text-slate-400" />
+                          )}
+                        </div>
                         <div className="space-y-0.5 text-xs min-w-0 flex-1">
                           <h4 className="font-bold text-white text-xs truncate">{realDisplayName}</h4>
-                          <p className="text-[10px] text-amber-300 font-mono font-bold">{currentStudent.code || 'MTW-2026-0087'}</p>
+                          <p className="text-[10px] text-amber-300 font-mono font-bold">{currentStudent.code || currentStudent.id.slice(0, 10)}</p>
                           <p className="text-[10px] text-slate-300 truncate">Turma: {realTurma}</p>
                           <p className="text-[9px] text-slate-400 truncate">{realBranch}</p>
                         </div>
@@ -694,7 +703,7 @@ export const StudentPortalView: React.FC = () => {
                         {/* Real QR Code directly on Carteirinha Digital */}
                         <div className="p-1 bg-white rounded-xl shadow-md shrink-0">
                           <RealQRCode
-                            value={`${typeof window !== 'undefined' ? window.location.origin : 'https://portal.moztechwave.co.mz'}/verificar/aluno/${encodeURIComponent(currentStudent.code || currentStudent.id)}`}
+                            value={`${typeof window !== 'undefined' ? window.location.origin : ''}/verificar/aluno/${encodeURIComponent(currentStudent.code || currentStudent.id)}`}
                             size={56}
                           />
                         </div>
@@ -730,28 +739,36 @@ export const StudentPortalView: React.FC = () => {
                     </div>
 
                     <div className="space-y-2.5">
-                      <div className="p-3.5 rounded-xl border border-slate-100 bg-slate-50/60 hover:bg-white hover:border-slate-200 transition-all flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-600 flex items-center justify-center shrink-0">
-                            <Award className="w-5 h-5" />
-                          </div>
-                          <div className="min-w-0">
-                            <h4 className="text-xs font-bold text-slate-900 truncate">
-                              CERT-MTW-2026-00412
-                            </h4>
-                            <p className="text-[10px] text-slate-500 truncate">{realCourse}</p>
-                            <span className="text-[9px] text-slate-400 block font-mono">Emitido em 15/09/2026</span>
-                          </div>
+                      {studentCertificates.length === 0 ? (
+                        <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/60 text-center text-xs text-slate-500">
+                          Nenhum certificado emitido até ao momento.
                         </div>
+                      ) : studentCertificates.slice(0, 2).map((cert) => (
+                        <div key={cert.id} className="p-3.5 rounded-xl border border-slate-100 bg-slate-50/60 hover:bg-white hover:border-slate-200 transition-all flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-600 flex items-center justify-center shrink-0">
+                              <Award className="w-5 h-5" />
+                            </div>
+                            <div className="min-w-0">
+                              <h4 className="text-xs font-bold text-slate-900 truncate">
+                                {cert.code}
+                              </h4>
+                              <p className="text-[10px] text-slate-500 truncate">{cert.courseName || realCourse}</p>
+                              <span className="text-[9px] text-slate-400 block font-mono">
+                                Emitido em {cert.issueDate || '—'}
+                              </span>
+                            </div>
+                          </div>
 
-                        <button 
-                          type="button"
-                          onClick={() => setActiveTab('certificados')}
-                          className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold hover:bg-emerald-100 transition-colors shrink-0 cursor-pointer"
-                        >
-                          Verificar
-                        </button>
-                      </div>
+                          <button 
+                            type="button"
+                            onClick={() => setActiveTab('certificados')}
+                            className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold hover:bg-emerald-100 transition-colors shrink-0 cursor-pointer"
+                          >
+                            Verificar
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   </div>
 

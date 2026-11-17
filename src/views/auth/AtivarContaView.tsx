@@ -34,6 +34,21 @@ import { useApp } from '../../context/AppContext';
 import { useToast } from '../../context/ToastContext';
 import { soundManager } from '../../utils/audio';
 
+function toSafeDate(val: any): Date | null {
+  if (!val) return null;
+  if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+  if (typeof val.toDate === 'function') {
+    const d = val.toDate();
+    return isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof val.seconds === 'number') {
+    const d = new Date(val.seconds * 1000);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  const d = new Date(val);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 interface AtivarContaViewProps {
   initialToken?: string;
   onActivated?: () => void;
@@ -106,13 +121,15 @@ export const AtivarContaView: React.FC<AtivarContaViewProps> = ({
       }
 
       if (inv.used) {
-        setTokenError(`Este convite já foi utilizado em ${inv.usedAt ? new Date(inv.usedAt).toLocaleDateString('pt-MZ') : 'data anterior'}. Se esqueceu a sua palavra-passe, utilize a opção de recuperação.`);
+        const usedDate = toSafeDate(inv.usedAt);
+        setTokenError(`Este convite já foi utilizado em ${usedDate ? usedDate.toLocaleDateString('pt-MZ') : 'data anterior'}. Se esqueceu a sua palavra-passe, utilize a opção de recuperação.`);
         setInvitation(inv);
         setLoading(false);
         return;
       }
 
-      if (new Date(inv.expiresAt) < new Date()) {
+      const expDate = toSafeDate(inv.expiresAt);
+      if (expDate && expDate < new Date()) {
         setTokenError('Este convite de acesso expirou. Solicite um novo link à secretaria da sua instituição.');
         setLoading(false);
         return;
@@ -356,7 +373,7 @@ export const AtivarContaView: React.FC<AtivarContaViewProps> = ({
             <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 text-left font-mono text-xs space-y-1">
               <div className="text-slate-400">Código de Aluno: <span className="text-emerald-400 font-bold">{invitation?.studentCode}</span></div>
               <div className="text-slate-400">E-mail: <span className="text-white">{invitation?.studentEmail}</span></div>
-              <div className="text-slate-400">Instituição: <span className="text-blue-400">{institutionObj?.name || 'CFTPM Moztechwave'}</span></div>
+              <div className="text-slate-400">Instituição: <span className="text-blue-400">{institutionObj?.name || 'Instituição Vinculada'}</span></div>
             </div>
 
             <button

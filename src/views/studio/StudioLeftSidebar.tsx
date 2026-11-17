@@ -123,7 +123,7 @@ export const StudioLeftSidebar: React.FC<StudioLeftSidebarProps> = ({
       zIndex: 10,
       side: currentSide,
       footerLegalText: 'Documento registrado no Livro Geral de Termos sob o assento nº 0891/2026. A validade deste título pode ser aferida via QR Code SIVEC.',
-      footerVerificationUrl: 'https://sivec.moztechwave.co.mz/validar'
+      footerVerificationUrl: '/validar-documento'
     });
   };
 
@@ -157,7 +157,7 @@ export const StudioLeftSidebar: React.FC<StudioLeftSidebarProps> = ({
       homologado: { top: 'REPÚBLICA DE MOÇAMBIQUE', center: 'HOMOLOGADO', bottom: 'SIVEC • MINISTÉRIO DA EDUCAÇÃO', color: '#059669' },
       autenticado: { top: 'SECRETARIA GERAL', center: 'AUTENTICADO', bottom: 'CONFORME O ORIGINAL', color: '#2563eb' },
       pago: { top: 'TESOURARIA GERAL', center: 'PAGO / LIQUIDADO', bottom: 'AUTENTICAÇÃO FINANCEIRA', color: '#059669' },
-      concluido: { top: 'CONSELHO TÉCNICO', center: 'APROVADO', bottom: 'CFTPM • MOÇAMBIQUE', color: '#b45309' }
+      concluido: { top: 'CONSELHO TÉCNICO', center: 'APROVADO', bottom: '{{instituicao}}', color: '#b45309' }
     };
     const c = configs[type];
     onAddElement({
@@ -187,10 +187,10 @@ export const StudioLeftSidebar: React.FC<StudioLeftSidebarProps> = ({
       height: 14,
       zIndex: 15,
       side: currentSide,
-      qrCodeUrl: 'https://sivec.moztechwave.co.mz/verify?doc={{numero_documento}}',
+      qrCodeUrl: '/verificar?doc={{numero_documento}}',
       showQrHash: true,
-      qrHashText: 'HASH: e7c90b41aa89',
-      qrCaption: 'Validação SIVEC'
+      qrHashText: 'HASH: VERIFICAÇÃO OFICIAL',
+      qrCaption: 'Validação SIGAR PRO'
     });
   };
 
@@ -204,7 +204,7 @@ export const StudioLeftSidebar: React.FC<StudioLeftSidebarProps> = ({
       height: 18,
       zIndex: 15,
       side: currentSide,
-      imageUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80',
+      imageUrl: '',
       borderRadius: 6,
       borderColor: '#b45309',
       borderWidth: 2

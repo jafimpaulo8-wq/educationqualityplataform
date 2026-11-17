@@ -846,7 +846,7 @@ export const PautasManagerView: React.FC = () => {
                 {activeInstitution.name}
               </h2>
               <p className="text-xs text-slate-500">
-                {activeInstitution.address} • NUIT: {activeInstitution.nuit || '400192841'} • {activeBranch?.name || 'Sede'}
+                {[activeInstitution.address, activeInstitution.nuit ? `NUIT: ${activeInstitution.nuit}` : '', activeBranch?.name || 'Sede'].filter(Boolean).join(' • ')}
               </p>
               <div className="inline-block mt-3 px-4 py-1 rounded-full bg-slate-100 text-slate-800 font-bold text-sm tracking-wide border border-slate-300">
                 PAUTA OFICIAL: {selectedScope.replace('_', ' ').toUpperCase()}

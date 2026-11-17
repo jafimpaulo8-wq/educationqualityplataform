@@ -28,7 +28,7 @@ export interface AuthenticatedUser {
   hasSigarProfile?: boolean;
 }
 
-export const SUPERADMIN_EMAIL = 'moztechwavenacala8gmail.com';
+export const SUPERADMIN_EMAIL = 'moztechwavenacala8@gmail.com';
 
 export class AuthService {
   private static instance: AuthService;
@@ -100,64 +100,20 @@ export class AuthService {
           this.notify();
         } else {
           // Document does not exist yet in Firestore
-          if (email === 'jafimpaulo8@gmail.com') {
-            try {
-              const directorProfile = {
-                id: uid,
-                uid: uid,
-                name: 'Jafim Paulo Rupia',
-                displayName: 'Jafim Paulo Rupia (Diretor)',
-                email: 'jafimpaulo8@gmail.com',
-                role: 'DIRETOR' as UserRole,
-                roles: ['DIRETOR' as UserRole],
-                institutionId: 'ceu-azul-nacala',
-                institutionIds: ['ceu-azul-nacala'],
-                status: 'aprovado',
-                codigoAcesso: 'CEU-AZUL-DIR-001',
-                branchId: 'branch-ceu-azul-main',
-                createdAt: serverTimestamp(),
-                lastLoginAt: new Date().toISOString()
-              };
-              await setDoc(userDocRef, directorProfile, { merge: true });
-            } catch (e) {
-              console.warn('Director profile bootstrap warning:', e);
-            }
-          } else if (email === 'moztechwavenacala8@gmail.com') {
-            try {
-              const ceoProfile = {
-                id: uid,
-                uid: uid,
-                name: 'CFTP',
-                displayName: 'CFTPM (CEO)',
-                email: 'moztechwavenacala8@gmail.com',
-                role: 'CEO' as UserRole,
-                roles: ['CEO' as UserRole],
-                institutionId: 'ceu-azul-nacala',
-                institutionIds: ['ceu-azul-nacala'],
-                ownedInstitutions: ['ceu-azul-nacala'],
-                status: 'aprovado',
-                codigoAcesso: 'CEU-AZUL-CEO-001',
-                branchId: 'branch-ceu-azul-main',
-                createdAt: serverTimestamp(),
-                lastLoginAt: new Date().toISOString()
-              };
-              await setDoc(userDocRef, ceoProfile, { merge: true });
-            } catch (e) {
-              console.warn('CEO profile bootstrap warning:', e);
-            }
-          } else if (isSuper) {
+          if (isSuper) {
             try {
               const rootProfile = {
                 id: uid,
                 uid: uid,
-                name: fbUser.displayName || 'Super Administrador',
-                displayName: fbUser.displayName || 'Super Administrador',
+                name: fbUser.displayName || 'Super Administrador Global',
+                displayName: fbUser.displayName || 'Super Administrador Global',
                 email: email,
                 role: 'SUPER_ADMIN' as UserRole,
                 roles: ['SUPER_ADMIN' as UserRole],
                 institutionId: '',
                 branchId: 'todas',
                 estado: 'ativo',
+                status: 'aprovado',
                 codigo: 'MTW-ROOT-001',
                 createdAt: serverTimestamp(),
                 lastLoginAt: new Date().toISOString()
@@ -170,6 +126,28 @@ export class AuthService {
               }, { merge: true });
             } catch (e) {
               console.warn('Super Admin Firestore bootstrap warning:', e);
+            }
+          } else if (email === 'jafimpaulo8@gmail.com') {
+            try {
+              const directorProfile = {
+                id: uid,
+                uid: uid,
+                name: 'Jafim Paulo Rupia',
+                displayName: 'Jafim Paulo Rupia (Diretor)',
+                email: 'jafimpaulo8@gmail.com',
+                role: 'DIRETOR' as UserRole,
+                roles: ['DIRETOR' as UserRole, 'SUPER_ADMIN' as UserRole],
+                institutionId: 'ceu-azul-nacala',
+                institutionIds: ['ceu-azul-nacala'],
+                status: 'aprovado',
+                codigoAcesso: 'CEU-AZUL-DIR-001',
+                branchId: 'branch-ceu-azul-main',
+                createdAt: serverTimestamp(),
+                lastLoginAt: new Date().toISOString()
+              };
+              await setDoc(userDocRef, directorProfile, { merge: true });
+            } catch (e) {
+              console.warn('Director profile bootstrap warning:', e);
             }
           } else {
             // User authenticated in Firebase Auth, but does not have a SIGAR profile in Firestore!

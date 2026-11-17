@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Student } from '../../../types';
 import { useApp } from '../../../context/AppContext';
 import { RealQRCode } from '../../../components/common/RealQRCode';
+import { InstitutionLogoBadge } from '../../../components/common/InstitutionLogoBadge';
+import { resolveInstitutionIdentity } from '../../../utils/institutionIdentity';
 import { 
   Award, 
   Download, 
@@ -27,45 +29,48 @@ export const StudentCertificatesTab: React.FC<StudentCertificatesTabProps> = ({
   onRequestCertificateChange
 }) => {
   const { activeInstitution } = useApp();
+  const identity = resolveInstitutionIdentity(activeInstitution);
+  const certPrefix = activeInstitution?.prefixes?.certificatePrefix || identity.sigla || identity.code || 'SIGAR';
+  const baseOrigin = typeof window !== 'undefined' ? window.location.origin : '';
 
   const certificates = [
     {
       id: 'cert-01',
       title: 'Certificado de Conclusão Técnico-Profissional',
       courseName: currentStudent.courseName,
-      code: `MTW-CERT-2026-${currentStudent.code.slice(-4)}`,
+      code: `${certPrefix}-CERT-2026-${(currentStudent.code || currentStudent.id).slice(-4)}`,
       issueDate: '15 de Agosto de 2026',
       hours: 1200,
       grade: `${currentStudent.averageGrade} Valores (Distinção e Mérito)`,
       authHash: 'e7c90b41aa891048b71d99e034ac2b6f',
       status: 'Homologado',
-      validationUrl: `https://sigar.moztechwave.co.mz/validar/MTW-CERT-2026-${currentStudent.code.slice(-4)}`,
+      validationUrl: `${baseOrigin}/validar/${certPrefix}-CERT-2026-${(currentStudent.code || currentStudent.id).slice(-4)}`,
       type: 'Diploma de Habilitação'
     },
     {
       id: 'cert-02',
       title: 'Certificado Modular Intermédio: Desenvolvimento Full-Stack & APIs',
       courseName: 'Módulo II - Programação Avançada',
-      code: `MTW-MOD-2026-${currentStudent.code.slice(-4)}-B`,
+      code: `${certPrefix}-MOD-2026-${(currentStudent.code || currentStudent.id).slice(-4)}-B`,
       issueDate: '30 de Junho de 2026',
       hours: 480,
       grade: '18.0 Valores',
       authHash: '88c1092b7719fba0124c90e812f90a1b',
       status: 'Homologado',
-      validationUrl: `https://sigar.moztechwave.co.mz/validar/MTW-MOD-2026-${currentStudent.code.slice(-4)}-B`,
+      validationUrl: `${baseOrigin}/validar/${certPrefix}-MOD-2026-${(currentStudent.code || currentStudent.id).slice(-4)}-B`,
       type: 'Certificação Modular'
     },
     {
       id: 'cert-03',
       title: 'Declaração Oficial de Matrícula & Frequência',
       courseName: currentStudent.courseName,
-      code: `MTW-DEC-2026-${currentStudent.code.slice(-4)}`,
+      code: `${certPrefix}-DEC-2026-${(currentStudent.code || currentStudent.id).slice(-4)}`,
       issueDate: '01 de Setembro de 2026',
       hours: 1200,
       grade: 'Assíduo (96% de Presença)',
       authHash: '55a90192bc8740192eab88192a01f92c',
       status: 'Válido',
-      validationUrl: `https://sigar.moztechwave.co.mz/validar/MTW-DEC-2026-${currentStudent.code.slice(-4)}`,
+      validationUrl: `${baseOrigin}/validar/${certPrefix}-DEC-2026-${(currentStudent.code || currentStudent.id).slice(-4)}`,
       type: 'Declaração com Notas'
     }
   ];
@@ -200,12 +205,13 @@ export const StudentCertificatesTab: React.FC<StudentCertificatesTabProps> = ({
 
             {/* Certificado Visual com Borda Estilizada de Segurança */}
             <div className="p-8 overflow-y-auto bg-amber-50/30 text-center space-y-6 border-8 border-double border-amber-800/30 m-4 rounded-xl">
-              <div className="space-y-1">
+              <div className="space-y-1.5">
+                <InstitutionLogoBadge institution={activeInstitution} size="md" rounded="xl" className="mx-auto" />
                 <h4 className="text-xs tracking-widest text-slate-500 uppercase font-serif">
                   República de Moçambique • Ministério da Educação
                 </h4>
                 <h3 className="text-base font-black text-slate-900 uppercase tracking-wide">
-                  {activeInstitution?.name || 'Moztechwave Professional Institute'}
+                  {identity.officialName}
                 </h3>
               </div>
 
@@ -239,7 +245,7 @@ export const StudentCertificatesTab: React.FC<StudentCertificatesTabProps> = ({
                 <div className="flex items-center gap-3">
                   <div className="p-1 bg-white border border-amber-800/30 rounded flex items-center justify-center">
                     <RealQRCode
-                      value={selectedCert.validationUrl || `https://sigar.moztechwave.co.mz/verify/${selectedCert.code}`}
+                      value={selectedCert.validationUrl || `${baseOrigin}/verify/${selectedCert.code}`}
                       size={54}
                     />
                   </div>
@@ -252,9 +258,9 @@ export const StudentCertificatesTab: React.FC<StudentCertificatesTabProps> = ({
 
                 <div className="text-center text-[10px]">
                   <div className="w-32 border-b border-slate-700 pb-1 mb-1 font-semibold text-slate-900">
-                    Direção Geral
+                    {identity.signatoryName || 'Direção Geral'}
                   </div>
-                  <span>Chancela SIVEC</span>
+                  <span>{identity.signatoryRole || 'Chancela SIVEC'}</span>
                 </div>
               </div>
             </div>

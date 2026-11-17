@@ -26,6 +26,21 @@ import { generateSecureInvitationToken } from '../../services/publicInstitutionS
 import { useToast } from '../../context/ToastContext';
 import { soundManager } from '../../utils/audio';
 
+function toSafeDate(val: any): Date | null {
+  if (!val) return null;
+  if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+  if (typeof val.toDate === 'function') {
+    const d = val.toDate();
+    return isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof val.seconds === 'number') {
+    const d = new Date(val.seconds * 1000);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  const d = new Date(val);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 interface StudentInvitationModalProps {
   student: Student;
   institution: Institution;
@@ -62,7 +77,7 @@ export const StudentInvitationModal: React.FC<StudentInvitationModalProps> = ({
     try {
       const list = await getStudentInvitationsByStudent(student.id);
       // Sort newest first
-      list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      list.sort((a, b) => (toSafeDate(b.createdAt)?.getTime() || 0) - (toSafeDate(a.createdAt)?.getTime() || 0));
       setInvitations(list);
     } catch (e) {
       console.warn('Error loading invitations:', e);
@@ -74,7 +89,7 @@ export const StudentInvitationModal: React.FC<StudentInvitationModalProps> = ({
   if (!isOpen) return null;
 
   const latestInvitation = invitations[0] || null;
-  const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://sigar.moztechwave.com';
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
   const activationUrl = latestInvitation 
     ? `${baseUrl}/ativar-conta?token=${latestInvitation.token}` 
     : '';
@@ -232,7 +247,7 @@ ${institution.name}`;
                   <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
                   Conta Ativa (UID Vinculado)
                 </span>
-              ) : latestInvitation && !latestInvitation.used && !latestInvitation.revoked && new Date(latestInvitation.expiresAt) > new Date() ? (
+              ) : latestInvitation && !latestInvitation.used && !latestInvitation.revoked && (toSafeDate(latestInvitation.expiresAt) || new Date(0)) > new Date() ? (
                 <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30 flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5 text-blue-400" />
                   Convite Enviado (Pendente de Ativação)
@@ -311,7 +326,7 @@ ${institution.name}`;
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-300">Link Seguro de Ativação Única</span>
                   <span className="text-[10px] text-slate-500 font-mono">
-                    Expira em {new Date(latestInvitation.expiresAt).toLocaleDateString('pt-MZ')}
+                    Expira em {toSafeDate(latestInvitation.expiresAt)?.toLocaleDateString('pt-MZ') || '—'}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -409,7 +424,10 @@ ${institution.name}`;
           ) : (
             <div className="divide-y divide-slate-800/80 border border-slate-800 rounded-2xl bg-slate-950 overflow-hidden text-xs">
               {invitations.map(inv => {
-                const isExpired = new Date(inv.expiresAt) < new Date();
+                const expDate = toSafeDate(inv.expiresAt);
+                const isExpired = expDate ? expDate < new Date() : false;
+                const usedDate = toSafeDate(inv.usedAt);
+                const createdDate = toSafeDate(inv.createdAt);
                 return (
                   <div key={inv.id} className="p-3.5 flex items-center justify-between gap-3">
                     <div className="space-y-0.5">
@@ -417,7 +435,7 @@ ${institution.name}`;
                         <span className="font-mono text-white font-bold">{inv.token.slice(0, 16)}...</span>
                         {inv.used ? (
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                            Ativado em {inv.usedAt ? new Date(inv.usedAt).toLocaleDateString('pt-MZ') : ''}
+                            Ativado em {usedDate ? usedDate.toLocaleDateString('pt-MZ') : ''}
                           </span>
                         ) : inv.revoked ? (
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40">
@@ -429,12 +447,12 @@ ${institution.name}`;
                           </span>
                         ) : (
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/40">
-                            Ativo (Expira em {new Date(inv.expiresAt).toLocaleDateString('pt-MZ')})
+                            Ativo (Expira em {expDate ? expDate.toLocaleDateString('pt-MZ') : '—'})
                           </span>
                         )}
                       </div>
                       <span className="text-[10px] text-slate-500 block">
-                        Criado em {new Date(inv.createdAt).toLocaleString('pt-MZ')} por {inv.createdBy}
+                        Criado em {createdDate ? createdDate.toLocaleString('pt-MZ') : '—'} por {inv.createdBy}
                       </span>
                     </div>
 

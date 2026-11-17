@@ -27,6 +27,8 @@ import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/LanguageContext';
 import { AppRoute } from '../types';
 import { toCanonicalRole, ROLE_DEFINITIONS } from '../types/rbac';
+import { InstitutionLogoBadge } from './common/InstitutionLogoBadge';
+import { resolveInstitutionIdentity } from '../utils/institutionIdentity';
 
 interface AppHeaderProps {
   onOpenMobileMenu: () => void;
@@ -65,46 +67,50 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 
   const canonicalActive = toCanonicalRole(activeRole);
   const isSuper = canonicalActive === 'SUPER_ADMIN';
+  const identity = resolveInstitutionIdentity(activeInstitution);
+  const instLabel = identity.hasInstitution ? identity.shortName : 'SIGAR PRO';
+  const instCodeLabel = identity.hasInstitution ? (identity.code || identity.shortName) : 'SIGAR PRO';
 
   const getRouteBreadcrumb = () => {
     switch (currentRoute) {
       case 'public_portal':
         return 'Portal Público • Inscrições & Consulta';
       case 'admin_dashboard':
-        return 'Moztechwave Core • Super Admin';
+      case 'moztechwave_core':
+        return 'SIGAR PRO • Administração Central';
       case 'admin_cadastrar':
-        return 'Super Admin • Cadastrar Nova Instituição';
+        return 'SIGAR PRO • Cadastrar Nova Instituição';
       case 'admin_instituicoes':
-        return 'Super Admin • Diretório de Instituições';
+        return 'SIGAR PRO • Diretório de Instituições';
       case 'centro_dashboard':
-        return `${activeInstitution.name} • Dashboard`;
+        return identity.hasInstitution ? `${identity.officialName} • Dashboard` : 'SIGAR PRO • Dashboard';
       case 'alunos_list':
-        return `${activeInstitution.code} • Gestão Completa de Alunos`;
+        return `${instCodeLabel} • Gestão Completa de Alunos`;
       case 'alunos_cadastrar':
-        return `${activeInstitution.code} • Nova Matrícula de Aluno`;
+        return `${instCodeLabel} • Nova Matrícula de Aluno`;
       case 'alunos_perfil':
-        return `${activeInstitution.code} • Dossiê / Perfil Acadêmico`;
+        return `${instCodeLabel} • Dossiê / Perfil Acadêmico`;
       case 'avaliacoes':
       case 'pautas':
-        return `${activeInstitution.code} • Pautas & Avaliações`;
+        return `${instCodeLabel} • Pautas & Avaliações`;
       case 'contratos':
       case 'contratos_editor':
-        return `${activeInstitution.code} • Editor de Contratos & Termos`;
+        return `${instCodeLabel} • Editor de Contratos & Termos`;
       case 'studio':
       case 'studio_editor':
-        return 'SIVERC Document Studio • Certificados & Assinaturas';
+        return `${instCodeLabel} • Document Studio & Assinaturas`;
       case 'sivec_verify':
       case 'sivec_connect':
       case 'sivec_pass':
-        return 'SIVERC Core • Verificação Pública & Connect';
+        return 'SIGAR PRO • Verificação SIVEC';
       case 'automacoes':
-        return 'Automação • Aniversários & Lembretes WhatsApp';
+        return `${instCodeLabel} • Automação & WhatsApp`;
       case 'candidatos_gestao':
-        return `${activeInstitution.code} • Gestão de Candidatos & Inscrições`;
+        return `${instCodeLabel} • Gestão de Candidatos & Inscrições`;
       case 'inscricao_publica':
-        return `${activeInstitution.name} • Portal de Inscrições Online`;
+        return identity.hasInstitution ? `${identity.officialName} • Portal de Inscrições` : 'SIGAR PRO • Portal de Inscrições';
       default:
-        return 'Moztechwave Education Platform';
+        return identity.hasInstitution ? `${identity.officialName} • SIGAR PRO` : 'SIGAR PRO • Sistema Integrado';
     }
   };
 
@@ -126,12 +132,17 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           <Menu className="w-5 h-5" />
         </button>
 
-        <div className="flex items-center gap-2">
-          <div className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-mono ${
-            isLight ? 'bg-slate-100 border-slate-200 text-slate-700' : 'bg-[#0d1527] border-slate-800 text-slate-300'
-          }`}>
-            <Building2 className="w-3.5 h-3.5 text-blue-500" />
-            <span className={`font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>{activeInstitution.code}</span>
+        <div className="flex items-center gap-2.5">
+          <div
+            title={identity.hasInstitution ? identity.officialName : 'Sem instituição selecionada'}
+            className={`hidden sm:flex items-center gap-2 px-2 py-1 rounded-xl border text-xs ${
+              isLight ? 'bg-slate-100 border-slate-200 text-slate-700' : 'bg-[#0d1527] border-slate-800 text-slate-300'
+            }`}
+          >
+            <InstitutionLogoBadge institution={activeInstitution} size="xs" rounded="lg" />
+            <span className={`font-bold max-w-[140px] truncate ${isLight ? 'text-slate-900' : 'text-white'}`}>
+              {instLabel}
+            </span>
           </div>
 
           <span className={`text-xs sm:text-sm font-semibold tracking-tight line-clamp-1 ${

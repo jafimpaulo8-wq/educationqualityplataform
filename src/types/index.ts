@@ -165,8 +165,22 @@ export interface Institution {
   address: string;
   logo?: string;
   logoUrl?: string;
+  emblemUrl?: string;
+  shortName?: string;
   slogan?: string;
   sigla?: string;
+  website?: string;
+  socialLinks?: {
+    facebook?: string;
+    instagram?: string;
+    linkedin?: string;
+    youtube?: string;
+  };
+  institutionalColors?: {
+    primary?: string;
+    secondary?: string;
+    accent?: string;
+  };
   currency?: string;
   timezone?: string;
   signatureUrl?: string;
@@ -1245,6 +1259,7 @@ export interface PaymentTransaction {
 }
 
 export type CandidateStatus = 
+  | 'submetida'
   | 'Pendente' 
   | 'Em Análise' 
   | 'Documentação Pendente'
@@ -1292,10 +1307,27 @@ export interface StudentInvitation {
   createdBy: string;
 }
 
+export interface PrivateInvite {
+  id: string; // token
+  token: string;
+  institutionId: string;
+  institutionName?: string;
+  slug: string;
+  purpose: 'inscricao_privada' | string;
+  expiresAt: any; // Timestamp | string
+  status: 'active' | 'revoked' | 'expired';
+  revoked: boolean;
+  revokedAt?: any; // Timestamp | string
+  revokedBy?: string;
+  createdAt: any; // Timestamp | string
+  createdBy?: string;
+}
+
 export interface RegistrationApplication {
   id: string;
   institutionId: string;
   branchId?: string;
+  slug?: string;
   code: string; // e.g. SIGAR-MZ-2026-8941 ou CAND-2026-8941
   fullName: string;
   documentType: 'BI' | 'Passaporte' | 'DIRE' | 'Cédula';
@@ -1315,8 +1347,8 @@ export interface RegistrationApplication {
   shift?: string;
   status: CandidateStatus;
   photoUrl: string;
-  createdAt: string;
-  updatedAt?: string;
+  createdAt: any;
+  updatedAt?: any;
   paymentStatus: 'Pago' | 'Pendente';
   paymentReference: string;
   paymentAmount?: number;
@@ -1335,6 +1367,8 @@ export interface RegistrationApplication {
   termsAccepted?: boolean;
   termsAcceptedAt?: string;
   privacyAccepted?: boolean;
+  privateInviteToken?: string;
+  isPrivateApplication?: boolean;
   confirmationSent?: {
     email: boolean;
     sms: boolean;
@@ -1672,7 +1706,8 @@ export interface GateAccessLog {
   date?: string; // Data (Ex: 16/09/2026)
   time?: string; // Hora (Ex: 11:19:08)
   timestamp: string;
-  type: 'entrada' | 'saida';
+  type: 'entrada' | 'saida' | 'barrado';
+  blockReason?: string;
   operator: string;
   operatorRole?: string;
   whatsappStatus: 'enviado' | 'pendente' | 'falhou';

@@ -1,6 +1,8 @@
 import React from 'react';
 import { X, Printer, Download, GraduationCap, ShieldCheck, FileSpreadsheet, Building2 } from 'lucide-react';
 import { useApp } from '../../../context/AppContext';
+import { InstitutionLogoBadge } from '../../../components/common/InstitutionLogoBadge';
+import { resolveInstitutionIdentity } from '../../../utils/institutionIdentity';
 
 export interface AcademicReportPrintModalProps {
   isOpen: boolean;
@@ -32,6 +34,7 @@ export const AcademicReportPrintModal: React.FC<AcademicReportPrintModalProps> =
   summaryNotes
 }) => {
   const { activeInstitution, activeBranch } = useApp();
+  const identity = resolveInstitutionIdentity(activeInstitution);
 
   if (!isOpen) return null;
 
@@ -100,27 +103,25 @@ export const AcademicReportPrintModal: React.FC<AcademicReportPrintModalProps> =
               
               <div className="mt-4 flex items-center justify-between border-t border-slate-200 pt-3">
                 <div className="flex items-center gap-3 text-left">
-                  {activeInstitution.logoUrl ? (
-                    <img 
-                      src={activeInstitution.logoUrl} 
-                      alt={activeInstitution.name} 
-                      className="w-12 h-12 object-contain"
-                    />
-                  ) : (
-                    <div className="w-12 h-12 rounded-lg bg-cyan-900 text-white flex items-center justify-center font-sans font-bold text-xl">
-                      {activeInstitution.name.charAt(0)}
-                    </div>
-                  )}
+                  <InstitutionLogoBadge institution={activeInstitution} size="md" rounded="lg" />
                   <div>
                     <h2 className="text-base font-sans font-black uppercase text-slate-900 tracking-tight leading-tight">
-                      {activeInstitution.name}
+                      {identity.officialName || 'Instituição de Ensino'}
                     </h2>
                     <p className="text-[11px] font-sans text-slate-600">
-                      NUIT: {activeInstitution.nuit || '400192831'} • Campus: {activeBranch ? activeBranch.name : 'Sede Geral'}
+                      {[
+                        identity.nuit ? `NUIT: ${identity.nuit}` : '',
+                        `Campus: ${activeBranch ? activeBranch.name : 'Sede Geral'}`
+                      ].filter(Boolean).join(' • ')}
                     </p>
-                    <p className="text-[10px] font-sans text-slate-500">
-                      {activeInstitution.address || 'Av. 24 de Julho nº 1820, Maputo'} • Tel: {activeInstitution.phone || '+258 84 000 0000'}
-                    </p>
+                    {(identity.address || identity.phone) && (
+                      <p className="text-[10px] font-sans text-slate-500">
+                        {[
+                          identity.address,
+                          identity.phone ? `Tel: ${identity.phone}` : ''
+                        ].filter(Boolean).join(' • ')}
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -143,7 +144,7 @@ export const AcademicReportPrintModal: React.FC<AcademicReportPrintModalProps> =
                 {reportTitle}
               </h1>
               <p className="text-xs text-slate-600 font-sans italic mt-1">
-                Relatório analítico consolidado extraído do Sistema Integrado de Gestão Académica (SIGAR / Moztechwave)
+                Relatório analítico consolidado extraído do Sistema Integrado de Gestão Académica (SIGAR PRO)
               </p>
             </div>
 
@@ -246,18 +247,26 @@ export const AcademicReportPrintModal: React.FC<AcademicReportPrintModalProps> =
             <div className="grid grid-cols-3 gap-6 text-center text-xs">
               <div className="flex flex-col justify-end">
                 <div className="border-b border-slate-800 pb-1 mb-2 h-14 flex items-end justify-center">
-                  <span className="font-serif italic text-slate-500 text-sm">Assinatura Autorizada</span>
+                  {identity.signatureUrl ? (
+                    <img src={identity.signatureUrl} alt="Assinatura autorizada" className="max-h-12 object-contain" />
+                  ) : (
+                    <span className="font-serif italic text-slate-500 text-sm">Assinatura Autorizada</span>
+                  )}
                 </div>
-                <p className="font-bold text-slate-900">Diretor Geral / Reitor</p>
-                <p className="text-[10px] text-slate-500">Homologação Institucional</p>
+                <p className="font-bold text-slate-900">{identity.signatoryName || identity.representativeName || 'Diretor Geral'}</p>
+                <p className="text-[10px] text-slate-500">{identity.signatoryRole || 'Homologação Institucional'}</p>
               </div>
 
               <div className="flex flex-col justify-end">
                 <div className="border-b border-slate-800 pb-1 mb-2 h-14 flex items-end justify-center">
-                  <span className="font-serif italic text-slate-500 text-sm">Assinatura Pedagógica</span>
+                  {identity.stampUrl ? (
+                    <img src={identity.stampUrl} alt="Carimbo institucional" className="max-h-12 object-contain" />
+                  ) : (
+                    <span className="font-serif italic text-slate-500 text-sm">Carimbo / Assinatura</span>
+                  )}
                 </div>
                 <p className="font-bold text-slate-900">Direção Pedagógica</p>
-                <p className="text-[10px] text-slate-500">Supervisão Curricular & ANEP</p>
+                <p className="text-[10px] text-slate-500">Supervisão Curricular &amp; ANEP</p>
               </div>
 
               <div className="flex flex-col justify-end">
@@ -265,7 +274,7 @@ export const AcademicReportPrintModal: React.FC<AcademicReportPrintModalProps> =
                   <span className="font-serif italic text-slate-500 text-sm">Secretaria Responsável</span>
                 </div>
                 <p className="font-bold text-slate-900">Secretaria Académica</p>
-                <p className="text-[10px] text-slate-500">Arquivo & Validação SIVEC</p>
+                <p className="text-[10px] text-slate-500">Arquivo &amp; Validação SIVEC</p>
               </div>
             </div>
 

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useRef } from 'react';
 import { User } from 'firebase/auth';
 import { 
   AppRoute, 
@@ -132,6 +132,7 @@ import {
 } from '../data/ceuAzulData';
 import { bootstrapCeuAzul } from '../services/ceuAzulBootstrap';
 import { generateDigitalSeal, generateVerificationHash, checkUserSignatureAuthorization } from '../utils/signatureSecurity';
+import { resolveInstitutionIdentity } from '../utils/institutionIdentity';
 import { 
   INITIAL_INSTITUTIONS, 
   INITIAL_STUDENTS, 
@@ -172,6 +173,8 @@ import { soundManager } from '../utils/audio';
 import { auth, signInWithGoogle, signOutUser, testConnection } from '../services/firebase';
 import { 
   getInstitutions, 
+  getInstitutionById,
+  getUserInstitutions,
   saveInstitutionToFirestore, 
   getStudentsByInstitution,
   saveStudentToFirestore, 
@@ -201,6 +204,7 @@ import {
   getPaymentsByInstitution,
   getApplicationsByInstitution,
   saveApplicationToFirestore,
+  syncApplicationStatusToSubcollections,
   deleteApplicationFromFirestore,
   saveUserProfile, 
   getUserProfile,
@@ -210,6 +214,7 @@ import {
   checkIsSuperAdmin
 } from '../services/firestoreService';
 import { authService } from '../auth/authService';
+import { tenantManager } from '../auth/tenantContext';
 import { toCanonicalRole } from '../types/rbac';
 import { getDefaultRouteForRole, getRoleDisplayName } from '../security/routeSecurity';
 import {
@@ -438,10 +443,12 @@ interface AppContextType {
   accessLogs: GateAccessLog[];
   logGateAccess: (
     studentId: string, 
-    type: 'entrada' | 'saida', 
+    type: 'entrada' | 'saida' | 'barrado', 
     customLocation?: string, 
     customOperator?: string, 
-    sendNotification?: boolean
+    sendNotification?: boolean,
+    customMessage?: string,
+    blockReason?: string
   ) => GateAccessLog | null;
   confirmStudentEntry: (studentId: string) => GateAccessLog | null;
 
@@ -557,7 +564,7 @@ interface AppContextType {
   allApplications: RegistrationApplication[];
   onlineRegistrationConfig: OnlineRegistrationConfig;
   updateOnlineRegistrationConfig: (configUpdates: Partial<OnlineRegistrationConfig>) => void;
-  addApplication: (newApp: Omit<RegistrationApplication, 'id' | 'code' | 'createdAt'>) => RegistrationApplication;
+  addApplication: (newApp: Omit<RegistrationApplication, 'id' | 'code' | 'createdAt'> & Partial<Pick<RegistrationApplication, 'id' | 'code' | 'createdAt'>> & { skipFirestoreSync?: boolean }) => RegistrationApplication;
   updateApplication: (id: string, updates: Partial<RegistrationApplication>) => void;
   approveApplication: (id: string, notes: string, actorName?: string) => void;
   rejectApplication: (id: string, rejectionReason: string, notes?: string, actorName?: string) => void;
@@ -902,15 +909,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
-  // Multi-Institution Central State (Defaults to Centro Infantil Céu Azul and INITIAL_INSTITUTIONS)
-  const [allInstitutions, setAllInstitutions] = useState<Institution[]>(() =>
-    deduplicateInstitutions([
-      CEU_AZUL_INSTITUTION as Institution,
-      ...INITIAL_INSTITUTIONS
-    ])
-  );
-  const [activeInstitutionId, setActiveInstitutionId] = useState<string>(CEU_AZUL_INSTITUTION_ID);
+  // Multi-Institution Central State (Starts EMPTY; strictly resolved from authenticated session & Firestore)
+  const [allInstitutions, setAllInstitutions] = useState<Institution[]>([]);
+  const [activeInstitutionId, setActiveInstitutionId] = useState<string>('');
   const [activeBranchId, setActiveBranchId] = useState<string>('todas');
+  const activeInstitutionIdRef = useRef<string>('');
+  const activeRoleRef = useRef<UserRole>(activeRole);
+  const authorizedRolesRef = useRef<UserRole[]>(authorizedRoles);
+  const latestTenantLoadRef = useRef<number>(0);
+
+  useEffect(() => {
+    activeInstitutionIdRef.current = activeInstitutionId;
+  }, [activeInstitutionId]);
+
+  useEffect(() => {
+    activeRoleRef.current = activeRole;
+  }, [activeRole]);
+
+  useEffect(() => {
+    authorizedRolesRef.current = authorizedRoles;
+  }, [authorizedRoles]);
 
   // Progressive Auth Loading & Onboarding Guided Tour State (PARTE 4, 14, 15)
   const [authLoadingPhase, setAuthLoadingPhase] = useState<
@@ -920,7 +938,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const defaultEmptyInstitution: Institution = {
     id: '',
-    name: 'Nenhuma Instituição Registada',
+    name: 'Sem Instituição Associada',
+    shortName: 'SIGAR PRO',
     code: 'SIGAR',
     type: 'instituicao_ensino',
     nuit: '',
@@ -930,8 +949,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     repLegal: '',
     email: '',
     phone: '',
-    city: 'Moçambique',
-    province: 'Maputo Cidade',
+    city: '',
+    province: '',
     address: '',
     plan: 'Básico',
     status: 'Ativa',
@@ -945,7 +964,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     branches: []
   };
 
-  const activeInstitution = allInstitutions.find(i => i.id === activeInstitutionId) || allInstitutions[0] || defaultEmptyInstitution;
+  const activeInstitution = allInstitutions.find(i => i.id === activeInstitutionId) || defaultEmptyInstitution;
   const activeBranch = activeInstitution?.branches?.find(b => b.id === activeBranchId) || null;
 
   // 63. Sistema de Planos e Limites de Recursos (Super Admin)
@@ -1359,6 +1378,129 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return DEFAULT_MOZTECHWAVE_IDENTITIES[0] || null;
   });
 
+  const clearTenantData = () => {
+    setAllStudents([]);
+    setAllCourses([]);
+    setAllClasses([]);
+    setAllTeachers([]);
+    setAllCertificates([]);
+    setAllPaymentRecords([]);
+    setAllLessons([]);
+    setAllSchedules([]);
+    setAllClassTransfers([]);
+    setAllCashSessions([]);
+    setAllAccessLogs([]);
+    setAllApplications([]);
+    setAllInternships([]);
+    setAllAuditLogs([]);
+    setAuthenticatedStudent(null);
+    setActiveTeacherId(null);
+    try {
+      localStorage.removeItem('mtw_auth_student_code');
+    } catch {
+      // ignore storage errors
+    }
+  };
+
+  const loadInstitutionTenantData = async (
+    instId: string,
+    branchId: string,
+    role: UserRole,
+    fbUserObj?: User | null
+  ) => {
+    const requestId = ++latestTenantLoadRef.current;
+    clearTenantData();
+
+    if (!instId) {
+      tenantManager.clear();
+      setIsSyncing(false);
+      return;
+    }
+
+    setIsSyncing(true);
+    try {
+      const canonical = toCanonicalRole(role);
+      const isStudent = canonical === 'ALUNO';
+      const isPorteiro = canonical === 'PORTEIRO';
+
+      if (isStudent) {
+        const [cloudStudents, cloudCourses, cloudClasses, cloudCertificates, cloudLessons, cloudSchedules] = await Promise.all([
+          getStudentsByInstitution(instId, branchId),
+          getCoursesByInstitution(instId),
+          getClassesByInstitution(instId, branchId),
+          getCertificatesByInstitution(instId),
+          getLessonsByInstitution(instId),
+          getSchedulesByInstitution(instId)
+        ]);
+        if (latestTenantLoadRef.current !== requestId) return;
+        const ownStudents = fbUserObj
+          ? cloudStudents.filter(s => s.userId === fbUserObj.uid || (fbUserObj.email && s.email === fbUserObj.email))
+          : cloudStudents;
+        setAllStudents(ownStudents);
+        setAllCourses(cloudCourses || []);
+        setAllClasses(cloudClasses || []);
+        setAllCertificates(cloudCertificates.filter(c => ownStudents.some(s => ((s as any).name === c.studentName || s.fullName === c.studentName))));
+        setAllLessons(cloudLessons || []);
+        setAllSchedules(cloudSchedules || []);
+      } else if (isPorteiro) {
+        const [cloudStudents, cloudAccess] = await Promise.all([
+          getStudentsByInstitution(instId, branchId),
+          getAccessLogsByInstitution(instId)
+        ]);
+        if (latestTenantLoadRef.current !== requestId) return;
+        setAllStudents(cloudStudents || []);
+        setAllAccessLogs(cloudAccess || []);
+      } else {
+        const [
+          cloudStudents,
+          cloudCourses,
+          cloudClasses,
+          cloudTeachers,
+          cloudCertificates,
+          cloudPayments,
+          cloudLessons,
+          cloudSchedules,
+          cloudTransfers,
+          cloudCash,
+          cloudApplications,
+          cloudAccess
+        ] = await Promise.all([
+          getStudentsByInstitution(instId, branchId),
+          getCoursesByInstitution(instId),
+          getClassesByInstitution(instId, branchId),
+          getTeachersByInstitution(instId),
+          getCertificatesByInstitution(instId),
+          getPaymentsByInstitution(instId),
+          getLessonsByInstitution(instId),
+          getSchedulesByInstitution(instId),
+          getTransfersByInstitution(instId),
+          getCashSessionsByInstitution(instId),
+          getApplicationsByInstitution(instId, branchId),
+          getAccessLogsByInstitution(instId)
+        ]);
+        if (latestTenantLoadRef.current !== requestId) return;
+        setAllStudents(cloudStudents || []);
+        setAllCourses(cloudCourses || []);
+        setAllClasses(cloudClasses || []);
+        setAllTeachers(cloudTeachers || []);
+        setAllCertificates(cloudCertificates || []);
+        setAllPaymentRecords(cloudPayments || []);
+        setAllLessons(cloudLessons || []);
+        setAllSchedules(cloudSchedules || []);
+        setAllClassTransfers(cloudTransfers || []);
+        setAllCashSessions(cloudCash || []);
+        setAllApplications(cloudApplications || []);
+        setAllAccessLogs(cloudAccess || []);
+      }
+    } catch (err) {
+      console.warn('Tenant data load error:', err);
+    } finally {
+      if (latestTenantLoadRef.current === requestId) {
+        setIsSyncing(false);
+      }
+    }
+  };
+
   // Initialize Firebase connection and data sync
   useEffect(() => {
     testConnection().then(connected => {
@@ -1395,21 +1537,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           let userAuthRoles: UserRole[] = [];
           let effectiveInstId = '';
           let effectiveBranchId = 'todas';
+          let allowedInstIds: string[] = [];
 
           if (user.email === 'moztechwavenacala8@gmail.com') {
-            // Super Administrador Master Global SIGAR PRO
+            // Super Administrador Master Global SIGAR PRO (sem fallback automático de Céu Azul)
             effectiveRole = 'SUPER_ADMIN';
             userAuthRoles = ['SUPER_ADMIN', 'ADMIN_INSTITUICAO', 'DIRETOR', 'SECRETARIA', 'FINANCEIRO', 'PROFESSOR', 'PORTEIRO', 'ALUNO'];
-            effectiveInstId = CEU_AZUL_INSTITUTION_ID;
-            effectiveBranchId = 'todas';
+            effectiveInstId = ((existing as any)?.lastInstitutionId || existing?.institutionId || '').trim();
+            effectiveBranchId = existing?.branchId || 'todas';
             setUserProfile({
               id: user.uid,
-              name: 'Super Administrador Global',
+              name: existing?.name || 'Super Administrador Global',
               email: 'moztechwavenacala8@gmail.com',
               role: 'SUPER_ADMIN',
-              roles: ['SUPER_ADMIN', 'ADMIN_INSTITUICAO', 'DIRETOR', 'SECRETARIA', 'FINANCEIRO', 'PROFESSOR', 'PORTEIRO', 'ALUNO'],
-              institutionId: CEU_AZUL_INSTITUTION_ID,
-              branchId: 'todas',
+              roles: userAuthRoles,
+              institutionId: effectiveInstId,
+              branchId: effectiveBranchId,
               status: 'Ativo'
             });
             setHasSigarProfile(true);
@@ -1417,16 +1560,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             // Mandato: Jafim Paulo é DIRETOR do Centro Infantil Céu Azul e SUPER ADMIN soberano
             effectiveRole = 'DIRETOR';
             userAuthRoles = ['DIRETOR', 'SUPER_ADMIN'];
-            effectiveInstId = CEU_AZUL_INSTITUTION_ID;
-            effectiveBranchId = 'branch-ceu-azul-main';
+            effectiveInstId = existing?.institutionId || CEU_AZUL_INSTITUTION_ID;
+            effectiveBranchId = existing?.branchId || 'branch-ceu-azul-main';
+            allowedInstIds = [effectiveInstId];
             setUserProfile({
               id: user.uid,
               name: 'Jafim Paulo Rupia',
               email: 'jafimpaulo8@gmail.com',
               role: 'DIRETOR',
               roles: ['DIRETOR', 'SUPER_ADMIN'],
-              institutionId: CEU_AZUL_INSTITUTION_ID,
-              branchId: 'branch-ceu-azul-main',
+              institutionId: effectiveInstId,
+              institutionIds: [effectiveInstId],
+              branchId: effectiveBranchId,
               status: 'Ativo'
             });
             setHasSigarProfile(true);
@@ -1435,35 +1580,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             // Mandato: Alfredo Andrade é CEO do Centro Infantil Céu Azul (NÃO Super Admin)
             effectiveRole = 'CEO';
             userAuthRoles = ['CEO'];
-            effectiveInstId = CEU_AZUL_INSTITUTION_ID;
-            effectiveBranchId = 'branch-ceu-azul-main';
+            effectiveInstId = existing?.institutionId || CEU_AZUL_INSTITUTION_ID;
+            effectiveBranchId = existing?.branchId || 'branch-ceu-azul-main';
+            allowedInstIds = [effectiveInstId];
             setUserProfile({
               id: user.uid,
               name: 'Alfredo Andrade',
               email: 'andradaalfred02308@gmail.com',
               role: 'CEO',
               roles: ['CEO'],
-              institutionId: CEU_AZUL_INSTITUTION_ID,
-              branchId: 'branch-ceu-azul-main',
+              institutionId: effectiveInstId,
+              institutionIds: [effectiveInstId],
+              branchId: effectiveBranchId,
               status: 'Ativo'
             });
             setHasSigarProfile(true);
             bootstrapCeuAzul(user.uid).catch(err => console.warn('Ceu Azul bootstrap error:', err));
           } else if (user.email === 'centromoz8@gmail.com') {
-            // Secretaria Académica CFTPM Moztechwave: Egas Paulo (role = SECRETARIA, institutionId = 'moztechwave' / 'inst-1')
+            // Secretaria Académica CFTPM Moztechwave: Egas Paulo
             effectiveRole = 'SECRETARIA';
             userAuthRoles = ['SECRETARIA'];
-            effectiveInstId = 'inst-1';
-            effectiveBranchId = 'branch-1-maputo';
+            effectiveInstId = existing?.institutionId || 'inst-1';
+            effectiveBranchId = existing?.branchId || 'branch-1-maputo';
+            allowedInstIds = ['inst-1', 'moztechwave'];
             const secProfile = {
               id: user.uid,
               name: 'Egas Paulo',
               email: 'centromoz8@gmail.com',
               role: 'SECRETARIA' as UserRole,
               roles: ['SECRETARIA' as UserRole],
-              institutionId: 'inst-1',
+              institutionId: effectiveInstId,
               institutionIds: ['inst-1', 'moztechwave'],
-              branchId: 'branch-1-maputo',
+              branchId: effectiveBranchId,
               status: 'Ativo',
               codigoAcesso: 'MTW-SEC-001'
             };
@@ -1487,12 +1635,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }
 
             effectiveRole = isSuper ? 'SUPER_ADMIN' : userAuthRoles[0];
-            effectiveInstId = existing.institutionId || '';
+            effectiveInstId = existing.institutionId || (isSuper ? ((existing as any).lastInstitutionId || '') : '');
             effectiveBranchId = existing.branchId || 'todas';
+            allowedInstIds = Array.from(new Set([
+              ...(existing.institutionId ? [existing.institutionId] : []),
+              ...(Array.isArray(existing.institutionIds) ? existing.institutionIds : []),
+              ...(Array.isArray(existing.ownedInstitutions) ? existing.ownedInstitutions : [])
+            ].filter(Boolean)));
           } else if (isSuper) {
             setHasSigarProfile(true);
             userAuthRoles = ['SUPER_ADMIN'];
             effectiveRole = 'SUPER_ADMIN';
+            effectiveInstId = '';
           } else {
             // Document does NOT exist in Firestore
             setUserProfile(null);
@@ -1511,132 +1665,66 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setActiveRoleState(effectiveRole);
 
           setAuthLoadingPhase('carregando_instituicao');
-          const cloudInsts = await getInstitutions();
-          
-          if (cloudInsts.length > 0) {
-            const hasCeu = cloudInsts.some(i => i.id === CEU_AZUL_INSTITUTION_ID);
-            const merged = deduplicateInstitutions(hasCeu ? cloudInsts : [CEU_AZUL_INSTITUTION as Institution, ...cloudInsts]);
-            setAllInstitutions(merged);
-            if (effectiveInstId && merged.some(i => i.id === effectiveInstId)) {
-              setActiveInstitutionId(effectiveInstId);
-            } else if (isSuper) {
-              setActiveInstitutionId(merged[0].id);
-              effectiveInstId = merged[0].id;
-            } else {
-              setActiveInstitutionId(effectiveInstId || CEU_AZUL_INSTITUTION_ID);
-            }
-          } else {
-            setAllInstitutions(deduplicateInstitutions([CEU_AZUL_INSTITUTION as Institution, ...INITIAL_INSTITUTIONS]));
-            setActiveInstitutionId(effectiveInstId || CEU_AZUL_INSTITUTION_ID);
-          }
-          setActiveBranchId(effectiveBranchId);
+          let resolvedInsts: Institution[] = [];
+          if (isSuper) {
+            const cloudInsts = await getInstitutions();
+            resolvedInsts = deduplicateInstitutions(cloudInsts);
+          } else if (allowedInstIds.length > 0 || effectiveInstId) {
+            const cloudAuthorized = await getUserInstitutions(user.uid, effectiveInstId, allowedInstIds);
+            resolvedInsts = deduplicateInstitutions(cloudAuthorized);
 
-          setAuthLoadingPhase('carregando_dados');
-          if (effectiveInstId) {
-            // Scope queries according to role (Section 5 of prompt: Proteger também os dados)
-            const isStudent = toCanonicalRole(effectiveRole) === 'ALUNO';
-            const isPorteiro = toCanonicalRole(effectiveRole) === 'PORTEIRO';
-
-            if (isStudent) {
-              // Student only loads their own academic data
-              const [cloudStudents, cloudCourses, cloudClasses, cloudCertificates, cloudLessons, cloudSchedules] = await Promise.all([
-                getStudentsByInstitution(effectiveInstId, effectiveBranchId),
-                getCoursesByInstitution(effectiveInstId),
-                getClassesByInstitution(effectiveInstId, effectiveBranchId),
-                getCertificatesByInstitution(effectiveInstId),
-                getLessonsByInstitution(effectiveInstId),
-                getSchedulesByInstitution(effectiveInstId)
-              ]);
-              const ownStudents = cloudStudents.filter(s => s.userId === user.uid || (user.email && s.email === user.email));
-              setAllStudents(ownStudents);
-              setAllCourses(cloudCourses || []);
-              setAllClasses(cloudClasses || []);
-              setAllTeachers([]);
-              setAllCertificates(cloudCertificates.filter(c => ownStudents.some(s => ((s as any).name === c.studentName || s.fullName === c.studentName))));
-              setAllPaymentRecords([]);
-              setAllLessons(cloudLessons || []);
-              setAllSchedules(cloudSchedules || []);
-              setAllClassTransfers([]);
-              setAllCashSessions([]);
-            } else if (isPorteiro) {
-              // Portaria only loads students (for gate verification) and access logs
-              const [cloudStudents, cloudAccess] = await Promise.all([
-                getStudentsByInstitution(effectiveInstId, effectiveBranchId),
-                getAccessLogsByInstitution(effectiveInstId)
-              ]);
-              setAllStudents(cloudStudents || []);
-              setAllCourses([]);
-              setAllClasses([]);
-              setAllTeachers([]);
-              setAllCertificates([]);
-              setAllPaymentRecords([]);
-              setAllLessons([]);
-              setAllSchedules([]);
-              setAllClassTransfers([]);
-              setAllCashSessions([]);
-              setAllAccessLogs(cloudAccess || []);
-            } else {
-              // Administrative roles (Diretor, Secretaria, Financeiro, SuperAdmin, Professor)
-              const [
-                cloudStudents,
-                cloudCourses,
-                cloudClasses,
-                cloudTeachers,
-                cloudCertificates,
-                cloudPayments,
-                cloudLessons,
-                cloudSchedules,
-                cloudTransfers,
-                cloudCash,
-                cloudApplications
-              ] = await Promise.all([
-                getStudentsByInstitution(effectiveInstId, effectiveBranchId),
-                getCoursesByInstitution(effectiveInstId),
-                getClassesByInstitution(effectiveInstId, effectiveBranchId),
-                getTeachersByInstitution(effectiveInstId),
-                getCertificatesByInstitution(effectiveInstId),
-                getPaymentsByInstitution(effectiveInstId),
-                getLessonsByInstitution(effectiveInstId),
-                getSchedulesByInstitution(effectiveInstId),
-                getTransfersByInstitution(effectiveInstId),
-                getCashSessionsByInstitution(effectiveInstId),
-                getApplicationsByInstitution(effectiveInstId, effectiveBranchId)
-              ]);
-
-              setAllStudents(cloudStudents || []);
-              setAllCourses(cloudCourses || []);
-              setAllClasses(cloudClasses || []);
-              setAllTeachers(cloudTeachers || []);
-              setAllCertificates(cloudCertificates || []);
-              setAllPaymentRecords(cloudPayments || []);
-              setAllLessons(cloudLessons || []);
-              setAllSchedules(cloudSchedules || []);
-              setAllClassTransfers(cloudTransfers || []);
-              setAllCashSessions(cloudCash || []);
-              if (cloudApplications && cloudApplications.length > 0) {
-                setAllApplications(cloudApplications);
+            // If Firestore list didn't return the specific assigned institution, query its single document directly
+            if (effectiveInstId && !resolvedInsts.some(i => i.id === effectiveInstId)) {
+              const singleDoc = await getInstitutionById(effectiveInstId);
+              if (singleDoc) {
+                resolvedInsts = deduplicateInstitutions([singleDoc, ...resolvedInsts]);
+              } else {
+                // Only resolve the exact authorized seed if Firestore doesn't have the doc yet (never cross-assign another school)
+                const localAuthorizedSeed = [CEU_AZUL_INSTITUTION as Institution, ...INITIAL_INSTITUTIONS].find(
+                  i => i.id === effectiveInstId || allowedInstIds.includes(i.id)
+                );
+                if (localAuthorizedSeed) {
+                  resolvedInsts = deduplicateInstitutions([localAuthorizedSeed, ...resolvedInsts]);
+                }
               }
             }
           }
+
+          setAllInstitutions(resolvedInsts);
+
+          let finalActiveInstId = '';
+          if (effectiveInstId && resolvedInsts.some(i => i.id === effectiveInstId)) {
+            finalActiveInstId = effectiveInstId;
+          } else if (!isSuper && resolvedInsts.length === 1 && (allowedInstIds.includes(resolvedInsts[0].id) || resolvedInsts[0].id === effectiveInstId)) {
+            finalActiveInstId = resolvedInsts[0].id;
+          }
+
+          setActiveInstitutionId(finalActiveInstId);
+          setActiveBranchId(effectiveBranchId);
+
+          const activeInstObj = resolvedInsts.find(i => i.id === finalActiveInstId);
+          if (activeInstObj) {
+            tenantManager.switchInstitution(activeInstObj.id, activeInstObj.name, activeInstObj.branches || []);
+          } else {
+            tenantManager.clear();
+          }
+
+          setAuthLoadingPhase('carregando_dados');
+          await loadInstitutionTenantData(finalActiveInstId, effectiveBranchId, effectiveRole, user);
         } catch (e) {
           console.warn('Profile sync info:', e);
         } finally {
           setAuthLoadingPhase('idle');
         }
       } else {
-        // No authenticated user: completely clear private data (PARTE 3)
+        // No authenticated user: completely clear institutional & private data
+        ++latestTenantLoadRef.current;
         setAuthLoadingPhase('idle');
-        setAllStudents([]);
+        setActiveInstitutionId('');
+        setActiveBranchId('todas');
         setAllInstitutions([]);
-        setAllCourses([]);
-        setAllClasses([]);
-        setAllTeachers([]);
-        setAllCertificates([]);
-        setAllPaymentRecords([]);
-        setAllLessons([]);
-        setAllSchedules([]);
-        setAllClassTransfers([]);
-        setAllCashSessions([]);
+        clearTenantData();
+        tenantManager.clear();
         setActiveRoleState('visitante');
         setAuthorizedRoles(['VISITANTE']);
         setHasSigarProfile(true);
@@ -1646,10 +1734,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const unsubAuthService = authService.subscribe((authUser) => {
       if (authUser) {
-        if (authUser.role) setActiveRoleState(authUser.role);
-        if (authUser.roles) setAuthorizedRoles(authUser.roles);
-        if (authUser.institutionId) setActiveInstitutionId(authUser.institutionId);
-        if (authUser.branchId) setActiveBranchId(authUser.branchId);
+        const superBySession =
+          toCanonicalRole(activeRoleRef.current) === 'SUPER_ADMIN' ||
+          authorizedRolesRef.current.some(r => toCanonicalRole(r) === 'SUPER_ADMIN');
+        if (authUser.role && !superBySession) setActiveRoleState(authUser.role);
+        if (authUser.roles && !superBySession) setAuthorizedRoles(authUser.roles);
+        // Never overwrite an active Super Admin institution selection from background profile snapshots
+        if (authUser.institutionId && !superBySession && !activeInstitutionIdRef.current) {
+          setActiveInstitutionId(authUser.institutionId);
+        }
+        if (authUser.branchId && !superBySession) {
+          setActiveBranchId(authUser.branchId);
+        }
       }
     });
 
@@ -1680,7 +1776,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (user) {
         addNotification({
           title: 'Sessão Iniciada com Sucesso',
-          message: `Bem-vindo(a), ${user.displayName || user.email}! Autenticação Google vinculada ao Moztechwave Core.`,
+          message: `Bem-vindo(a), ${user.displayName || user.email}! Autenticação Google confirmada no SIGAR PRO.`,
           type: 'system'
         });
         soundManager.playSuccess();
@@ -1700,6 +1796,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const logout = async () => {
     try {
+      ++latestTenantLoadRef.current;
       await signOutUser();
       authService.logout();
       setCurrentRoute('public_portal');
@@ -1708,20 +1805,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setHasSigarProfile(true);
       setUserProfile(null);
       setFirebaseUser(null);
-      setAllStudents([]);
+      setActiveInstitutionId('');
+      setActiveBranchId('todas');
       setAllInstitutions([]);
-      setAllCourses([]);
-      setAllClasses([]);
-      setAllTeachers([]);
-      setAllCertificates([]);
-      setAllPaymentRecords([]);
-      setAllLessons([]);
-      setAllSchedules([]);
-      setAllClassTransfers([]);
-      setAllCashSessions([]);
+      clearTenantData();
+      tenantManager.clear();
       addNotification({
         title: 'Sessão Encerrada',
-        message: 'A sua sessão foi encerrada com segurança.',
+        message: 'A sua sessão e o contexto institucional foram encerrados com segurança.',
         type: 'system'
       });
       soundManager.playClick();
@@ -1795,123 +1886,97 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [officialSigners]);
 
-  const systemSignatures = allSystemSignatures.filter(s => 
-    !s.institutionId || s.institutionId === activeInstitutionId
-  );
+  const systemSignatures = activeInstitutionId
+    ? allSystemSignatures.filter(s => s.institutionId === activeInstitutionId)
+    : [];
 
-  const [signatures, setSignatures] = useState<DocumentSignature[]>([
-    {
-      role: 'Director',
-      name: 'Eng. Paulo Jafim Pereira',
-      title: 'Diretor Geral & Coordenador Executivo',
-      signed: true,
-      signedAt: '2026-08-15 11:30',
-      digitalSeal: 'SIVERC-SIG-DIR-88192'
-    },
-    {
-      role: 'Formador',
-      name: 'Eng. Carlos Manuel Sitoe',
-      title: 'Formador Chefe de Engenharia de Software',
-      signed: true,
-      signedAt: '2026-08-14 16:45',
-      digitalSeal: 'SIVERC-SIG-FORM-10492'
-    },
-    {
-      role: 'Coordenador',
-      name: 'Dra. Amina Abdul',
-      title: 'Coordenadora Pedagógica Central',
-      signed: false,
-      digitalSeal: 'SIVERC-SIG-COORD-PENDING'
-    }
-  ]);
+  const [signatures, setSignatures] = useState<DocumentSignature[]>([]);
 
   const [notifications, setNotifications] = useState<LiveNotification[]>(INITIAL_NOTIFICATIONS);
 
-  // Online Registration Applications State (Persisted in localStorage)
-  const [allApplications, setAllApplications] = useState<RegistrationApplication[]>(() => {
-    const saved = localStorage.getItem('mtw_online_applications');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.warn('Failed to parse saved applications:', e);
-      }
-    }
-    return INITIAL_REGISTRATIONS;
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('mtw_online_applications', JSON.stringify(allApplications));
-    } catch (e) {
-      console.warn('Failed to persist applications to localStorage:', e);
-    }
-  }, [allApplications]);
+  // Online Registration Applications State (Strictly tenant-loaded; starts EMPTY)
+  const [allApplications, setAllApplications] = useState<RegistrationApplication[]>([]);
 
   // ==========================================
   // MULTI-TENANT STRICT DATA ISOLATION FILTERS
   // ==========================================
-  
-  // Rule: Non-superadmin users ONLY see their own institution
-  const institutions = activeRole === 'superadmin' ? allInstitutions : [activeInstitution];
+  const scopedInstId = activeInstitution.id;
+  const isSuperAdminActive =
+    toCanonicalRole(activeRole) === 'SUPER_ADMIN' ||
+    (authorizedRoles || []).some(r => toCanonicalRole(r) === 'SUPER_ADMIN');
 
-  // Studio Templates strictly isolated by activeInstitution (or shared if without institutionId)
-  const studioTemplates = allStudioTemplates.filter(tpl => {
-    if (activeRole === 'superadmin') return true;
-    return !tpl.institutionId || tpl.institutionId === activeInstitution.id;
-  });
+  // Rule: Non-superadmin users ONLY see their authorized institution(s)
+  const institutions = isSuperAdminActive
+    ? allInstitutions
+    : (scopedInstId ? [activeInstitution] : []);
+
+  // Studio Templates isolated by activeInstitution (allowing built-in default models without institutionId)
+  const studioTemplates = scopedInstId
+    ? allStudioTemplates.filter(tpl => !tpl.institutionId || tpl.institutionId === scopedInstId)
+    : [];
 
   // Candidates & Applications belonging strictly to activeInstitution and activeBranch (if selected)
-  const applications = allApplications.filter(app => {
-    if (activeRole === 'superadmin') return true;
-    if (app.institutionId && app.institutionId !== activeInstitution.id) return false;
-    if (activeBranchId !== 'todas' && app.branchId && app.branchId !== activeBranchId) return false;
-    return true;
-  });
+  const applications = scopedInstId
+    ? allApplications.filter(app => {
+        if (app.institutionId !== scopedInstId) return false;
+        if (activeBranchId !== 'todas' && app.branchId && app.branchId !== activeBranchId) return false;
+        return true;
+      })
+    : [];
 
   // Online Registration Configuration for the active institution
   const onlineRegistrationConfig: OnlineRegistrationConfig = 
     activeInstitution.onlineRegistrationConfig || DEFAULT_ONLINE_REGISTRATION_CONFIG;
 
   // Students belonging strictly to activeInstitution and activeBranch (if selected)
-  const students = allStudents.filter(s => {
-    if (s.institutionId && s.institutionId !== activeInstitution.id) return false;
-    if (activeBranchId !== 'todas' && s.branchId && s.branchId !== activeBranchId) return false;
-    return true;
-  });
+  const students = scopedInstId
+    ? allStudents.filter(s => {
+        if (s.institutionId !== scopedInstId) return false;
+        if (activeBranchId !== 'todas' && s.branchId && s.branchId !== activeBranchId) return false;
+        return true;
+      })
+    : [];
 
   // Courses belonging strictly to activeInstitution
-  const courses = allCourses.filter(c => {
-    return !c.institutionId || c.institutionId === activeInstitution.id;
-  });
+  const courses = scopedInstId
+    ? allCourses.filter(c => c.institutionId === scopedInstId)
+    : [];
 
   // Classes belonging strictly to activeInstitution and activeBranch (if selected)
-  const classes = allClasses.filter(c => {
-    if (c.institutionId && c.institutionId !== activeInstitution.id) return false;
-    if (activeBranchId !== 'todas' && c.branchId && c.branchId !== activeBranchId) return false;
-    return true;
-  });
+  const classes = scopedInstId
+    ? allClasses.filter(c => {
+        if (c.institutionId !== scopedInstId) return false;
+        if (activeBranchId !== 'todas' && c.branchId && c.branchId !== activeBranchId) return false;
+        return true;
+      })
+    : [];
 
   // Student Transfers belonging strictly to activeInstitution and activeBranch (if selected)
-  const classTransfers = allClassTransfers.filter(t => {
-    if (t.institutionId && t.institutionId !== activeInstitution.id) return false;
-    if (activeBranchId !== 'todas' && t.branchId && t.branchId !== activeBranchId) return false;
-    return true;
-  });
+  const classTransfers = scopedInstId
+    ? allClassTransfers.filter(t => {
+        if (t.institutionId !== scopedInstId) return false;
+        if (activeBranchId !== 'todas' && t.branchId && t.branchId !== activeBranchId) return false;
+        return true;
+      })
+    : [];
 
   // Schedules belonging strictly to activeInstitution and activeBranch (if selected)
-  const schedules = allSchedules.filter(sch => {
-    if (sch.institutionId && sch.institutionId !== activeInstitution.id) return false;
-    if (activeBranchId !== 'todas' && sch.branchId && sch.branchId !== activeBranchId) return false;
-    return true;
-  });
+  const schedules = scopedInstId
+    ? allSchedules.filter(sch => {
+        if (sch.institutionId !== scopedInstId) return false;
+        if (activeBranchId !== 'todas' && sch.branchId && sch.branchId !== activeBranchId) return false;
+        return true;
+      })
+    : [];
 
   // Teachers belonging strictly to activeInstitution and activeBranch (if selected)
-  const teachers = allTeachers.filter(t => {
-    if (t.institutionId && t.institutionId !== activeInstitution.id) return false;
-    if (activeBranchId !== 'todas' && t.branchId && t.branchId !== activeBranchId) return false;
-    return true;
-  });
+  const teachers = scopedInstId
+    ? allTeachers.filter(t => {
+        if (t.institutionId !== scopedInstId) return false;
+        if (activeBranchId !== 'todas' && t.branchId && t.branchId !== activeBranchId) return false;
+        return true;
+      })
+    : [];
 
   const activeTeacher = teachers.find(t => t.id === activeTeacherId) || teachers[0] || null;
 
@@ -1941,15 +2006,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   // Cash sessions belonging strictly to activeInstitution and activeBranch (if selected)
-  const cashSessions = allCashSessions.filter(s => {
-    if (s.institutionId && s.institutionId !== activeInstitution.id) return false;
-    if (activeBranchId !== 'todas' && s.branchId && s.branchId !== activeBranchId) return false;
-    return true;
-  });
+  const cashSessions = scopedInstId
+    ? allCashSessions.filter(s => {
+        if (s.institutionId !== scopedInstId) return false;
+        if (activeBranchId !== 'todas' && s.branchId && s.branchId !== activeBranchId) return false;
+        return true;
+      })
+    : [];
 
   const activeCashSession = cashSessions.find(s => s.status === 'aberto') || cashSessions[0] || {
-    id: `cx-sess-${activeInstitution.id}-default`,
-    institutionId: activeInstitution.id,
+    id: `cx-sess-${scopedInstId || 'none'}-default`,
+    institutionId: scopedInstId,
     branchId: activeBranchId !== 'todas' ? activeBranchId : 'default',
     operator: 'Tesouraria',
     openedAt: new Date().toLocaleString('pt-MZ'),
@@ -1960,11 +2027,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Lessons belonging strictly to activeInstitution
-  const lessons = allLessons.filter(l => {
-    if (l.institutionId && l.institutionId !== activeInstitution.id) return false;
-    if (activeBranchId !== 'todas' && l.branchId && l.branchId !== activeBranchId) return false;
-    return true;
-  });
+  const lessons = scopedInstId
+    ? allLessons.filter(l => {
+        if (l.institutionId !== scopedInstId) return false;
+        if (activeBranchId !== 'todas' && l.branchId && l.branchId !== activeBranchId) return false;
+        return true;
+      })
+    : [];
 
   const teacherAssignedLessons = lessons.filter(l => {
     if (!activeTeacher) return true;
@@ -1976,111 +2045,118 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   // Access Logs belonging strictly to activeInstitution
-  const accessLogs = allAccessLogs.filter(a => {
-    if (a.institutionId && a.institutionId !== activeInstitution.id) return false;
-    if (activeBranchId !== 'todas' && a.branchId && a.branchId !== activeBranchId) return false;
-    return true;
-  });
+  const accessLogs = scopedInstId
+    ? allAccessLogs.filter(a => {
+        if (a.institutionId !== scopedInstId) return false;
+        if (activeBranchId !== 'todas' && a.branchId && a.branchId !== activeBranchId) return false;
+        return true;
+      })
+    : [];
 
-  // 53. AUDITORIA: Audit Logs belonging to activeInstitution (ou globais)
-  const auditLogs = allAuditLogs.filter(log => {
-    if (!log.institutionId || log.institutionId === activeInstitution.id) return true;
-    return false;
-  });
+  // 53. AUDITORIA: Audit Logs belonging strictly to activeInstitution
+  const auditLogs = scopedInstId
+    ? allAuditLogs.filter(log => log.institutionId === scopedInstId)
+    : [];
 
   // 17. Evaluations belonging strictly to activeInstitution and activeBranch (if selected)
-  const evaluations = allEvaluations.filter(ev => {
-    if (ev.institutionId && ev.institutionId !== activeInstitution.id) return false;
-    if (activeBranchId !== 'todas' && ev.branchId && ev.branchId !== activeBranchId) return false;
-    return true;
-  });
+  const evaluations = scopedInstId
+    ? allEvaluations.filter(ev => {
+        if (ev.institutionId !== scopedInstId) return false;
+        if (activeBranchId !== 'todas' && ev.branchId && ev.branchId !== activeBranchId) return false;
+        return true;
+      })
+    : [];
 
   // Calculation formulas belonging to activeInstitution (or default global)
-  const calculationFormulas = allCalculationFormulas.filter(f => {
-    return !f.institutionId || f.institutionId === activeInstitution.id;
-  });
+  const calculationFormulas = scopedInstId
+    ? allCalculationFormulas.filter(f => !f.institutionId || f.institutionId === scopedInstId)
+    : [];
 
   // 18. Pauta Homologations belonging to activeInstitution and activeBranch (if selected)
-  const pautaHomologations = allPautaHomologations.filter(h => {
-    if (h.institutionId && h.institutionId !== activeInstitution.id) return false;
-    if (activeBranchId !== 'todas' && h.branchId && h.branchId !== activeBranchId) return false;
-    return true;
-  });
+  const pautaHomologations = scopedInstId
+    ? allPautaHomologations.filter(h => {
+        if (h.institutionId !== scopedInstId) return false;
+        if (activeBranchId !== 'todas' && h.branchId && h.branchId !== activeBranchId) return false;
+        return true;
+      })
+    : [];
 
   // 20. Internships belonging strictly to activeInstitution and activeBranch (if selected)
-  const internships = allInternships.filter(intern => {
-    if (intern.institutionId && intern.institutionId !== activeInstitution.id) return false;
-    if (activeBranchId !== 'todas' && intern.branchId && intern.branchId !== activeBranchId) return false;
-    return true;
-  });
+  const internships = scopedInstId
+    ? allInternships.filter(intern => {
+        if (intern.institutionId !== scopedInstId) return false;
+        if (activeBranchId !== 'todas' && intern.branchId && intern.branchId !== activeBranchId) return false;
+        return true;
+      })
+    : [];
 
   // 51. Certificados isolados por Instituição e Filial
-  const certificates = allCertificates.filter(cert => {
-    if (cert.institutionId && cert.institutionId !== activeInstitution.id) return false;
-    if (activeBranchId !== 'todas' && cert.branchId && cert.branchId !== activeBranchId) return false;
-    return true;
-  });
+  const certificates = scopedInstId
+    ? allCertificates.filter(cert => {
+        if (cert.institutionId !== scopedInstId) return false;
+        if (activeBranchId !== 'todas' && cert.branchId && cert.branchId !== activeBranchId) return false;
+        return true;
+      })
+    : [];
 
   // 29. Contas a Receber e Contas a Pagar
-  const contasReceber = allContasReceber.filter(item => {
-    if (activeRole === 'superadmin') return true;
-    if (item.institutionId && item.institutionId !== activeInstitution.id) return false;
-    if (activeBranchId !== 'todas' && item.branchId && item.branchId !== activeBranchId) return false;
-    return true;
-  });
+  const contasReceber = scopedInstId
+    ? allContasReceber.filter(item => {
+        if (item.institutionId !== scopedInstId) return false;
+        if (activeBranchId !== 'todas' && item.branchId && item.branchId !== activeBranchId) return false;
+        return true;
+      })
+    : [];
 
-  const contasPagar = allContasPagar.filter(item => {
-    if (activeRole === 'superadmin') return true;
-    if (item.institutionId && item.institutionId !== activeInstitution.id) return false;
-    if (activeBranchId !== 'todas' && item.branchId && item.branchId !== activeBranchId) return false;
-    return true;
-  });
+  const contasPagar = scopedInstId
+    ? allContasPagar.filter(item => {
+        if (item.institutionId !== scopedInstId) return false;
+        if (activeBranchId !== 'todas' && item.branchId && item.branchId !== activeBranchId) return false;
+        return true;
+      })
+    : [];
 
   // 30. Pagamentos do Portal (Filtrados por instituição e filial)
-  const paymentRecords = allPaymentRecords.filter(item => {
-    if (activeRole === 'superadmin') return true;
-    if (item.institutionId && item.institutionId !== activeInstitution.id) return false;
-    if (activeBranchId !== 'todas' && item.branchId && item.branchId !== activeBranchId) return false;
-    return true;
-  });
+  const paymentRecords = scopedInstId
+    ? allPaymentRecords.filter(item => {
+        if (item.institutionId !== scopedInstId) return false;
+        if (activeBranchId !== 'todas' && item.branchId && item.branchId !== activeBranchId) return false;
+        return true;
+      })
+    : [];
 
   // 35. CAMADA DE INTEGRAÇÃO WHATSAPP (ISOLADO ESTATUTARIAMENTE POR INSTITUIÇÃO)
-  const whatsAppTemplates = allWhatsAppTemplates.filter(item => {
-    if (activeRole === 'superadmin') return true;
-    return item.institutionId === activeInstitution.id;
-  });
+  const whatsAppTemplates = scopedInstId
+    ? allWhatsAppTemplates.filter(item => item.institutionId === scopedInstId)
+    : [];
 
-  const whatsAppCampaigns = allWhatsAppCampaigns.filter(item => {
-    if (activeRole === 'superadmin') return true;
-    return item.institutionId === activeInstitution.id;
-  });
+  const whatsAppCampaigns = scopedInstId
+    ? allWhatsAppCampaigns.filter(item => item.institutionId === scopedInstId)
+    : [];
 
-  const whatsAppAutomations = allWhatsAppAutomations.filter(item => {
-    if (activeRole === 'superadmin') return true;
-    return item.institutionId === activeInstitution.id;
-  });
+  const whatsAppAutomations = scopedInstId
+    ? allWhatsAppAutomations.filter(item => item.institutionId === scopedInstId)
+    : [];
 
-  const whatsAppLogs = allWhatsAppLogs.filter(item => {
-    if (activeRole === 'superadmin') return true;
-    return item.institutionId === activeInstitution.id;
-  });
+  const whatsAppLogs = scopedInstId
+    ? allWhatsAppLogs.filter(item => item.institutionId === scopedInstId)
+    : [];
 
-  const whatsAppConsents = allWhatsAppConsents.filter(item => {
-    if (activeRole === 'superadmin') return true;
-    return item.institutionId === activeInstitution.id;
-  });
+  const whatsAppConsents = scopedInstId
+    ? allWhatsAppConsents.filter(item => item.institutionId === scopedInstId)
+    : [];
 
   // Independent WhatsApp Config per Institution
-  const whatsappConfig: WhatsAppConnection = activeInstitution.whatsAppConfig || INITIAL_INSTITUTION_WHATSAPP_CONFIG[activeInstitution.id] || {
-    institutionId: activeInstitution.id,
-    status: 'conectado',
-    isConnected: true,
-    instanceName: `${activeInstitution.code}_WhatsApp`,
-    phoneNumber: activeInstitution.phone || '+258 84 900 0000',
-    batteryLevel: 92,
-    isCharging: true,
-    deviceModel: 'Dispositivo Android / WhatsApp Business',
-    dailyMessagesSent: 12,
+  const whatsappConfig: WhatsAppConnection = activeInstitution.whatsAppConfig || INITIAL_INSTITUTION_WHATSAPP_CONFIG[scopedInstId] || {
+    institutionId: scopedInstId,
+    status: 'desconectado',
+    isConnected: false,
+    instanceName: scopedInstId ? `${activeInstitution.code}_WhatsApp` : 'WhatsApp',
+    phoneNumber: activeInstitution.whatsapp || activeInstitution.phone || '',
+    batteryLevel: 100,
+    isCharging: false,
+    deviceModel: 'Dispositivo WhatsApp Business',
+    dailyMessagesSent: 0,
     dailyLimit: 500,
     minDelaySeconds: 3,
     maxDelaySeconds: 8,
@@ -2088,16 +2164,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     allowedEndHour: 20,
     appendOptOutNotice: true,
     optOutText: 'Para não receber comunicados desta instituição, responda PARAR.',
-    lastSync: '2026-09-17 08:30',
-    authorizedBy: 'Diretoria Executiva'
+    lastSync: '',
+    authorizedBy: activeInstitution.representativeName || ''
   };
 
   // Independent Financial Settings per Institution
   const financialSettings: FinancialSettings = activeInstitution.financialSettings || {
-    fineAmount: 50,
-    interestRateDaily: 1,
-    bankInfo: 'Millennium BIM - Conta Central',
-    pixKey: activeInstitution.phone,
+    fineAmount: 0,
+    interestRateDaily: 0,
+    bankInfo: '',
+    pixKey: activeInstitution.phone || '',
     dueDay: 10
   };
 
@@ -2122,9 +2198,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  // Switch Institution with strict Multi-Tenant Permission check
+  // Switch Institution with strict Multi-Tenant Permission check and full tenant data reload
   const setActiveInstitution = (inst: Institution) => {
-    if (activeRole !== 'superadmin' && inst.id !== activeInstitution.id) {
+    const canSwitch =
+      isSuperAdminActive ||
+      inst.id === activeInstitutionId ||
+      (userProfile?.institutionId && inst.id === userProfile.institutionId) ||
+      (Array.isArray(userProfile?.institutionIds) && userProfile.institutionIds.includes(inst.id)) ||
+      (Array.isArray(userProfile?.ownedInstitutions) && userProfile.ownedInstitutions.includes(inst.id));
+
+    if (!canSwitch) {
       addNotification({
         title: 'Acesso Negado (Multi-Tenant)',
         message: 'Apenas Super Administradores podem alternar entre instituições. Os dados de cada escola permanecem isolados.',
@@ -2132,8 +2215,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       return;
     }
-    setActiveInstitutionId(inst.id);
-    setActiveBranchId('todas');
+
+    if (inst?.id) {
+      setAllInstitutions(prev => deduplicateInstitutions(
+        prev.some(i => i.id === inst.id) ? prev.map(i => (i.id === inst.id ? inst : i)) : [inst, ...prev]
+      ));
+      setActiveInstitutionId(inst.id);
+      setActiveBranchId('todas');
+      tenantManager.switchInstitution(inst.id, inst.name, inst.branches || []);
+      void loadInstitutionTenantData(inst.id, 'todas', activeRole, firebaseUser);
+    } else {
+      setActiveInstitutionId('');
+      setActiveBranchId('todas');
+      tenantManager.clear();
+      clearTenantData();
+    }
     soundManager.playClick();
   };
 
@@ -2786,29 +2882,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     soundManager.playSuccess();
   };
 
-  const addApplication = (newApp: Omit<RegistrationApplication, 'id' | 'code' | 'createdAt'>): RegistrationApplication => {
-    const targetInst = allInstitutions.find(i => i.id === newApp.institutionId) 
-      || (newApp.institutionId === 'ceu-azul-nacala' ? CEU_AZUL_INSTITUTION : activeInstitution);
+  const addApplication = (
+    newApp: Omit<RegistrationApplication, 'id' | 'code' | 'createdAt'> &
+      Partial<Pick<RegistrationApplication, 'id' | 'code' | 'createdAt'>> & {
+        skipFirestoreSync?: boolean;
+      }
+  ): RegistrationApplication => {
+    const targetInst = allInstitutions.find(i => i.id === newApp.institutionId) || activeInstitution;
     const randomSeq = Math.floor(1000 + Math.random() * 9000);
     const prefix = targetInst.prefixes?.candidatePrefix || `${targetInst.code || 'SIGAR'}-CAND`;
-    const code = `${prefix}-2026-${randomSeq}`;
+    const code = newApp.code || `${prefix}-2026-${randomSeq}`;
     const targetBranch = newApp.branchId || (targetInst.branches?.[0]?.id || 'branch-main');
-    const createdAt = new Date().toLocaleString('pt-MZ');
+    const createdAt = newApp.createdAt || new Date().toLocaleString('pt-MZ');
+    const { skipFirestoreSync, ...appPayload } = newApp;
 
     const application: RegistrationApplication = {
-      ...newApp,
-      id: `reg-${Date.now()}`,
+      ...appPayload,
+      id: newApp.id || `reg-${Date.now()}`,
       code,
       institutionId: newApp.institutionId || targetInst.id,
       branchId: targetBranch,
       createdAt,
       updatedAt: createdAt,
       status: newApp.status || 'Pendente',
-      confirmationSent: {
-        email: true,
-        sms: true,
-        whatsapp: true,
-        sentAt: createdAt,
+      confirmationSent: newApp.confirmationSent || {
+        email: false,
+        sms: false,
+        whatsapp: false,
+        sentAt: '',
         recipientPhone: newApp.phone,
         recipientEmail: newApp.email
       }
@@ -2816,8 +2917,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setAllApplications(prev => [application, ...prev]);
 
-    // Persist application directly to Firestore without client-side vacancies decrement
-    saveApplicationToFirestore(application).catch(err => console.warn('Firestore sync application error:', err));
+    if (!skipFirestoreSync) {
+      // Persist application directly to Firestore without duplicating already-synced public portal submissions
+      saveApplicationToFirestore(application).catch(err => console.warn('Firestore sync application error:', err));
+    }
 
     addNotification({
       title: `Nova Inscrição Online: ${application.fullName}`,
@@ -2841,6 +2944,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }));
     if (updatedApp) {
       saveApplicationToFirestore(updatedApp).catch(err => console.warn('Firestore sync update application error:', err));
+      syncApplicationStatusToSubcollections(updatedApp);
     }
   };
 
@@ -2865,6 +2969,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     if (approvedCandidate) {
       saveApplicationToFirestore(approvedCandidate).catch(err => console.warn('Firestore sync approve application error:', err));
+      syncApplicationStatusToSubcollections(approvedCandidate);
       addNotification({
         title: `Candidatura Aprovada: ${(approvedCandidate as RegistrationApplication).fullName}`,
         message: `Inscrição ${(approvedCandidate as RegistrationApplication).code} deferida pela secretaria. Candidato liberado para matrícula.`,
@@ -2896,6 +3001,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     if (rejectedCandidate) {
       saveApplicationToFirestore(rejectedCandidate).catch(err => console.warn('Firestore sync reject application error:', err));
+      syncApplicationStatusToSubcollections(rejectedCandidate);
       addNotification({
         title: `Candidatura Indeferida: ${(rejectedCandidate as RegistrationApplication).fullName}`,
         message: `Motivo registrado: ${rejectionReason}`,
@@ -2945,6 +3051,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             updatedAt: new Date().toISOString()
           };
           saveApplicationToFirestore(updated).catch(err => console.warn('Firestore sync candidate conversion error:', err));
+          syncApplicationStatusToSubcollections(updated);
           return updated;
         }
         return app;
@@ -2980,7 +3087,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       emergencyContact: candidate.guardianPhone || candidate.phone,
       attendancePercentage: 100,
       averageGrade: 0,
-      photoUrl: candidate.photoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80',
+      photoUrl: candidate.photoUrl || '',
       courseId: candidate.courseId,
       courseName: candidate.courseName,
       classGroupId: classId,
@@ -3040,6 +3147,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           updatedAt: new Date().toISOString()
         };
         saveApplicationToFirestore(updated).catch(err => console.warn('Firestore sync candidate conversion error:', err));
+        syncApplicationStatusToSubcollections(updated);
         return updated;
       }
       return app;
@@ -5637,15 +5745,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }));
   };
 
-  // Portaria & Controlo de Acesso (com Notificação WhatsApp Imediata ao Encarregado)
+  // Portaria & Controlo de Acesso (com Notificação WhatsApp ao Encarregado)
   const logGateAccess = (
     studentId: string, 
-    type: 'entrada' | 'saida',
+    type: 'entrada' | 'saida' | 'barrado',
     customLocation?: string,
     customOperator?: string,
-    sendNotification: boolean = true
+    sendNotification: boolean = true,
+    customMessage?: string,
+    blockReason?: string
   ): GateAccessLog | null => {
-    const student = allStudents.find(s => s.id === studentId);
+    const student = allStudents.find(s => s.id === studentId && s.institutionId === activeInstitution.id);
     if (!student) return null;
 
     const now = new Date();
@@ -5655,12 +5765,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const fullTimestamp = `${dateStr} ${timeStr}`;
 
     const targetBranch = activeBranchId !== 'todas' ? activeBranchId : (student.branchId || activeInstitution.branches?.[0]?.id || 'branch-default');
+    const centerName = resolveInstitutionIdentity(activeInstitution).officialName || activeInstitution.name;
+    const guardianName = student.guardianName || 'Encarregado de Educação';
 
-    // Mensagem padronizada conforme especificação oficial do Módulo 28:
-    // "O aluno [NOME] entrou na instituição às [HORA]."
-    const notificationMessage = type === 'entrada'
-      ? `O aluno ${student.fullName} entrou na instituição às ${hourOnly}.`
-      : `O aluno ${student.fullName} saiu da instituição às ${hourOnly}.`;
+    const notificationMessage = customMessage || (
+      type === 'entrada'
+        ? `Olá ${guardianName}, informamos que o(a) aluno(a) ${student.fullName} do centro ${centerName} entrou às ${hourOnly}.`
+        : type === 'saida'
+        ? `Olá ${guardianName}, informamos que o(a) aluno(a) ${student.fullName} do centro ${centerName} saiu às ${hourOnly}.`
+        : `Olá ${guardianName}, informamos que o(a) aluno(a) ${student.fullName} do centro ${centerName} foi barrado(a) na porta às ${hourOnly}. Motivo: ${blockReason || 'falta de pagamento da mensalidade do mês corrente'}.`
+    );
 
     const operatorName = customOperator || firebaseUser?.displayName || (activeRole === 'superadmin' ? 'Super Administrador' : 'Portaria / Secretaria');
     const locationName = customLocation || 'Portão Principal';
@@ -5668,7 +5782,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const log: GateAccessLog = {
       id: `acc-${Date.now()}`,
       institutionId: activeInstitution.id,
-      institutionName: activeInstitution.name,
+      institutionName: centerName,
       branchId: targetBranch,
       location: locationName,
       studentId: student.id,
@@ -5676,19 +5790,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       studentName: student.fullName,
       courseName: student.courseName,
       classGroupName: student.classGroupName,
-      photoUrl: student.photoUrl,
-      guardianPhone: student.guardianPhone || student.emergencyContact || student.phone,
-      guardianName: student.guardianName || 'Encarregado de Educação',
+      photoUrl: student.photoUrl || '',
+      guardianPhone: student.guardianPhone || student.emergencyContact || student.phone || '',
+      guardianName,
       date: dateStr,
       time: timeStr,
       timestamp: fullTimestamp,
       type,
+      ...(blockReason ? { blockReason } : {}),
       operator: operatorName,
       operatorRole: activeRole,
       whatsappStatus: sendNotification ? 'enviado' : 'pendente',
       notificationSent: sendNotification,
       notificationMessage,
-      confirmed: true
+      confirmed: type !== 'barrado'
     };
 
     setAllAccessLogs(prev => [log, ...prev]);
@@ -5713,12 +5828,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     addNotification({
-      title: `Portaria: ${type === 'entrada' ? 'Entrada Confirmada' : 'Saída Registrada'}`,
+      title:
+        type === 'entrada'
+          ? 'Portaria: Entrada Confirmada'
+          : type === 'saida'
+          ? 'Portaria: Saída Registada'
+          : 'Portaria: Acesso Barrado (Mensalidade)',
       message: notificationMessage,
-      type: 'system'
+      type: type === 'barrado' ? 'alert' : 'system'
     });
 
-    soundManager.playSuccess();
+    if (type === 'barrado') {
+      soundManager.playError();
+    } else {
+      soundManager.playSuccess();
+    }
     return log;
   };
 
@@ -6309,15 +6433,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const varValor = typeof rawVal === 'number' ? rawVal.toLocaleString('pt-MZ') : String(rawVal);
     const varData = (params.customVariables?.data as string) || new Date().toLocaleDateString('pt-MZ');
     const varDuracao = (params.customVariables?.duracao as string) || targetCourse?.duration || '12 Meses (1200 Horas)';
-    const varInstituicao = (params.customVariables?.instituicao as string) || activeInstitution.name;
-    const varDiretor = (params.customVariables?.diretor as string) || 'Eng. Paulo Jafim';
+    const instIdentity = resolveInstitutionIdentity(activeInstitution);
+    const varInstituicao = (params.customVariables?.instituicao as string) || instIdentity.officialName;
+    const varDiretor = (params.customVariables?.diretor as string) || instIdentity.representativeName || instIdentity.signatoryName || '';
 
     // Variáveis complementares
     const varBi = student?.documentNumber ? `${student.documentType || 'BI'} nº ${student.documentNumber}` : 'Documento em tramitação';
-    const varTelefone = student?.phone || '+258 84 000 0000';
-    const varEmail = student?.email || 'aluno@cftpm.mz';
-    const varEndereco = student?.address || 'Maputo Cidade';
-    const varCodigoAluno = student?.code || `MTW-AL-${Date.now().toString().slice(-4)}`;
+    const varTelefone = student?.phone || instIdentity.phone || '';
+    const varEmail = student?.email || instIdentity.email || '';
+    const varEndereco = student?.address || instIdentity.address || '';
+    const instPrefix = instIdentity.code || 'SIGAR';
+    const varCodigoAluno = student?.code || `${instPrefix}-AL-${Date.now().toString().slice(-4)}`;
     const varRegime = student?.regime || 'Laboral';
 
     let content = template.content;
@@ -6341,8 +6467,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       .replace(/{{regime}}/g, varRegime)
       .replace(/{{valor_mensalidade}}/g, varValor)
       .replace(/{{data_atual}}/g, varData)
-      .replace(/{{nuit_instituicao}}/g, activeInstitution.nuit || '400123456')
-      .replace(/{{endereco_instituicao}}/g, activeInstitution.address || 'Maputo, Moçambique');
+      .replace(/{{nuit_instituicao}}/g, instIdentity.nuit || '')
+      .replace(/{{endereco_instituicao}}/g, instIdentity.address || '');
 
     // Injeção de variáveis personalizadas adicionais se fornecidas
     if (params.customVariables) {
@@ -6352,7 +6478,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
     }
 
-    const prefix = activeInstitution.prefixes?.contractPrefix || `${activeInstitution.code || 'CFTPM'}-CTR`;
+    const prefix = activeInstitution.prefixes?.contractPrefix || `${instPrefix}-CTR`;
     const randNum = Math.floor(1000 + Math.random() * 9000);
     const refNumber = `${prefix}-2026-${randNum}`;
     const nowIso = new Date().toISOString().split('T')[0];
@@ -7222,10 +7348,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const openWhatsAppMessage = (phone: string, text: string) => {
-    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    let cleanPhone = (phone || '').replace(/[^0-9]/g, '');
+    if (cleanPhone.startsWith('00')) cleanPhone = cleanPhone.slice(2);
+    if (cleanPhone.length === 9 && cleanPhone.startsWith('8')) cleanPhone = `258${cleanPhone}`;
+    if (!cleanPhone) return;
     const encoded = encodeURIComponent(text);
     const url = `https://wa.me/${cleanPhone}?text=${encoded}`;
-    window.open(url, '_blank');
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   // 36. TAREFAS - USUÁRIO ATUAL & MÉTODOS DO MÓDULO

@@ -822,7 +822,7 @@ export const AcademicReportsView: React.FC = () => {
           i.courseName,
           i.company?.name || (i as any).companyName || 'Empresa Parceira',
           i.supervisor?.companySupervisor || (i.supervisor as any)?.name || (i as any).supervisorName || 'Supervisor Responsável',
-          (i as any).academicTutorName || 'Eng. Paulo Jafim',
+          (i as any).academicTutorName || activeInstitution?.representativeName || 'Tutor Académico',
           i.startDate,
           i.endDate,
           `${(i as any).totalHoursRequired || (i as any).workloadHours || 300}h`,

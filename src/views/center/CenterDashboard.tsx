@@ -43,6 +43,8 @@ import { useApp } from '../../context/AppContext';
 import { Student, getStudentStatusBadgeStyle, ALL_STUDENT_STATUSES } from '../../types';
 import { ProfessionalDataTable, ColumnDef, QuickAction } from '../../components/common/ProfessionalDataTable';
 import { FirebaseStateFeedback } from '../../components/common/FirebaseStateFeedback';
+import { InstitutionLogoBadge } from '../../components/common/InstitutionLogoBadge';
+import { resolveInstitutionIdentity } from '../../utils/institutionIdentity';
 
 export const CenterDashboard: React.FC = () => {
   const { 
@@ -68,6 +70,8 @@ export const CenterDashboard: React.FC = () => {
     openWhatsAppMessage,
     navigate 
   } = useApp();
+
+  const identity = resolveInstitutionIdentity(activeInstitution);
 
   const [timePeriod, setTimePeriod] = useState<'hoje' | 'mes' | 'ano'>('mes');
   const [selectedChartTab, setSelectedChartTab] = useState<
@@ -469,7 +473,7 @@ export const CenterDashboard: React.FC = () => {
       id: 'whatsapp',
       label: 'Enviar Notificação WhatsApp',
       icon: <MessageCircle className="w-3.5 h-3.5 text-emerald-400" />,
-      onClick: (s) => openWhatsAppMessage(s.phone, `Olá ${s.fullName}, contactamos da secretaria do ${activeInstitution.name}.`)
+      onClick: (s) => openWhatsAppMessage(s.phone, `Olá ${s.fullName}, contactamos da secretaria do ${identity.officialName}.`)
     },
     {
       id: 'pagamento',
@@ -531,23 +535,31 @@ export const CenterDashboard: React.FC = () => {
           ===================================================================== */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 p-6 sm:p-8 rounded-3xl bg-[#0b1120] border border-slate-800 shadow-xl">
         <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-blue-600/10 text-blue-400 border border-blue-500/30">
-              {activeInstitution.code}
-            </span>
-            <span className="px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-amber-400/10 text-amber-400 border border-amber-400/20 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-amber-400" />
-              SIVERC 2.0 Homologado
-            </span>
-            <span className="px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-[#090d16] text-slate-300 border border-slate-800">
-              {activeBranch ? activeBranch.name : 'Campus Central (Todos os Polos)'}
-            </span>
+          <div className="flex items-center gap-3">
+            <InstitutionLogoBadge institution={activeInstitution} size="lg" rounded="2xl" />
+            <div className="space-y-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                {identity.code && (
+                  <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-blue-600/10 text-blue-400 border border-blue-500/30">
+                    {identity.code}
+                  </span>
+                )}
+                <span className="px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-amber-400/10 text-amber-400 border border-amber-400/20 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-amber-400" />
+                  SIVERC 2.0 Homologado
+                </span>
+                <span className="px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-[#090d16] text-slate-300 border border-slate-800">
+                  {activeBranch ? activeBranch.name : 'Campus Central (Todos os Polos)'}
+                </span>
+              </div>
+              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black text-white tracking-tight">
+                {identity.hasInstitution ? identity.officialName : 'Dashboard de Gestão Escolar & Acadêmica'}
+              </h1>
+            </div>
           </div>
-          <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black text-white tracking-tight">
-            Dashboard de Gestão Escolar &amp; Acadêmica
-          </h1>
           <p className="text-xs sm:text-sm text-slate-300 max-w-3xl">
-            {activeInstitution.name} • Direção: <strong className="text-white">{activeInstitution.representativeName}</strong>. 
+            {identity.officialName}
+            {identity.representativeName ? ` • Direção: ${identity.representativeName}` : ''}. 
             Indicadores gerenciais atualizados em tempo real para tomada de decisão estratégica.
           </p>
         </div>

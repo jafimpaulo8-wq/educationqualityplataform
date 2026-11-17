@@ -8,7 +8,8 @@ import {
   deleteDoc, 
   query, 
   where, 
-  onSnapshot
+  onSnapshot,
+  serverTimestamp
 } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from './firebase';
 import { 
@@ -126,8 +127,27 @@ export async function getInstitutions(): Promise<Institution[]> {
   }
 }
 
-export async function getUserInstitutions(userId: string, institutionId?: string): Promise<Institution[]> {
+export async function getInstitutionById(institutionId: string): Promise<Institution | null> {
+  if (!institutionId) return null;
   try {
+    const docSnap = await getDoc(doc(db, COLLECTIONS.INSTITUTIONS, institutionId));
+    if (docSnap.exists()) {
+      return { ...docSnap.data(), id: docSnap.id } as Institution;
+    }
+    return null;
+  } catch (error) {
+    console.warn(`Could not fetch institution ${institutionId} from Firestore:`, error);
+    return null;
+  }
+}
+
+export async function getUserInstitutions(
+  userId: string,
+  institutionId?: string,
+  institutionIds?: string[]
+): Promise<Institution[]> {
+  try {
+    if (!userId) return [];
     const all = await getInstitutions();
     const seen = new Set<string>();
     const deduped = all.filter(i => {
@@ -136,15 +156,34 @@ export async function getUserInstitutions(userId: string, institutionId?: string
       return true;
     });
 
-    if (!institutionId && !userId) return deduped;
-    // Filter to institutions the user belongs to, or all if super admin
     const isSuper = await checkIsSuperAdmin(userId);
     if (isSuper) return deduped;
-    
-    if (institutionId) {
-      return deduped.filter(i => i.id === institutionId);
+
+    const allowedIds = new Set<string>();
+    if (institutionId) allowedIds.add(institutionId);
+    if (Array.isArray(institutionIds)) {
+      institutionIds.forEach(id => {
+        if (id) allowedIds.add(id);
+      });
     }
-    return deduped;
+
+    if (allowedIds.size === 0) {
+      const profile = await getUserProfile(userId);
+      if (profile?.institutionId) allowedIds.add(profile.institutionId);
+      if (Array.isArray(profile?.institutionIds)) {
+        profile.institutionIds.forEach(id => {
+          if (id) allowedIds.add(id);
+        });
+      }
+      if (Array.isArray(profile?.ownedInstitutions)) {
+        profile.ownedInstitutions.forEach(id => {
+          if (id) allowedIds.add(id);
+        });
+      }
+    }
+
+    if (allowedIds.size === 0) return [];
+    return deduped.filter(i => allowedIds.has(i.id));
   } catch (error) {
     console.warn('Error fetching user institutions:', error);
     return [];
@@ -517,6 +556,44 @@ export async function saveApplicationToFirestore(app: RegistrationApplication): 
     await setDoc(doc(db, COLLECTIONS.APPLICATIONS, app.id), app, { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function syncApplicationStatusToSubcollections(app: RegistrationApplication): Promise<void> {
+  if (!app) return;
+  const instId = app.institutionId;
+  if (instId && app.id) {
+    setDoc(
+      doc(db, 'institutions', instId, 'applications', app.id),
+      {
+        status: app.status,
+        analysisNotes: app.analysisNotes || null,
+        rejectionReason: app.rejectionReason || null,
+        analyzedBy: app.analyzedBy || null,
+        analyzedAt: app.analyzedAt || null,
+        convertedStudentId: app.convertedStudentId || null,
+        convertedStudentCode: app.convertedStudentCode || null,
+        convertedClassId: app.convertedClassId || null,
+        convertedClassName: app.convertedClassName || null,
+        updatedAt: serverTimestamp()
+      },
+      { merge: true }
+    ).catch(err => console.warn('Firestore sync institutions/applications:', err));
+  }
+  if (app.code) {
+    // Sem PII: apenas estado público e metadados não pessoais do acompanhamento
+    setDoc(
+      doc(db, 'applicationTracking', app.code),
+      {
+        status: app.status,
+        courseId: app.courseId,
+        courseName: app.courseName,
+        paymentStatus: app.paymentStatus,
+        ...(app.convertedStudentCode ? { convertedStudentCode: app.convertedStudentCode } : {}),
+        updatedAt: serverTimestamp()
+      },
+      { merge: true }
+    ).catch(err => console.warn('Firestore sync applicationTracking:', err));
   }
 }
 

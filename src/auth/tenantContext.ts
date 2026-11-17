@@ -19,55 +19,12 @@ export interface TenantContextState {
 const STORAGE_KEY_TENANT = 'sigar_tenant_context';
 
 export const DEFAULT_TENANT_CONTEXT: TenantContextState = {
-  currentInstitutionId: 'inst_cftpm_01',
-  currentInstitutionName: 'Centro de Formação Técnica Profissional de Moçambique (CFTPM)',
-  currentBranchId: 'branch_sede_maputo',
-  currentBranchName: 'Sede Central (Maputo)',
+  currentInstitutionId: '',
+  currentInstitutionName: '',
+  currentBranchId: 'todas',
+  currentBranchName: '',
   isMainBranch: true,
-  availableBranches: [
-    {
-      id: 'branch_sede_maputo',
-      institutionId: 'inst_cftpm_01',
-      name: 'Sede Central (Maputo)',
-      code: 'MAP-01',
-      phone: '+258 84 123 4567',
-      email: 'sede@cftpm.co.mz',
-      address: 'Av. Eduardo Mondlane, nº 1450, Maputo',
-      city: 'Maputo',
-      province: 'Maputo Cidade',
-      directorName: 'Dr. Alberto Mondlane',
-      isMainBranch: true,
-      createdAt: '2024-01-10T08:00:00Z'
-    },
-    {
-      id: 'branch_matola_01',
-      institutionId: 'inst_cftpm_01',
-      name: 'Delegação Matola',
-      code: 'MAT-02',
-      phone: '+258 84 987 6543',
-      email: 'matola@cftpm.co.mz',
-      address: 'Av. da União Africana, Matola 700',
-      city: 'Matola',
-      province: 'Maputo Província',
-      directorName: 'Eng. Luísa Cossa',
-      isMainBranch: false,
-      createdAt: '2024-03-15T09:30:00Z'
-    },
-    {
-      id: 'branch_beira_01',
-      institutionId: 'inst_cftpm_01',
-      name: 'Campus Beira (Sofala)',
-      code: 'BEI-03',
-      phone: '+258 82 555 1212',
-      email: 'beira@cftpm.co.mz',
-      address: 'Rua do Macúti, Bairro do Chaimite',
-      city: 'Beira',
-      province: 'Sofala',
-      directorName: 'Prof. Mateus Tembe',
-      isMainBranch: false,
-      createdAt: '2024-06-01T10:00:00Z'
-    }
-  ]
+  availableBranches: []
 };
 
 export class TenantManager {
@@ -95,12 +52,16 @@ export class TenantManager {
     } catch {
       // fallback
     }
-    return DEFAULT_TENANT_CONTEXT;
+    return { ...DEFAULT_TENANT_CONTEXT };
   }
 
   private persist(): void {
     try {
-      localStorage.setItem(STORAGE_KEY_TENANT, JSON.stringify(this.state));
+      if (!this.state.currentInstitutionId) {
+        localStorage.removeItem(STORAGE_KEY_TENANT);
+      } else {
+        localStorage.setItem(STORAGE_KEY_TENANT, JSON.stringify(this.state));
+      }
     } catch {
       // storage quota or private mode
     }
@@ -137,11 +98,16 @@ export class TenantManager {
     this.state = {
       currentInstitutionId: institutionId,
       currentInstitutionName: institutionName,
-      currentBranchId: mainBranch ? mainBranch.id : 'default_branch',
-      currentBranchName: mainBranch ? mainBranch.name : 'Filial Principal',
+      currentBranchId: mainBranch ? mainBranch.id : 'todas',
+      currentBranchName: mainBranch ? mainBranch.name : 'Todas as Filiais',
       isMainBranch: mainBranch ? mainBranch.isMainBranch : true,
       availableBranches: branches
     };
+    this.persist();
+  }
+
+  public clear(): void {
+    this.state = { ...DEFAULT_TENANT_CONTEXT };
     this.persist();
   }
 

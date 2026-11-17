@@ -22,6 +22,8 @@ import {
 } from 'lucide-react';
 import { PaymentRecord, PAYMENT_SERVICE_CATALOG } from '../../types/finance';
 import { useApp } from '../../context/AppContext';
+import { InstitutionLogoBadge } from '../../components/common/InstitutionLogoBadge';
+import { resolveInstitutionIdentity } from '../../utils/institutionIdentity';
 
 export type ReceiptFormat = 'normal' | 'termico' | 'digital';
 
@@ -33,6 +35,13 @@ interface PaymentReceiptModalProps {
 
 export const PaymentReceiptModal: React.FC<PaymentReceiptModalProps> = ({ payment, onClose, onReprint }) => {
   const { activeInstitution, recordReceiptReprint, currentUser, sendDirectWhatsAppMessage } = useApp();
+  const identity = resolveInstitutionIdentity(activeInstitution);
+  const instLabel = identity.officialName || 'Instituição de Ensino';
+  const contactLine = [
+    identity.address,
+    identity.nuit ? `NUIT: ${identity.nuit}` : '',
+    identity.phone ? `Tel: ${identity.phone}` : ''
+  ].filter(Boolean).join(' • ');
   const [format, setFormat] = useState<ReceiptFormat>('normal');
   const [thermalWidth, setThermalWidth] = useState<'80mm' | '58mm'>('80mm');
   const [showQrCode, setShowQrCode] = useState<boolean>(payment.qrCodeEnabled !== false);
@@ -50,7 +59,7 @@ export const PaymentReceiptModal: React.FC<PaymentReceiptModalProps> = ({ paymen
   };
 
   const handleCopyDigital = () => {
-    const text = `*RECIBO DE PAGAMENTO OFICIAL - ${activeInstitution.name}*
+    const text = `*RECIBO DE PAGAMENTO OFICIAL - ${instLabel}*
 N.º: ${receiptNumber}
 Aluno: ${payment.studentName} (${payment.studentCode})
 Serviço: ${payment.serviceItem.toUpperCase()} - ${payment.serviceDescription || serviceConfig?.label}
@@ -67,11 +76,11 @@ ${isReprint ? `(2ª VIA - Reimpressão #${payment.reprintCount})` : '(1ª VIA - 
   };
 
   const handleShareWhatsApp = () => {
-    const rawMsg = `*RECIBO DE PAGAMENTO OFICIAL - ${activeInstitution.name}*\nN.º: ${receiptNumber}\nAluno: ${payment.studentName} (${payment.studentCode})\nServiço: ${payment.serviceItem.toUpperCase()}\nValor: ${payment.amount.toLocaleString('pt-MZ', { minimumFractionDigits: 2 })} MT\nData: ${payment.date} ${payment.time}\nVerificação: https://siverc.gov.mz/validar-recibo?ref=${receiptNumber}`;
-    const phone = payment.studentPhone || '';
+    const rawMsg = `*RECIBO DE PAGAMENTO OFICIAL - ${instLabel}*\nN.º: ${receiptNumber}\nAluno: ${payment.studentName} (${payment.studentCode})\nServiço: ${payment.serviceItem.toUpperCase()}\nValor: ${payment.amount.toLocaleString('pt-MZ', { minimumFractionDigits: 2 })} MT\nData: ${payment.date} ${payment.time}\nVerificação: ${window.location.origin}/?validar-recibo=${encodeURIComponent(receiptNumber)}`;
+    const phone = payment.studentPhone || identity.whatsapp || identity.phone || '';
 
     sendDirectWhatsAppMessage({
-      recipientPhone: phone || '+258 84 000 0000',
+      recipientPhone: phone,
       recipientName: payment.studentName,
       category: 'confirmacao_pagamento',
       message: rawMsg,
@@ -80,7 +89,7 @@ ${isReprint ? `(2ª VIA - Reimpressão #${payment.reprintCount})` : '(1ª VIA - 
         name: `Recibo_${receiptNumber}.pdf`,
         type: 'application/pdf'
       },
-      openDirectlyInWeb: true
+      openDirectlyInWeb: Boolean(phone)
     });
   };
 
@@ -209,9 +218,13 @@ ${isReprint ? `(2ª VIA - Reimpressão #${payment.reprintCount})` : '(1ª VIA - 
               className="bg-white p-4 font-mono text-[11px] leading-tight text-black border border-slate-300 shadow-md print:shadow-none print:border-none print:p-1"
             >
               <div className="text-center space-y-1 pb-3 border-b border-dashed border-black">
-                <p className="font-black text-xs uppercase">{activeInstitution.name}</p>
-                <p className="text-[9px]">NUIT: {activeInstitution.nuit} • Tel: {activeInstitution.phone}</p>
-                <p className="text-[9px]">{activeInstitution.address}</p>
+                <p className="font-black text-xs uppercase">{instLabel}</p>
+                {(identity.nuit || identity.phone) && (
+                  <p className="text-[9px]">
+                    {[identity.nuit ? `NUIT: ${identity.nuit}` : '', identity.phone ? `Tel: ${identity.phone}` : ''].filter(Boolean).join(' • ')}
+                  </p>
+                )}
+                {identity.address && <p className="text-[9px]">{identity.address}</p>}
                 <p className="font-bold text-[10px] mt-1 uppercase">*** RECIBO DE PAGAMENTO ***</p>
                 {isReprint && (
                   <p className="font-black text-[10px] uppercase bg-black text-white px-1 py-0.5 mt-0.5">
@@ -276,7 +289,7 @@ ${isReprint ? `(2ª VIA - Reimpressão #${payment.reprintCount})` : '(1ª VIA - 
               <div className="pt-3 text-center space-y-1 text-[8px]">
                 <p>Obrigado pelo pagamento!</p>
                 <p>Documento processado por computador.</p>
-                <p>SIGAR MozTechWave Cloud</p>
+                <p>SIGAR PRO</p>
               </div>
             </div>
           </div>
@@ -375,25 +388,16 @@ ${isReprint ? `(2ª VIA - Reimpressão #${payment.reprintCount})` : '(1ª VIA - 
 
               {/* Institution Header */}
               <div className="flex items-center gap-4 pb-3 border-b border-slate-200">
-                {activeInstitution.logoUrl ? (
-                  <img 
-                    src={activeInstitution.logoUrl} 
-                    alt="Logo" 
-                    className="w-14 h-14 object-contain rounded"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <div className="w-14 h-14 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-xl">
-                    {activeInstitution.code?.slice(0, 3) || 'SIG'}
-                  </div>
-                )}
+                <InstitutionLogoBadge institution={activeInstitution} size="lg" rounded="xl" />
                 <div className="flex-1">
                   <h1 className="text-lg sm:text-xl font-black text-slate-900 uppercase tracking-tight">
-                    {activeInstitution.name}
+                    {instLabel}
                   </h1>
-                  <p className="text-xs text-slate-600">
-                    {activeInstitution.address} • NUIT: {activeInstitution.nuit} • Telefone: {activeInstitution.phone}
-                  </p>
+                  {contactLine && (
+                    <p className="text-xs text-slate-600">
+                      {contactLine}
+                    </p>
+                  )}
                 </div>
                 <div className="text-right">
                   <div className="px-3 py-1 bg-slate-900 text-emerald-400 font-mono font-bold text-sm rounded-lg shadow-sm">
@@ -485,7 +489,7 @@ ${isReprint ? `(2ª VIA - Reimpressão #${payment.reprintCount})` : '(1ª VIA - 
             {/* VIA 2: DA INSTITUIÇÃO / ARQUIVO */}
             <div className="space-y-4 pt-2">
               <div className="flex items-center justify-between text-[10px] font-bold uppercase text-slate-500 tracking-wider">
-                <span>{activeInstitution.name}</span>
+                <span>{instLabel}</span>
                 <span className="text-slate-700 bg-slate-100 px-2 py-0.5 rounded">2ª Via — Arquivo Escolar / Tesouraria</span>
               </div>
 

@@ -1,6 +1,8 @@
 import React from 'react';
 import { Student } from '../../../types';
 import { useApp } from '../../../context/AppContext';
+import { InstitutionLogoBadge } from '../../../components/common/InstitutionLogoBadge';
+import { resolveInstitutionIdentity } from '../../../utils/institutionIdentity';
 import { 
   Download, 
   Printer, 
@@ -18,6 +20,7 @@ interface StudentBoletimTabProps {
 
 export const StudentBoletimTab: React.FC<StudentBoletimTabProps> = ({ currentStudent }) => {
   const { activeInstitution } = useApp();
+  const identity = resolveInstitutionIdentity(activeInstitution);
 
   const handlePrint = () => {
     window.print();
@@ -66,18 +69,16 @@ export const StudentBoletimTab: React.FC<StudentBoletimTabProps> = ({ currentStu
         {/* Cabeçalho Oficial da Instituição */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b-2 border-slate-900 text-center sm:text-left">
           <div className="flex items-center justify-center sm:justify-start gap-3">
-            <div className="w-12 h-12 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-lg tracking-wider">
-              MTW
-            </div>
+            <InstitutionLogoBadge institution={activeInstitution} size="lg" rounded="xl" />
             <div>
               <h1 className="text-base font-black text-slate-900 uppercase tracking-wider">
-                {activeInstitution?.name || 'Moztechwave Professional Institute'}
+                {identity.officialName}
               </h1>
               <p className="text-[11px] text-slate-600 font-medium">
-                SIGAR • Sistema Integrado de Gestão Acadêmica e Reconhecimento
+                SIGAR PRO • Sistema Integrado de Gestão Académica
               </p>
               <p className="text-[10px] text-slate-400">
-                Homologado pelo Ministério da Educação e Cultura • República de Moçambique
+                {[identity.address, identity.city, identity.province].filter(Boolean).join(' • ') || 'Documento Oficial Institucional'}
               </p>
             </div>
           </div>
@@ -166,24 +167,24 @@ export const StudentBoletimTab: React.FC<StudentBoletimTabProps> = ({ currentStu
               <QrCode className="w-14 h-14 text-slate-900" />
             </div>
             <div className="text-[10px] text-slate-500 font-mono space-y-0.5">
-              <p className="font-bold text-slate-800">Autenticação SIVEC-MOZTECH</p>
+              <p className="font-bold text-slate-800">Autenticação SIVEC • {identity.shortName}</p>
               <p>Chave: 9f8a-2026-c741-90a1</p>
-              <p>Validação: sigar.moztechwave.co.mz</p>
+              <p>Validação: {identity.website || (typeof window !== 'undefined' ? window.location.host : 'SIGAR PRO')}</p>
             </div>
           </div>
 
           <div className="flex items-center gap-8 text-center text-[10px] text-slate-600">
             <div>
               <div className="w-32 border-b border-slate-400 pb-1 mb-1 font-semibold text-slate-800">
-                Dra. Amina Abdul
+                {identity.representativeName || 'Direção Pedagógica'}
               </div>
-              <span>Diretora Pedagógica</span>
+              <span>{identity.representativeRole || 'Representante Institucional'}</span>
             </div>
             <div>
               <div className="w-32 border-b border-slate-400 pb-1 mb-1 font-semibold text-slate-800">
-                Eng. Paulo Jafim
+                {identity.signatoryName || 'Direção Geral'}
               </div>
-              <span>Diretor Geral</span>
+              <span>{identity.signatoryRole || 'Assinatura Autorizada'}</span>
             </div>
           </div>
         </div>

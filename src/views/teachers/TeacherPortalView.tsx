@@ -33,10 +33,13 @@ import {
   CreditCard,
   Bell,
   Info,
-  Mail
+  Mail,
+  User
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { Teacher, ClassGroup, Student, ClassLesson, LessonMaterial } from '../../types';
+import { InstitutionLogoBadge } from '../../components/common/InstitutionLogoBadge';
+import { resolveInstitutionIdentity } from '../../utils/institutionIdentity';
 
 export const TeacherPortalView: React.FC = () => {
   const { 
@@ -57,6 +60,11 @@ export const TeacherPortalView: React.FC = () => {
     addNotification,
     navigate
   } = useApp();
+
+  const identity = resolveInstitutionIdentity(activeInstitution);
+  const instTeachers = identity.hasInstitution
+    ? teachers.filter(t => t.institutionId === activeInstitution.id)
+    : [];
 
   // Selected sub-view
   const [activeTab, setActiveTab] = useState<'dashboard' | 'turmas' | 'alunos' | 'aulas' | 'presenca' | 'pauta' | 'comunicacao' | 'online'>('dashboard');
@@ -250,11 +258,17 @@ export const TeacherPortalView: React.FC = () => {
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative z-10">
           <div className="flex items-center gap-4">
             <div className="relative">
-              <img
-                src={activeTeacher?.photoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'}
-                alt={activeTeacher?.fullName || 'Docente'}
-                className="w-16 h-16 rounded-2xl object-cover border-2 border-emerald-500/40 shadow-lg shadow-emerald-950/40"
-              />
+              {activeTeacher?.photoUrl ? (
+                <img
+                  src={activeTeacher.photoUrl}
+                  alt={activeTeacher.fullName || 'Docente'}
+                  className="w-16 h-16 rounded-2xl object-cover border-2 border-emerald-500/40 shadow-lg shadow-emerald-950/40"
+                />
+              ) : (
+                <div className="w-16 h-16 rounded-2xl bg-slate-800 border-2 border-emerald-500/40 flex items-center justify-center text-emerald-300 shadow-lg shadow-emerald-950/40">
+                  <User className="w-7 h-7" />
+                </div>
+              )}
               <span className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-slate-900 rounded-full" />
             </div>
 
@@ -271,7 +285,8 @@ export const TeacherPortalView: React.FC = () => {
                 </span>
               </div>
               <p className="text-sm text-slate-300 mt-1">
-                Especialidade: <span className="text-emerald-400 font-medium">{activeTeacher?.specialty}</span> • {activeInstitution.name}
+                Especialidade: <span className="text-emerald-400 font-medium">{activeTeacher?.specialty || 'Docência Geral'}</span>
+                {identity.officialName ? ` • ${identity.officialName}` : ''}
               </p>
               <p className="text-xs text-slate-500 mt-0.5">
                 Regra de Acesso: Acesso estrito apenas às turmas, alunos e diários sob sua responsabilidade.
@@ -288,11 +303,15 @@ export const TeacherPortalView: React.FC = () => {
                 onChange={e => setActiveTeacherId(e.target.value)}
                 className="bg-transparent text-xs text-white font-medium focus:outline-none pr-3 py-1 cursor-pointer"
               >
-                {teachers.map(t => (
-                  <option key={t.id} value={t.id} className="bg-slate-900 text-white">
-                    {t.fullName} ({t.specialty})
-                  </option>
-                ))}
+                {instTeachers.length === 0 ? (
+                  <option value="" className="bg-slate-900 text-slate-400">Sem docentes associados</option>
+                ) : (
+                  instTeachers.map(t => (
+                    <option key={t.id} value={t.id} className="bg-slate-900 text-white">
+                      {t.fullName} ({t.specialty})
+                    </option>
+                  ))
+                )}
               </select>
             </div>
 
@@ -435,15 +454,13 @@ export const TeacherPortalView: React.FC = () => {
           {/* Header Superior do Portal */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-2 border-b border-slate-200 dark:border-slate-800">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-600/30">
-                <Users className="w-5 h-5" />
-              </div>
+              <InstitutionLogoBadge institution={activeInstitution} size="md" rounded="2xl" />
               <div>
                 <h2 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">
                   Portal do Professor
                 </h2>
                 <span className="text-xs text-slate-500 dark:text-slate-400">
-                  Gestão Académica, Pautas e Presenças • {activeInstitution?.name || 'Centro Céu Azul'}
+                  Gestão Académica, Pautas e Presenças{identity.officialName ? ` • ${identity.officialName}` : ''}
                 </span>
               </div>
             </div>
@@ -457,14 +474,20 @@ export const TeacherPortalView: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs">
-                <img
-                  src={activeTeacher?.photoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'}
-                  alt="Professor"
-                  className="w-8 h-8 rounded-full object-cover border border-blue-500"
-                />
+                {activeTeacher?.photoUrl ? (
+                  <img
+                    src={activeTeacher.photoUrl}
+                    alt={activeTeacher.fullName || 'Professor'}
+                    className="w-8 h-8 rounded-full object-cover border border-blue-500"
+                  />
+                ) : (
+                  <div className="w-8 h-8 rounded-full bg-blue-600/20 text-blue-400 border border-blue-500/40 flex items-center justify-center shrink-0">
+                    <User className="w-4 h-4" />
+                  </div>
+                )}
                 <div className="text-left">
                   <div className="text-xs font-bold text-slate-900 dark:text-white truncate max-w-[130px]">
-                    {activeTeacher?.fullName || 'Prof. António Silva'}
+                    {activeTeacher?.fullName || 'Docente Titular'}
                   </div>
                   <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
                     <span>Professor</span>
@@ -1000,11 +1023,17 @@ export const TeacherPortalView: React.FC = () => {
                       <tr key={student.id} className="hover:bg-slate-800/40 transition-colors">
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-3">
-                            <img
-                              src={student.photoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'}
-                              alt={student.fullName}
-                              className="w-8 h-8 rounded-full object-cover border border-slate-700 shrink-0"
-                            />
+                            {student.photoUrl ? (
+                              <img
+                                src={student.photoUrl}
+                                alt={student.fullName}
+                                className="w-8 h-8 rounded-full object-cover border border-slate-700 shrink-0"
+                              />
+                            ) : (
+                              <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400 shrink-0">
+                                <User className="w-4 h-4" />
+                              </div>
+                            )}
                             <div>
                               <span className="font-semibold text-white block">{student.fullName}</span>
                               <span className="text-[11px] text-slate-400">{student.phone}</span>
@@ -1304,11 +1333,17 @@ export const TeacherPortalView: React.FC = () => {
                       className="p-3.5 bg-slate-950/40 hover:bg-slate-950/80 flex items-center justify-between gap-4 transition-colors"
                     >
                       <div className="flex items-center gap-3">
-                        <img
-                          src={student.photoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'}
-                          alt={student.fullName}
-                          className="w-9 h-9 rounded-full object-cover border border-slate-700"
-                        />
+                        {student.photoUrl ? (
+                          <img
+                            src={student.photoUrl}
+                            alt={student.fullName}
+                            className="w-9 h-9 rounded-full object-cover border border-slate-700"
+                          />
+                        ) : (
+                          <div className="w-9 h-9 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400 shrink-0">
+                            <User className="w-4 h-4" />
+                          </div>
+                        )}
                         <div>
                           <span className="text-sm font-semibold text-white block">{student.fullName}</span>
                           <span className="text-xs text-slate-400 font-mono">
@@ -1651,7 +1686,7 @@ export const TeacherPortalView: React.FC = () => {
                 <span className={`text-xs font-bold mt-1 block ${isLiveActive ? 'text-emerald-400' : 'text-slate-400'}`}>
                   {isLiveActive ? 'Transmitindo para os alunos' : 'Aguardando Início do Professor'}
                 </span>
-                <span className="text-slate-400 text-[11px]">Servidor Moztechwave Core</span>
+                <span className="text-slate-400 text-[11px]">Servidor SIGAR PRO Cloud</span>
               </div>
             </div>
 

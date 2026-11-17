@@ -30,6 +30,8 @@ import {
   BarChart3
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { InstitutionLogoBadge } from '../../components/common/InstitutionLogoBadge';
+import { resolveInstitutionIdentity } from '../../utils/institutionIdentity';
 
 export const SecretariatExperienceView: React.FC = () => {
   const { 
@@ -37,9 +39,12 @@ export const SecretariatExperienceView: React.FC = () => {
     students, 
     classes, 
     courses, 
+    firebaseUser,
     navigate,
     addNotification
   } = useApp();
+
+  const identity = resolveInstitutionIdentity(activeInstitution);
 
   const [activeTab, setActiveTab] = useState<
     | 'dashboard'
@@ -58,11 +63,12 @@ export const SecretariatExperienceView: React.FC = () => {
   >('dashboard');
 
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedStudentForDoc, setSelectedStudentForDoc] = useState(students[0] || null);
   const [issuedDocFeedback, setIssuedDocFeedback] = useState<string | null>(null);
 
-  // Institution students
-  const instStudents = students.filter(s => s.institutionId === activeInstitution.id || !s.institutionId);
+  // Institution students and classes strictly scoped to active institution
+  const instStudents = identity.hasInstitution ? students.filter(s => s.institutionId === activeInstitution.id) : [];
+  const instClasses = identity.hasInstitution ? classes.filter(c => c.institutionId === activeInstitution.id) : [];
+  const [selectedStudentForDoc, setSelectedStudentForDoc] = useState(instStudents[0] || null);
 
   // Candidate applications mock
   const [candidates, setCandidates] = useState([
@@ -117,13 +123,18 @@ export const SecretariatExperienceView: React.FC = () => {
 
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-bold uppercase tracking-wider">
-              <FileText className="w-3.5 h-3.5" />
-              Módulo 76: Experiência da Secretaria Acadêmica • {activeInstitution.code}
+            <div className="flex items-center gap-3">
+              <InstitutionLogoBadge institution={activeInstitution} size="lg" rounded="2xl" />
+              <div className="space-y-1">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-bold uppercase tracking-wider">
+                  <FileText className="w-3.5 h-3.5" />
+                  Secretaria Acadêmica {identity.code ? `• ${identity.code}` : ''}
+                </div>
+                <h1 className="text-2xl sm:text-3xl md:text-4xl font-black text-white tracking-tight">
+                  Secretaria &amp; Atendimento ao Aluno
+                </h1>
+              </div>
             </div>
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-black text-white tracking-tight">
-              Secretaria &amp; Atendimento ao Aluno
-            </h1>
             <p className="text-slate-400 text-sm max-w-2xl leading-relaxed">
               Central operacional para gestão de inscrições, novas matrículas, emissão de documentos oficiais, contratos, carteirinhas discentes e regularização de expedientes conforme nível de permissão.
             </p>
@@ -134,7 +145,7 @@ export const SecretariatExperienceView: React.FC = () => {
               Posto de Atendimento:
             </div>
             <div className="text-sm font-black text-white flex items-center gap-1.5">
-              <span>Balcão Central • {activeInstitution.name}</span>
+              <span>Balcão Central • {identity.officialName}</span>
             </div>
             <div className="text-[11px] text-emerald-400 font-bold flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
@@ -190,15 +201,13 @@ export const SecretariatExperienceView: React.FC = () => {
           {/* Header Superior do Portal */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-2 border-b border-slate-200 dark:border-slate-800">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-emerald-600 flex items-center justify-center text-white shadow-md shadow-emerald-600/30">
-                <Building2 className="w-5 h-5" />
-              </div>
+              <InstitutionLogoBadge institution={activeInstitution} size="md" rounded="2xl" />
               <div>
                 <h2 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">
                   Portal da Secretaria
                 </h2>
                 <span className="text-xs text-slate-500 dark:text-slate-400">
-                  Atendimento, Matrículas e Administração Académica • {activeInstitution?.name || 'Centro Céu Azul'}
+                  Atendimento, Matrículas e Administração Académica • {identity.officialName}
                 </span>
               </div>
             </div>
@@ -207,23 +216,20 @@ export const SecretariatExperienceView: React.FC = () => {
               <div className="relative p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                 <Bell className="w-4 h-4" />
                 <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
-                  5
+                  {instStudents.length > 0 ? Math.min(9, instStudents.length) : 0}
                 </span>
               </div>
 
               <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs">
-                <img
-                  src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=100&auto=format&fit=crop&q=80"
-                  alt="Secretária"
-                  className="w-8 h-8 rounded-full object-cover border border-emerald-500"
-                />
+                <div className="w-8 h-8 rounded-full bg-emerald-600/20 text-emerald-500 border border-emerald-500/40 flex items-center justify-center font-bold text-xs">
+                  {(firebaseUser?.displayName || 'SA').slice(0, 2).toUpperCase()}
+                </div>
                 <div className="text-left">
                   <div className="text-xs font-bold text-slate-900 dark:text-white truncate max-w-[130px]">
-                    Dra. Carla Mendes
+                    {firebaseUser?.displayName || firebaseUser?.email?.split('@')[0] || 'Secretaria'}
                   </div>
                   <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                    <span>Secretária</span>
-                    <span className="text-[9px]">▾</span>
+                    <span>Secretaria • {identity.shortName}</span>
                   </div>
                 </div>
               </div>
@@ -236,10 +242,10 @@ export const SecretariatExperienceView: React.FC = () => {
               <div className="space-y-1.5">
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 backdrop-blur-md text-[11px] font-semibold tracking-wide">
                   <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                  <span>Atendimento Integrado • Ano Letivo 2026</span>
+                  <span>{identity.officialName} • Atendimento Integrado</span>
                 </div>
                 <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
-                  Bem-vinda, Dra. Carla Mendes!
+                  Bem-vindo(a), {firebaseUser?.displayName || 'Secretaria Académica'}!
                 </h1>
                 <p className="text-xs sm:text-sm text-emerald-100 max-w-xl leading-relaxed">
                   Gestão eficiente, instituição mais organizada. Controle matrículas, expedientes, pautas e documentação oficial com sincronização Firebase.
@@ -683,11 +689,15 @@ export const SecretariatExperienceView: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-            {classes.slice(0, 3).map((turma) => (
+            {instClasses.length === 0 ? (
+              <div className="col-span-full p-4 rounded-2xl bg-slate-950 border border-slate-800 text-slate-400 text-center">
+                Nenhuma turma registada para esta instituição.
+              </div>
+            ) : instClasses.slice(0, 3).map((turma) => (
               <div key={turma.id} className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1.5">
                 <strong className="text-white block text-sm">{turma.name}</strong>
                 <div className="text-slate-400">Código: <span className="font-mono text-cyan-300">{(turma as any).code || turma.id}</span></div>
-                <div className="text-slate-400">Lotação: <span className="text-emerald-400 font-bold">28 / 30 Alunos</span></div>
+                <div className="text-slate-400">Lotação: <span className="text-emerald-400 font-bold">{turma.capacity ? `${turma.capacity} vagas` : 'Turma ativa'}</span></div>
                 <div className="text-slate-400">Turno: <span className="text-slate-200">{turma.shift}</span></div>
               </div>
             ))}
@@ -772,9 +782,12 @@ export const SecretariatExperienceView: React.FC = () => {
           </div>
 
           <div className="p-6 rounded-2xl bg-gradient-to-r from-cyan-950/60 to-slate-950 border border-cyan-500/30 max-w-md mx-auto space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="font-black text-white text-xs uppercase tracking-wider">{activeInstitution.name}</span>
-              <span className="text-[10px] text-cyan-400 font-bold bg-cyan-500/10 px-2 py-0.5 rounded">2026</span>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <InstitutionLogoBadge institution={activeInstitution} size="xs" rounded="lg" />
+                <span className="font-black text-white text-xs uppercase tracking-wider truncate">{identity.officialName}</span>
+              </div>
+              <span className="text-[10px] text-cyan-400 font-bold bg-cyan-500/10 px-2 py-0.5 rounded shrink-0">2026</span>
             </div>
             <div className="flex gap-4 items-center">
               <div className="w-16 h-16 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400 text-xs shrink-0 font-bold">
@@ -782,8 +795,8 @@ export const SecretariatExperienceView: React.FC = () => {
               </div>
               <div className="text-xs space-y-0.5">
                 <strong className="text-white block">{selectedStudentForDoc?.fullName || 'Nome do Formando'}</strong>
-                <div className="text-slate-400 font-mono text-[11px]">Cód: {selectedStudentForDoc?.code || 'MTW-2026-001'}</div>
-                <div className="text-cyan-300 text-[11px]">Curso Técnico Oficial</div>
+                <div className="text-slate-400 font-mono text-[11px]">Cód: {selectedStudentForDoc?.code || `${identity.code || 'INST'}-2026-001`}</div>
+                <div className="text-cyan-300 text-[11px]">{selectedStudentForDoc?.courseName || 'Curso Oficial'}</div>
               </div>
             </div>
             <div className="pt-2 border-t border-slate-800 flex justify-between items-center text-[10px] text-slate-400">

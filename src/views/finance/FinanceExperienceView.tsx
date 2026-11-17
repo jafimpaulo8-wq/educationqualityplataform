@@ -35,6 +35,8 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { PaymentRecord, ContaReceber, ContaPagar } from '../../types';
+import { InstitutionLogoBadge } from '../../components/common/InstitutionLogoBadge';
+import { resolveInstitutionIdentity } from '../../utils/institutionIdentity';
 
 export const FinanceExperienceView: React.FC = () => {
   const {
@@ -59,6 +61,16 @@ export const FinanceExperienceView: React.FC = () => {
     addNotification,
     navigate
   } = useApp();
+
+  const identity = resolveInstitutionIdentity(activeInstitution);
+  const instStudents = useMemo(
+    () => (identity.hasInstitution ? students.filter(s => s.institutionId === activeInstitution.id) : []),
+    [students, identity.hasInstitution, activeInstitution.id]
+  );
+  const instCourses = useMemo(
+    () => (identity.hasInstitution ? courses.filter(c => c.institutionId === activeInstitution.id) : []),
+    [courses, identity.hasInstitution, activeInstitution.id]
+  );
 
   const [activeTab, setActiveTab] = useState<
     | 'dashboard'
@@ -97,7 +109,7 @@ export const FinanceExperienceView: React.FC = () => {
 
   // New Conta Receber Form
   const [newReceberTitle, setNewReceberTitle] = useState('');
-  const [newReceberStudent, setNewReceberStudent] = useState(students[0]?.fullName || '');
+  const [newReceberStudent, setNewReceberStudent] = useState(instStudents[0]?.fullName || '');
   const [newReceberAmount, setNewReceberAmount] = useState<number>(3500);
   const [newReceberCategory, setNewReceberCategory] = useState<'propina' | 'matricula' | 'declaracao' | 'exame'>('propina');
   const [newReceberDue, setNewReceberDue] = useState('2026-10-10');
@@ -112,13 +124,13 @@ export const FinanceExperienceView: React.FC = () => {
   // M-Pesa STK Simulator
   const [mpesaPhone, setMpesaPhone] = useState('84 123 4567');
   const [mpesaAmount, setMpesaAmount] = useState<number>(3500);
-  const [mpesaStudentName, setMpesaStudentName] = useState(students[0]?.fullName || 'Estudante Selecionado');
+  const [mpesaStudentName, setMpesaStudentName] = useState(instStudents[0]?.fullName || 'Estudante Selecionado');
   const [mpesaSimulating, setMpesaSimulating] = useState(false);
 
   // e-Mola Simulator
   const [emolaPhone, setEmolaPhone] = useState('86 987 6543');
   const [emolaAmount, setEmolaAmount] = useState<number>(2500);
-  const [emolaStudentName, setEmolaStudentName] = useState(students[1]?.fullName || 'Estudante Selecionado');
+  const [emolaStudentName, setEmolaStudentName] = useState(instStudents[1]?.fullName || instStudents[0]?.fullName || 'Estudante Selecionado');
   const [emolaSimulating, setEmolaSimulating] = useState(false);
 
   // Fornecedores Mock
@@ -177,7 +189,7 @@ export const FinanceExperienceView: React.FC = () => {
       description: `Sangria de Caixa: ${sangriaReason}`,
       operator: 'Tesoureiro Principal',
       paymentMethod: 'Dinheiro',
-      notes: `Autorizado pela Direção do Centro ${activeInstitution.code}`
+      notes: `Autorizado pela Direção${identity.officialName ? ` de ${identity.officialName}` : ''}`
     });
     setShowSangriaModal(false);
     showFeedback(`Sangria de ${sangriaAmount.toLocaleString()} MT registrada com sucesso.`);
@@ -302,13 +314,13 @@ export const FinanceExperienceView: React.FC = () => {
     <div className="space-y-6 pb-24 text-slate-100 max-w-7xl mx-auto">
       {/* Reference Image Header Strip */}
       <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
-            <DollarSign className="w-5 h-5" />
-          </div>
+        <div className="flex items-center gap-3">
+          <InstitutionLogoBadge institution={activeInstitution} size="sm" rounded="lg" />
           <div>
             <h2 className="text-lg font-bold text-white tracking-tight">Portal Financeiro &amp; Tesouraria</h2>
-            <p className="text-[11px] text-slate-400">{activeInstitution.name} • Gestão de Contas e Caixa</p>
+            <p className="text-[11px] text-slate-400">
+              {identity.officialName ? `${identity.officialName} • ` : ''}Gestão de Contas e Caixa
+            </p>
           </div>
         </div>
 
@@ -665,30 +677,38 @@ export const FinanceExperienceView: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {students.slice(0, 6).map((std) => (
-                  <tr key={std.id} className="hover:bg-slate-800/30">
-                    <td className="p-3 font-bold text-white">
-                      <div>{std.fullName}</div>
-                      <span className="text-[10px] font-mono text-cyan-400">{std.code}</span>
-                    </td>
-                    <td className="p-3 text-slate-300">{courses[0]?.name || 'Técnico Oficial'}</td>
-                    <td className="p-3 text-center">
-                      <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold">Pago</span>
-                    </td>
-                    <td className="p-3 text-center">
-                      <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold">Pago</span>
-                    </td>
-                    <td className="p-3 text-center">
-                      <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold">Pago</span>
-                    </td>
-                    <td className="p-3 text-center">
-                      <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold">A Vencer</span>
-                    </td>
-                    <td className="p-3 text-right">
-                      <span className="text-emerald-400 font-bold">Regular</span>
+                {instStudents.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="p-6 text-center text-slate-400">
+                      Nenhum formando matriculado nesta instituição.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  instStudents.slice(0, 6).map((std) => (
+                    <tr key={std.id} className="hover:bg-slate-800/30">
+                      <td className="p-3 font-bold text-white">
+                        <div>{std.fullName}</div>
+                        <span className="text-[10px] font-mono text-cyan-400">{std.code}</span>
+                      </td>
+                      <td className="p-3 text-slate-300">{std.courseName || instCourses[0]?.name || 'Curso Não Definido'}</td>
+                      <td className="p-3 text-center">
+                        <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold">Pago</span>
+                      </td>
+                      <td className="p-3 text-center">
+                        <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold">Pago</span>
+                      </td>
+                      <td className="p-3 text-center">
+                        <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold">Pago</span>
+                      </td>
+                      <td className="p-3 text-center">
+                        <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold">A Vencer</span>
+                      </td>
+                      <td className="p-3 text-right">
+                        <span className="text-emerald-400 font-bold">Regular</span>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -978,7 +998,7 @@ export const FinanceExperienceView: React.FC = () => {
             <div className="p-6 rounded-2xl bg-slate-950 border border-cyan-500/40 max-w-lg mx-auto space-y-4 mt-6">
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <div>
-                  <span className="text-[10px] text-slate-400 font-bold uppercase">{activeInstitution.name}</span>
+                  <span className="text-[10px] text-slate-400 font-bold uppercase">{identity.officialName || 'Instituição de Ensino'}</span>
                   <h4 className="text-sm font-black text-white">RECIBO DE PAGAMENTO Nº {selectedReceipt.receiptNumber || 'REC-2026-001'}</h4>
                 </div>
                 <QrCode className="w-10 h-10 text-cyan-400" />

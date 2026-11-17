@@ -13,12 +13,20 @@ import {
 import { INITIAL_REGISTRATIONS } from '../data/mockData';
 import { RegistrationApplication } from '../types';
 import { soundManager } from '../utils/audio';
+import { useApp } from '../context/AppContext';
+import { InstitutionLogoBadge } from './common/InstitutionLogoBadge';
+import { resolveInstitutionIdentity } from '../utils/institutionIdentity';
 
 interface DigitalGatePassProps {
   applications: RegistrationApplication[];
 }
 
 export const DigitalGatePass: React.FC<DigitalGatePassProps> = ({ applications }) => {
+  const { activeInstitution } = useApp();
+  const identity = resolveInstitutionIdentity(activeInstitution);
+  const instName = identity.officialName || 'SIGAR PRO';
+  const instShort = identity.shortName || identity.officialName || 'SIGAR PRO';
+
   const [selectedStudentIndex, setSelectedStudentIndex] = useState(0);
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState<string | null>(null);
@@ -50,7 +58,7 @@ export const DigitalGatePass: React.FC<DigitalGatePassProps> = ({ applications }
             Controle de Acesso &amp; Cartão Digital do Aluno
           </h2>
           <p className="text-sm sm:text-base text-slate-300">
-            Identificação biométrica e leitura instantânea de QR Code nas catracas dos campus Moztechwave com validação em nuvem em milissegundos.
+            Identificação biométrica e leitura instantânea de QR Code nas catracas de acesso com validação em nuvem em milissegundos.
           </p>
         </div>
 
@@ -65,11 +73,9 @@ export const DigitalGatePass: React.FC<DigitalGatePassProps> = ({ applications }
               {/* Card Top Header */}
               <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
                 <div className="flex items-center gap-2">
-                  <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-sky-500 to-emerald-400 flex items-center justify-center text-slate-950 font-black text-sm">
-                    MW
-                  </div>
+                  <InstitutionLogoBadge institution={activeInstitution} size="sm" rounded="xl" />
                   <div>
-                    <h4 className="text-sm font-extrabold text-white tracking-wider">MOZTECHWAVE</h4>
+                    <h4 className="text-sm font-extrabold text-white tracking-wider uppercase">{instShort}</h4>
                     <span className="text-[9px] font-bold text-sky-400 uppercase tracking-widest block">
                       CARTÃO DIGITAL • SIVERC ID
                     </span>
@@ -173,7 +179,7 @@ export const DigitalGatePass: React.FC<DigitalGatePassProps> = ({ applications }
               </div>
               <h3 className="text-xl font-bold text-white">Validação Automática em 0.2 Segundos</h3>
               <p className="text-xs text-slate-400 mt-1">
-                Ao aproximar o telemóvel ou cartão físico no leitor ótico da portaria Moztechwave, o sistema identifica instantaneamente o candidato e valida a anuidade.
+                Ao aproximar o telemóvel ou cartão físico no leitor ótico da portaria ({instName}), o sistema identifica instantaneamente o candidato e valida a anuidade.
               </p>
             </div>
 
@@ -212,7 +218,7 @@ export const DigitalGatePass: React.FC<DigitalGatePassProps> = ({ applications }
               className="w-full flex items-center justify-center gap-2 py-3.5 px-4 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-bold text-sm shadow-lg shadow-sky-500/20 transition-all cursor-pointer"
             >
               <ScanLine className="w-4 h-4" />
-              <span>Simular Leitura na Portaria Moztechwave</span>
+              <span>Simular Leitura na Portaria ({instShort})</span>
             </button>
 
             <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-400 pt-2 border-t border-slate-800">

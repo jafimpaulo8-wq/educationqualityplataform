@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Building2, 
   Users, 
@@ -38,7 +38,11 @@ import { useToast } from '../../context/ToastContext';
 import { soundManager } from '../../utils/audio';
 import { PROVINCES_MOZAMBIQUE } from '../../data/mockData';
 import { RealQRCode } from '../../components/common/RealQRCode';
-import { StudentStatus, RegistrationApplication } from '../../types';
+import { StudentStatus, RegistrationApplication, PrivateInvite } from '../../types';
+import { 
+  getOrCreateActivePrivateInvite, 
+  revokeAndRegeneratePrivateInvite 
+} from '../../services/privateInviteService';
 
 export const PrivateRegistrationView: React.FC = () => {
   const { 
@@ -52,7 +56,8 @@ export const PrivateRegistrationView: React.FC = () => {
     addApplication,
     applications,
     navigate,
-    openWhatsAppMessage
+    openWhatsAppMessage,
+    firebaseUser
   } = useApp();
 
   const { success, error: toastError, info } = useToast();
@@ -121,18 +126,65 @@ export const PrivateRegistrationView: React.FC = () => {
     timestamp: string;
   } | null>(null);
 
-  // Private Token for exclusive link
-  const [privateToken, setPrivateToken] = useState<string>(`MTW-PRIV-${activeInstitution.code || '2026'}-${Math.floor(100 + Math.random() * 900)}`);
+  // Private Invite Token (Requisito 5: gerado uma vez, guardado em privateInvites/{token}, estável entre ecrãs)
+  const [privateInvite, setPrivateInvite] = useState<PrivateInvite | null>(null);
+  const [loadingToken, setLoadingToken] = useState(false);
+  const [isRegeneratingToken, setIsRegeneratingToken] = useState(false);
   const [copiedLinkType, setCopiedLinkType] = useState<string | null>(null);
 
-  // Production Base URL
-  const productionBaseUrl = typeof window !== 'undefined' && window.location.origin.includes('vercel.app')
+  // Institution Slug (Requisito 4: usa a instituição do perfil/SuperAdmin, NUNCA da URL atual)
+  const institutionSlug = useMemo(() => {
+    return activeInstitution.slug || (activeInstitution.id === 'ceu-azul-nacala' ? 'ceu-azul' : 'cftpm-moztechwave');
+  }, [activeInstitution]);
+
+  // Carrega ou recupera o convite estável existente
+  useEffect(() => {
+    let isMounted = true;
+    setLoadingToken(true);
+    getOrCreateActivePrivateInvite(activeInstitution.id, institutionSlug, firebaseUser?.uid)
+      .then(inv => {
+        if (isMounted) {
+          setPrivateInvite(inv);
+          setLoadingToken(false);
+        }
+      })
+      .catch(err => {
+        console.warn('Erro ao carregar token privado:', err);
+        if (isMounted) setLoadingToken(false);
+      });
+    return () => { isMounted = false; };
+  }, [activeInstitution.id, institutionSlug, firebaseUser?.uid]);
+
+  const privateToken = privateInvite?.token || '';
+
+  // Base URL (origem do app)
+  const appBaseUrl = typeof window !== 'undefined'
     ? window.location.origin
     : 'https://educationqualityplataform.vercel.app';
 
-  // Generated Link URLs
-  const publicRegistrationUrl = `${productionBaseUrl}/?route=inscricao_publica&inst=${encodeURIComponent(activeInstitution.id)}`;
-  const privateRegistrationUrl = `${productionBaseUrl}/?route=inscricao_privada&inst=${encodeURIComponent(activeInstitution.id)}&token=${encodeURIComponent(privateToken)}`;
+  // URLs oficiais formatadas (Requisito 3 e 4)
+  const publicRegistrationUrl = `${appBaseUrl}#instituicoes/${institutionSlug}/inscricoes`;
+  const privateRegistrationUrl = `${appBaseUrl}#instituicoes/${institutionSlug}/inscricoes?token=${encodeURIComponent(privateToken)}&tipo=privado`;
+
+  // Handler para regerar token (revoga o anterior e cria novo com >= 128 bits de entropia)
+  const handleRegenerateToken = async () => {
+    try {
+      soundManager.playClick();
+      setIsRegeneratingToken(true);
+      const fresh = await revokeAndRegeneratePrivateInvite(
+        activeInstitution.id,
+        institutionSlug,
+        privateInvite?.token,
+        firebaseUser?.uid
+      );
+      setPrivateInvite(fresh);
+      success('Link Privado Renovado', 'O token anterior foi revogado e um novo link exclusivo com 192 bits de entropia foi gerado.');
+    } catch (err: any) {
+      toastError('Erro ao Regerar', err.message || 'Falha ao renovar token privado.');
+    } finally {
+      setIsRegeneratingToken(false);
+    }
+  };
 
   // Handle Copy to Clipboard
   const handleCopyLink = (url: string, type: string) => {
@@ -268,9 +320,7 @@ export const PrivateRegistrationView: React.FC = () => {
         courseName: selectedCourse?.name || 'Curso Técnico',
         regime,
         shift,
-        photoUrl: gender === 'Feminino' 
-          ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80'
-          : 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&auto=format&fit=crop&q=80',
+        photoUrl: '',
         status: 'Aprovada',
         paymentStatus: paymentStatus === 'Isento' ? 'Pago' : paymentStatus,
         paymentAmount: paymentStatus === 'Isento' ? 0 : paymentAmount,
@@ -914,17 +964,19 @@ export const PrivateRegistrationView: React.FC = () => {
                   <span>Testar Link</span>
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => openWhatsAppMessage(
-                    activeInstitution.phone || '+258840000000',
-                    `Olá! Faça já a sua inscrição oficial nos cursos de ${activeInstitution.name} através do link seguro: ${publicRegistrationUrl}`
-                  )}
-                  className="px-3.5 py-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
-                >
-                  <Share2 className="w-3.5 h-3.5" />
-                  <span>WhatsApp</span>
-                </button>
+                {(activeInstitution.whatsapp || activeInstitution.phone) && (
+                  <button
+                    type="button"
+                    onClick={() => openWhatsAppMessage(
+                      activeInstitution.whatsapp || activeInstitution.phone || '',
+                      `Olá! Faça já a sua inscrição oficial nos cursos de ${activeInstitution.name} através do link seguro: ${publicRegistrationUrl}`
+                    )}
+                    className="px-3.5 py-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
+                  >
+                    <Share2 className="w-3.5 h-3.5" />
+                    <span>WhatsApp</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -965,15 +1017,12 @@ export const PrivateRegistrationView: React.FC = () => {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    const newToken = `MTW-PRIV-${activeInstitution.code || '2026'}-${Math.floor(100 + Math.random() * 900)}`;
-                    setPrivateToken(newToken);
-                    info('Novo Token Gerado', 'O token de acesso privado foi renovado com sucesso.');
-                  }}
+                  onClick={handleRegenerateToken}
+                  disabled={isRegeneratingToken}
                   className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer border border-slate-700"
                 >
-                  <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Regerar Token</span>
+                  <RefreshCw className={`w-3.5 h-3.5 text-amber-400 ${isRegeneratingToken ? 'animate-spin' : ''}`} />
+                  <span>{isRegeneratingToken ? 'A renovar...' : 'Regerar Token'}</span>
                 </button>
               </div>
             </div>
@@ -986,7 +1035,7 @@ export const PrivateRegistrationView: React.FC = () => {
             <div className="text-xs space-y-1">
               <span className="font-bold text-white">Domínio Oficial de Produção:</span>
               <p className="text-slate-400">
-                Os links gerados utilizam o domínio oficial <strong className="text-emerald-400">{productionBaseUrl}</strong>. Qualquer candidato que aceder a este link terá a instituição e os cursos automaticamente carregados.
+                Os links gerados utilizam o domínio oficial <strong className="text-emerald-400">{appBaseUrl}</strong>. Qualquer candidato que aceder a este link terá a instituição e os cursos automaticamente carregados.
               </p>
             </div>
           </div>
@@ -1058,17 +1107,17 @@ export const PrivateRegistrationView: React.FC = () => {
               <div className="space-y-1">
                 <div className="font-bold text-white flex items-center gap-1.5">
                   <Phone className="w-3.5 h-3.5 text-amber-400" />
-                  <span>{activeInstitution.phone || '+258 84 000 0000'}</span>
+                  <span>{activeInstitution.phone || activeInstitution.whatsapp || 'Contacto institucional não definido'}</span>
                 </div>
-                <div>Secretaria Acadêmica &amp; Atendimento</div>
+                <div>Secretaria Académica &amp; Atendimento</div>
               </div>
 
               <div className="space-y-1 text-right">
                 <div className="font-bold text-white flex items-center justify-end gap-1">
                   <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>SIGAR PRO • SIVEC</span>
+                  <span>{activeInstitution.shortName || activeInstitution.name || 'SIGAR PRO'}</span>
                 </div>
-                <div className="text-slate-500 font-mono">Moztechwave Core Platform</div>
+                <div className="text-slate-500 font-mono">Portal Institucional • SIGAR PRO</div>
               </div>
             </div>
           </div>

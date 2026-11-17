@@ -276,9 +276,11 @@ const MainAppContent: React.FC = () => {
   }
 
   // Back-office Management & Enterprise Modules
+  const { activeInstitution } = useApp();
   const renderActiveView = () => {
     // If authenticated user does not have a SIGAR profile assigned yet
     if (firebaseUser && hasSigarProfile === false) {
+      const isJafim = firebaseUser.email === 'jafimpaulo8@gmail.com';
       return (
         <div className="min-h-[70vh] flex items-center justify-center p-6 text-center select-none">
           <div className="w-full max-w-md bg-slate-900/90 border border-amber-500/30 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-4 backdrop-blur-xl">
@@ -291,56 +293,55 @@ const MainAppContent: React.FC = () => {
             </p>
             <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-400 text-left font-mono space-y-1">
               <div>UID: <span className="text-slate-300">{firebaseUser.uid}</span></div>
-              <div>Estado: <span className="text-amber-400">Pendente de Associação</span></div>
+              <div>Estado: <span className="text-amber-400">Sem Instituição Associada</span></div>
             </div>
             <p className="text-xs text-slate-400">
-              Contacte a direção ou secretaria da sua instituição para registrar as suas permissões autorizadas.
+              Contacte a direção ou secretaria da sua instituição para registrar as suas permissões e vínculo institucional autorizados.
             </p>
             <div className="pt-2 space-y-2">
-              <button
-                onClick={async () => {
-                  if (!firebaseUser) return;
-                  try {
-                    const isJafim = firebaseUser.email === 'jafimpaulo8@gmail.com';
-                    const role = isJafim ? 'DIRETOR' : 'ALUNO';
-                    const roles = isJafim ? ['DIRETOR', 'SUPER_ADMIN'] : [role];
-                    const name = firebaseUser.displayName || (isJafim ? 'Jafim Paulo Rupia' : firebaseUser.email?.split('@')[0] || 'Utilizador');
-                    const profile = {
-                      id: firebaseUser.uid,
-                      uid: firebaseUser.uid,
-                      name,
-                      displayName: name,
-                      email: firebaseUser.email || '',
-                      role,
-                      roles,
-                      institutionId: 'ceu-azul-nacala',
-                      institutionIds: ['ceu-azul-nacala'],
-                      branchId: 'branch-ceu-azul-main',
-                      status: 'aprovado',
-                      createdAt: new Date().toISOString(),
-                      lastLoginAt: new Date().toISOString()
-                    };
-                    await setDoc(doc(db, 'users', firebaseUser.uid), profile, { merge: true });
-                    if (isJafim) {
+              {isJafim && (
+                <button
+                  onClick={async () => {
+                    if (!firebaseUser) return;
+                    try {
+                      const role = 'DIRETOR';
+                      const roles = ['DIRETOR', 'SUPER_ADMIN'];
+                      const name = firebaseUser.displayName || 'Jafim Paulo Rupia';
+                      const profile = {
+                        id: firebaseUser.uid,
+                        uid: firebaseUser.uid,
+                        name,
+                        displayName: name,
+                        email: firebaseUser.email || '',
+                        role,
+                        roles,
+                        institutionId: 'ceu-azul-nacala',
+                        institutionIds: ['ceu-azul-nacala'],
+                        branchId: 'branch-ceu-azul-main',
+                        status: 'aprovado',
+                        createdAt: new Date().toISOString(),
+                        lastLoginAt: new Date().toISOString()
+                      };
+                      await setDoc(doc(db, 'users', firebaseUser.uid), profile, { merge: true });
                       await setDoc(doc(db, 'admins', firebaseUser.uid), { email: firebaseUser.email, role: 'SUPER_ADMIN' }, { merge: true });
+                      setActiveInstitution(CEU_AZUL_INSTITUTION);
+                      setActiveRole(role as any);
+                      addNotification({
+                        title: 'Perfil Ativado com Sucesso',
+                        message: `Sessão associada com sucesso como ${role}.`,
+                        type: 'success'
+                      });
+                      navigate('centro_dashboard');
+                    } catch (e) {
+                      console.warn('Profile activation error:', e);
                     }
-                    setActiveInstitution(CEU_AZUL_INSTITUTION);
-                    setActiveRole(role as any);
-                    addNotification({
-                      title: 'Perfil Ativado com Sucesso',
-                      message: `Sessão associada com sucesso como ${role}.`,
-                      type: 'success'
-                    });
-                    navigate(isJafim ? 'centro_dashboard' : (role === 'ALUNO' ? 'portal_aluno' : 'centro_dashboard'));
-                  } catch (e) {
-                    console.warn('Profile activation error:', e);
-                  }
-                }}
-                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-sky-600 hover:from-emerald-500 hover:to-sky-500 text-white text-xs font-bold shadow-md cursor-pointer transition-all flex items-center justify-center gap-1.5"
-              >
-                <Sparkles className="w-4 h-4 text-amber-300" />
-                <span>{firebaseUser.email === 'jafimpaulo8@gmail.com' ? 'Ativar Perfil de Diretor & Super Admin' : 'Ativar Meu Perfil & Entrar no SIGAR'}</span>
-              </button>
+                  }}
+                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-sky-600 hover:from-emerald-500 hover:to-sky-500 text-white text-xs font-bold shadow-md cursor-pointer transition-all flex items-center justify-center gap-1.5"
+                >
+                  <Sparkles className="w-4 h-4 text-amber-300" />
+                  <span>Ativar Perfil de Diretor &amp; Super Admin</span>
+                </button>
+              )}
 
               <div className="flex gap-2.5">
                 <button
@@ -365,6 +366,40 @@ const MainAppContent: React.FC = () => {
     }
 
     const isSuper = (activeRole as string) === 'SUPER_ADMIN' || (activeRole as string) === 'superadmin';
+
+    // Explicit neutral state when authenticated non-superadmin user has no authorized institution assigned
+    if (firebaseUser && !isSuper && !activeInstitution.id && currentRoute !== 'moztechwave_id') {
+      return (
+        <div className="min-h-[70vh] flex items-center justify-center p-6 text-center select-none">
+          <div className="w-full max-w-md bg-slate-900/90 border border-slate-700 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-4">
+            <div className="w-16 h-16 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center mx-auto">
+              <Lock className="w-8 h-8 text-slate-300" />
+            </div>
+            <h2 className="text-xl font-bold text-white">Nenhuma Instituição Associada</h2>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              A sua conta (<strong className="text-sky-400">{firebaseUser.email}</strong>) não tem nenhuma instituição ativa atribuída. Nenhum dado de outra escola é exibido.
+            </p>
+            <div className="flex gap-2.5 pt-2">
+              <button
+                onClick={() => navigate('public_portal')}
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold cursor-pointer transition-all flex items-center justify-center gap-1.5"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Portal Público</span>
+              </button>
+              <button
+                onClick={logout}
+                className="px-4 py-2.5 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/30 text-rose-300 text-xs font-semibold cursor-pointer transition-all flex items-center justify-center gap-1.5"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Sair</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     const isAllowed = isRouteAllowed(currentRoute, activeRole, isSuper);
 
     if (!isAllowed) {

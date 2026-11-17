@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { Institution, UserRole } from '../../types';
+import { InstitutionLogoBadge } from '../../components/common/InstitutionLogoBadge';
 
 export const SuperAdminExperienceView: React.FC = () => {
   const { 
@@ -581,9 +582,12 @@ export const SuperAdminExperienceView: React.FC = () => {
                 >
                   <div className="space-y-3">
                     <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <span className="text-[10px] font-mono font-bold text-slate-500 uppercase">{inst.code}</span>
-                        <h4 className="text-sm font-black text-white leading-snug">{inst.name}</h4>
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <InstitutionLogoBadge institution={inst} size="sm" rounded="xl" />
+                        <div className="min-w-0">
+                          <span className="text-[10px] font-mono font-bold text-slate-500 uppercase">{inst.code}</span>
+                          <h4 className="text-sm font-black text-white leading-snug truncate">{inst.name}</h4>
+                        </div>
                       </div>
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0">
                         {inst.status}

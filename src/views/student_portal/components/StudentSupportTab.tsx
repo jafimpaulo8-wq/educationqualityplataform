@@ -1,6 +1,8 @@
 import React from 'react';
 import { Student } from '../../../types';
 import { useApp } from '../../../context/AppContext';
+import { InstitutionLogoBadge } from '../../../components/common/InstitutionLogoBadge';
+import { resolveInstitutionIdentity } from '../../../utils/institutionIdentity';
 import { 
   HelpCircle, 
   Phone, 
@@ -25,11 +27,13 @@ export const StudentSupportTab: React.FC<StudentSupportTabProps> = ({
   onOpenRequestModal
 }) => {
   const { activeInstitution, openWhatsAppMessage } = useApp();
+  const identity = resolveInstitutionIdentity(activeInstitution);
+  const whatsappTarget = identity.whatsapp || identity.phone;
 
   const handleWhatsAppHelp = () => {
-    const text = `Olá, Secretaria! Sou o(a) aluno(a) ${currentStudent.fullName} (Código: ${currentStudent.code}), matriculado(a) no curso ${currentStudent.courseName}. Preciso de apoio institucional com: `;
-    const phone = activeInstitution?.phone || '853181189';
-    openWhatsAppMessage(phone, text);
+    if (!whatsappTarget) return;
+    const text = `Olá, Secretaria de ${identity.officialName}! Sou o(a) aluno(a) ${currentStudent.fullName} (Código: ${currentStudent.code}), matriculado(a) no curso ${currentStudent.courseName}. Preciso de apoio institucional com: `;
+    openWhatsAppMessage(whatsappTarget, text);
   };
 
   const faqs = [
@@ -70,14 +74,16 @@ export const StudentSupportTab: React.FC<StudentSupportTabProps> = ({
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3">
-            <button
-              type="button"
-              onClick={handleWhatsAppHelp}
-              className="px-5 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/30 transition cursor-pointer"
-            >
-              <MessageCircle className="w-4 h-4" />
-              <span>WhatsApp da Secretaria</span>
-            </button>
+            {whatsappTarget && (
+              <button
+                type="button"
+                onClick={handleWhatsAppHelp}
+                className="px-5 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/30 transition cursor-pointer"
+              >
+                <MessageCircle className="w-4 h-4" />
+                <span>WhatsApp da Secretaria</span>
+              </button>
+            )}
 
             <button
               type="button"
@@ -98,7 +104,7 @@ export const StudentSupportTab: React.FC<StudentSupportTabProps> = ({
             <Phone className="w-4 h-4" />
           </div>
           <span className="text-[10px] text-slate-400 font-mono uppercase block">Linha Direta</span>
-          <p className="text-sm font-bold text-white font-mono">{activeInstitution?.phone || '+258 85 318 1189'}</p>
+          <p className="text-sm font-bold text-white font-mono">{identity.phone || 'Não configurado'}</p>
           <p className="text-[11px] text-slate-400">Atendimento telefónico</p>
         </div>
 
@@ -107,8 +113,8 @@ export const StudentSupportTab: React.FC<StudentSupportTabProps> = ({
             <MessageCircle className="w-4 h-4" />
           </div>
           <span className="text-[10px] text-slate-400 font-mono uppercase block">WhatsApp Suporte</span>
-          <p className="text-sm font-bold text-white font-mono">+258 85 318 1189</p>
-          <p className="text-[11px] text-slate-400">Seg. a Sex. 07h30 às 18h00</p>
+          <p className="text-sm font-bold text-white font-mono">{identity.whatsapp || 'Não configurado'}</p>
+          <p className="text-[11px] text-slate-400">Canal oficial da secretaria</p>
         </div>
 
         <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
@@ -116,37 +122,37 @@ export const StudentSupportTab: React.FC<StudentSupportTabProps> = ({
             <Mail className="w-4 h-4" />
           </div>
           <span className="text-[10px] text-slate-400 font-mono uppercase block">E-mail Oficial</span>
-          <p className="text-sm font-bold text-white truncate">{activeInstitution?.email || 'secretaria@moztechwave.co.mz'}</p>
-          <p className="text-[11px] text-slate-400">Tempo de resposta: até 24h</p>
+          <p className="text-sm font-bold text-white truncate">{identity.email || 'Não configurado'}</p>
+          <p className="text-[11px] text-slate-400">Atendimento institucional</p>
         </div>
 
         <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
           <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
             <Clock className="w-4 h-4" />
           </div>
-          <span className="text-[10px] text-slate-400 font-mono uppercase block">Horário de Atendimento</span>
-          <p className="text-sm font-bold text-white">07:30 — 17:30</p>
-          <p className="text-[11px] text-slate-400">Sábados: 08:00 às 12:30</p>
+          <span className="text-[10px] text-slate-400 font-mono uppercase block">Instituição</span>
+          <p className="text-sm font-bold text-white truncate">{identity.shortName}</p>
+          <p className="text-[11px] text-slate-400">{identity.website || 'Portal do Estudante'}</p>
         </div>
       </div>
 
       {/* Address & Institutional Location */}
       <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center text-amber-400 shrink-0">
-            <MapPin className="w-5 h-5" />
-          </div>
+          <InstitutionLogoBadge institution={activeInstitution} size="sm" rounded="xl" />
           <div>
-            <h4 className="text-xs font-bold text-white">{activeInstitution?.name || 'Campus Principal'}</h4>
+            <h4 className="text-xs font-bold text-white">{identity.officialName}</h4>
             <p className="text-xs text-slate-400">
-              {activeInstitution?.address || 'Nacala-Porto, Província de Nampula'} • {activeInstitution?.city || 'Nacala'}, Moçambique
+              {[identity.address, identity.city, identity.province].filter(Boolean).join(' • ') || 'Endereço não configurado'}
             </p>
           </div>
         </div>
 
-        <div className="px-3 py-1.5 rounded-xl bg-slate-800/80 border border-slate-700 text-[11px] font-mono text-slate-300">
-          NUIT Oficial: <strong className="text-amber-400">402029013</strong>
-        </div>
+        {identity.nuit && (
+          <div className="px-3 py-1.5 rounded-xl bg-slate-800/80 border border-slate-700 text-[11px] font-mono text-slate-300">
+            NUIT Oficial: <strong className="text-amber-400">{identity.nuit}</strong>
+          </div>
+        )}
       </div>
 
       {/* Perguntas Frequentes (FAQ) */}

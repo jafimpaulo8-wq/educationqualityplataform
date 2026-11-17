@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   GraduationCap, 
   CheckCircle2, 
@@ -35,6 +35,8 @@ import confetti from 'canvas-confetti';
 import { useApp } from '../../context/AppContext';
 import { soundManager } from '../../utils/audio';
 import { PROVINCES_MOZAMBIQUE } from '../../data/mockData';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '../../services/firebase';
 import { RegistrationApplication, PublicInstitution, OnlineCourseConfig } from '../../types';
 import { 
   resolvePublicInstitutionBySlug, 
@@ -76,7 +78,7 @@ function extractSlugFromBrowser(): string {
  * Oculta PII do candidato para consulta pública segura.
  * Mostra apenas as iniciais e o último apelido (ex.: "Ca•••••• Munguambe").
  */
-function maskCandidateName(fullName: string): string {
+export function maskCandidateName(fullName: string): string {
   if (!fullName) return '';
   const parts = fullName.trim().split(/\s+/);
   if (parts.length === 1) {
@@ -85,6 +87,58 @@ function maskCandidateName(fullName: string): string {
   const first = parts[0];
   const last = parts[parts.length - 1];
   return `${first.slice(0, 2)}•••••• ${last}`;
+}
+
+/**
+ * Valida e formata o telefone para formato internacional Moçambicano (ex.: 258841234567).
+ * Se o número não for válido ou não existir, retorna null (permitindo ocultar botões de ação).
+ */
+export function validateAndFormatInternationalPhone(rawPhone: string | null | undefined): string | null {
+  if (!rawPhone) return null;
+  const digits = rawPhone.replace(/\D/g, '');
+  if (!digits) return null;
+
+  // Caso 1: Já inclui código do país 258 (ex: 258841234567, total 12 dígitos)
+  if (digits.startsWith('258') && digits.length === 12) {
+    const nationalPrefix = digits.slice(3, 5);
+    if (['82', '83', '84', '85', '86', '87'].includes(nationalPrefix)) {
+      return digits;
+    }
+    return digits;
+  }
+
+  // Caso 2: Formato nacional de 9 dígitos (ex: 841234567, 853181189)
+  if (digits.length === 9) {
+    const nationalPrefix = digits.slice(0, 2);
+    if (['82', '83', '84', '85', '86', '87'].includes(nationalPrefix)) {
+      return `258${digits}`;
+    }
+  }
+
+  // Caso 3: Fixo moçambicano (8 dígitos iniciando com 2)
+  if (digits.length === 8 && digits.startsWith('2')) {
+    return `258${digits}`;
+  }
+
+  return null;
+}
+
+/**
+ * Converte de forma segura Firestore Timestamp, string ou Date para texto legível.
+ */
+export function formatFirestoreTimestamp(val: any): string {
+  if (!val) return '';
+  if (typeof val === 'string') return val;
+  if (typeof val.toDate === 'function') {
+    return val.toDate().toLocaleString('pt-MZ');
+  }
+  if (val.seconds !== undefined) {
+    return new Date(val.seconds * 1000).toLocaleString('pt-MZ');
+  }
+  if (val instanceof Date) {
+    return val.toLocaleString('pt-MZ');
+  }
+  return String(val);
 }
 
 export const PublicRegistrationView: React.FC = () => {
@@ -103,6 +157,13 @@ export const PublicRegistrationView: React.FC = () => {
   const [resolvedPublicInst, setResolvedPublicInst] = useState<PublicInstitution | null>(null);
   const [isLoadingInst, setIsLoadingInst] = useState<boolean>(true);
   const [slugNotFound, setSlugNotFound] = useState<boolean>(false);
+
+  // Número de WhatsApp validado e formatado internacionalmente da instituição do portal aberto (ou null se sem número)
+  const validatedWhatsAppNumber = useMemo(() => {
+    if (!resolvedPublicInst) return null;
+    return validateAndFormatInternationalPhone(resolvedPublicInst.whatsapp) ||
+           validateAndFormatInternationalPhone(resolvedPublicInst.phone);
+  }, [resolvedPublicInst]);
 
   // Efeito de resolução de tenant sem vazamento
   useEffect(() => {
@@ -181,6 +242,20 @@ export const PublicRegistrationView: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittedCandidate, setSubmittedCandidate] = useState<RegistrationApplication | null>(null);
 
+  // Modo Privado / Convite Direto
+  const [isPrivateMode] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const search = window.location.search || '';
+    const hash = window.location.hash || '';
+    return search.includes('token=') || hash.includes('token=') || hash.includes('inscricao_privada');
+  });
+
+  const [privateTokenParam] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    const params = new URLSearchParams(window.location.search);
+    return params.get('token') || '';
+  });
+
   // Termos e Privacidade
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
@@ -234,13 +309,18 @@ export const PublicRegistrationView: React.FC = () => {
   // Questionário customizado
   const [customAnswers, setCustomAnswers] = useState<Record<string, string>>({});
 
-  // Documentos anexados
-  const [uploadedDocs, setUploadedDocs] = useState<Record<string, { fileName: string; fileSize: string; uploadedAt: string }>>({});
+  // Documentos anexados (seleção real de arquivo PDF/JPG/PNG)
+  const [uploadedDocs, setUploadedDocs] = useState<
+    Record<string, { fileName: string; fileSize: string; mimeType?: string; dataUrl?: string; uploadedAt: string }>
+  >({});
+  const docFileInputRef = useRef<HTMLInputElement>(null);
+  const [pendingDocTitle, setPendingDocTitle] = useState<string | null>(null);
 
-  // Pagamento
+  // Pagamento (com referência submetida pelo candidato para conferência da Tesouraria)
   const [paymentMethod, setPaymentMethod] = useState<'M-Pesa' | 'e-Mola' | 'BIM' | 'Presencial'>('M-Pesa');
   const [mpesaNumber, setMpesaNumber] = useState('84');
-  const [paymentSimulatedSuccess, setPaymentSimulatedSuccess] = useState(false);
+  const [paymentTxCode, setPaymentTxCode] = useState('');
+  const [paymentReferenceSubmitted, setPaymentReferenceSubmitted] = useState(false);
 
   // Status Lookup State
   const [searchCode, setSearchCode] = useState('');
@@ -272,22 +352,60 @@ export const PublicRegistrationView: React.FC = () => {
     setCustomAnswers(prev => ({ ...prev, [qId]: answer }));
   };
 
-  // Upload simulado de documento com nome amigável
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  };
+
+  // Dispara seletor real de ficheiro (PDF / Imagem)
   const handleUploadDoc = (docTitle: string) => {
     soundManager.playClick();
-    const mockFiles = [
-      { name: `${docTitle.replace(/\s+/g, '_')}_Digitalizado.pdf`, size: '120 KB' },
-      { name: `${docTitle.replace(/\s+/g, '_')}_Certificado.pdf`, size: '145 KB' }
-    ];
-    const picked = mockFiles[Math.floor(Math.random() * mockFiles.length)];
+    setPendingDocTitle(docTitle);
+    if (docFileInputRef.current) {
+      docFileInputRef.current.value = '';
+      docFileInputRef.current.click();
+    }
+  };
+
+  const handleDocFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const targetTitle = pendingDocTitle;
+    setPendingDocTitle(null);
+    if (!file || !targetTitle) return;
+
+    const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+    const isPdfByExt = file.name.toLowerCase().endsWith('.pdf');
+    if (!allowedTypes.includes(file.type) && !isPdfByExt) {
+      alert('Formato inválido. Selecione apenas ficheiros PDF, JPG, PNG ou WEBP.');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('O ficheiro excede o limite de 5 MB. Reduza o tamanho antes de anexar.');
+      return;
+    }
+
+    let safeDataUrl: string | undefined;
+    if (file.type.startsWith('image/')) {
+      try {
+        safeDataUrl = await compressImageToBase64(file, 100000);
+      } catch {
+        safeDataUrl = undefined;
+      }
+    }
+
     setUploadedDocs(prev => ({
       ...prev,
-      [docTitle]: {
-        fileName: picked.name,
-        fileSize: picked.size,
+      [targetTitle]: {
+        fileName: file.name,
+        fileSize: formatFileSize(file.size),
+        mimeType: file.type || (isPdfByExt ? 'application/pdf' : 'application/octet-stream'),
+        dataUrl: safeDataUrl,
         uploadedAt: new Date().toISOString().split('T')[0]
       }
     }));
+    soundManager.playSuccess();
   };
 
   const handleRemoveDoc = (docTitle: string) => {
@@ -298,9 +416,14 @@ export const PublicRegistrationView: React.FC = () => {
     });
   };
 
-  const handleSimulatePayment = () => {
+  const handleSubmitPaymentReference = () => {
+    const cleaned = paymentTxCode.trim();
+    if (cleaned.length < 4) {
+      alert('Insira o código de confirmação da transação (mínimo 4 caracteres) para enviar à tesouraria.');
+      return;
+    }
     soundManager.playSuccess();
-    setPaymentSimulatedSuccess(true);
+    setPaymentReferenceSubmitted(true);
   };
 
   // Submissão Oficial com Prevenção de Duplo Clique e Validação Estrita
@@ -351,15 +474,15 @@ export const PublicRegistrationView: React.FC = () => {
     setIsSubmitting(true);
     soundManager.playClick();
 
-    setTimeout(() => {
+    setTimeout(async () => {
       try {
-        const documentsList = (Object.entries(uploadedDocs) as [string, { fileName: string; fileSize: string; uploadedAt: string }][]).map(([docType, fileInfo], idx) => ({
+        const documentsList = (Object.entries(uploadedDocs) as [string, { fileName: string; fileSize: string; mimeType?: string; dataUrl?: string; uploadedAt: string }][]).map(([docType, fileInfo], idx) => ({
           id: `cand-doc-${Date.now()}-${idx}`,
           name: docType,
-          type: docType,
+          type: fileInfo.mimeType || docType,
           fileName: fileInfo.fileName,
           fileSize: fileInfo.fileSize,
-          url: '#',
+          url: fileInfo.dataUrl || '#',
           verified: false,
           uploadedAt: fileInfo.uploadedAt
         }));
@@ -370,11 +493,21 @@ export const PublicRegistrationView: React.FC = () => {
           answer: customAnswers[q.id] || (q.type === 'boolean' ? 'Não' : 'Não informado')
         }));
 
-        const nowIso = new Date().toISOString();
-        const created = addApplication({
+        const randomSeq = Math.floor(1000 + Math.random() * 9000);
+        const prefix = (resolvedPublicInst.code || 'CAND').replace(/[^a-zA-Z0-9]/g, '');
+        const applicationCode = `${prefix}-2026-${randomSeq}`;
+        const applicationId = `reg-${Date.now()}`;
+        const portalSlug = resolvedPublicInst.slug;
+        const normalizedTxCode = paymentTxCode.trim().toUpperCase();
+
+        // 1. Candidatura Completa (sem matricula, studentId nem approved; pagamento sempre Pendente até conferência)
+        const candidatePayload: any = {
+          id: applicationId,
+          code: applicationCode,
+          slug: portalSlug, // Slug do portal aberto
           institutionId: resolvedPublicInst.institutionId,
           branchId: resolvedPublicInst.branches?.[0]?.id || 'branch-main',
-          status: 'Pendente',
+          status: 'submetida', // Status inicial oficial
           fullName: fullName.trim(),
           documentType,
           documentNumber: documentNumber.trim() || 'CERT-PENDENTE',
@@ -391,21 +524,78 @@ export const PublicRegistrationView: React.FC = () => {
           courseName: selectedCourse?.courseName || (isChildCenter ? 'Sala de Cuidados e Educação' : 'Ensino Regular'),
           regime,
           shift,
-          photoUrl: candidatePhotoUrl || (gender === 'Feminino' 
-            ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80'
-            : 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&auto=format&fit=crop&q=80'),
-          paymentStatus: paymentSimulatedSuccess ? 'Pago' : 'Pendente',
+          photoUrl: candidatePhotoUrl || '',
+          paymentStatus: 'Pendente',
           paymentAmount: selectedCourse?.price || 1500,
           paymentMethod,
-          paymentReference: paymentSimulatedSuccess ? `MPESA-TX-${Date.now().toString().slice(-6)}` : `REF-${Date.now().toString().slice(-6)}`,
+          paymentReference: normalizedTxCode || `PEND-${applicationCode}`,
           documents: documentsList,
           customAnswers: customAnswersArray,
           termsAccepted: true,
-          termsAcceptedAt: nowIso,
-          privacyAccepted: true
-        });
+          termsAcceptedAt: new Date().toISOString(),
+          privacyAccepted: true,
+          isPrivateApplication: !!isPrivateMode,
+          privateInviteToken: privateTokenParam || undefined
+          // CRITICAL: Na criação não incluir matricula, studentId nem approved
+        };
 
-        setSubmittedCandidate(created);
+        // 2. Acompanhamento Seguro (applicationTracking/{token}) SEM DADOS PESSOAIS (BI, telefone, morada, email, fotografia)
+        const trackingPayload = {
+          token: applicationCode,
+          code: applicationCode,
+          applicationId,
+          slug: portalSlug,
+          institutionId: resolvedPublicInst.institutionId,
+          status: 'submetida',
+          courseId: selectedCourse?.courseId || selectedCourseId || 'geral',
+          courseName: selectedCourse?.courseName || (isChildCenter ? 'Sala de Cuidados e Educação' : 'Ensino Regular'),
+          paymentStatus: 'Pendente',
+          paymentAmount: selectedCourse?.price || 1500,
+          regime,
+          shift,
+          documentsCount: documentsList.length,
+          maskedName: maskCandidateName(fullName.trim())
+        };
+
+        // 3. Persistência no Firestore
+        // a) institutions/{id}/applications/{appId}
+        try {
+          await setDoc(doc(db, 'institutions', resolvedPublicInst.institutionId, 'applications', applicationId), {
+            ...candidatePayload,
+            createdAt: serverTimestamp()
+          });
+        } catch (e) {
+          console.warn('[Firestore] institutions/{id}/applications sync:', e);
+        }
+
+        // b) applicationTracking/{token}
+        try {
+          await setDoc(doc(db, 'applicationTracking', applicationCode), {
+            ...trackingPayload,
+            createdAt: serverTimestamp()
+          });
+        } catch (e) {
+          console.warn('[Firestore] applicationTracking/{token} sync:', e);
+        }
+
+        // c) applications/{appId} (para compatibilidade das views internas)
+        try {
+          await setDoc(doc(db, 'applications', applicationId), {
+            ...candidatePayload,
+            createdAt: serverTimestamp()
+          });
+        } catch (e) {
+          console.warn('[Firestore] applications/{appId} sync:', e);
+        }
+
+        // 4. Integração local (preservando id/code sem duplicar gravação no Firestore)
+        const createdLocal = addApplication({
+          ...candidatePayload,
+          createdAt: new Date().toLocaleString('pt-MZ'),
+          skipFirestoreSync: true
+        });
+        setSubmittedCandidate(createdLocal);
+
         confetti({
           particleCount: 150,
           spread: 90,
@@ -418,17 +608,56 @@ export const PublicRegistrationView: React.FC = () => {
       } finally {
         setIsSubmitting(false);
       }
-    }, 800);
+    }, 600);
   };
 
   // Pesquisa de Candidatura com Anonimização Estrita de PII
-  const handleSearchApplication = (e: React.FormEvent) => {
+  const handleSearchApplication = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchCode.trim() || !resolvedPublicInst) return;
     setLookupAttempted(true);
     const q = searchCode.trim().toLowerCase();
 
-    // Filtra exclusivamente dentro da instituição resolvida
+    // 1. Tentar consultar no Firestore em applicationTracking/{token}
+    try {
+      const trackingRef = doc(db, 'applicationTracking', searchCode.trim().toUpperCase());
+      const trackingSnap = await getDoc(trackingRef);
+      if (trackingSnap.exists()) {
+        const trData = trackingSnap.data();
+        if (trData.institutionId === resolvedPublicInst.institutionId || trData.slug === resolvedPublicInst.slug) {
+          setLookedUpApplication({
+            id: trData.applicationId || trData.token,
+            code: trData.code || trData.token,
+            institutionId: trData.institutionId,
+            slug: trData.slug,
+            fullName: trData.maskedName || 'Candidato',
+            documentType: 'BI',
+            documentNumber: '••••••••',
+            email: '••••••••',
+            phone: '••••••••',
+            province: '••••••••',
+            city: '••••••••',
+            birthDate: '••••••••',
+            gender: 'Outro',
+            courseId: trData.courseId || '',
+            courseName: trData.courseName || '',
+            regime: trData.regime || 'Regular',
+            status: trData.status || 'submetida',
+            photoUrl: '',
+            createdAt: formatFirestoreTimestamp(trData.createdAt),
+            paymentStatus: trData.paymentStatus || 'Pendente',
+            paymentReference: '••••••••',
+            documents: []
+          });
+          soundManager.playSuccess();
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('Consulta applicationTracking:', e);
+    }
+
+    // 2. Fallback para memória filtrada exclusivamente dentro da instituição resolvida
     const found = applications.find(app => {
       const matchInst = app.institutionId === resolvedPublicInst.institutionId || app.institutionId === resolvedPublicInst.id;
       if (!matchInst) return false;
@@ -672,7 +901,7 @@ export const PublicRegistrationView: React.FC = () => {
                   </div>
                   <div>
                     <span className="text-slate-500 block text-[10px]">Data da Submissão</span>
-                    <span>{submittedCandidate.createdAt}</span>
+                    <span>{formatFirestoreTimestamp(submittedCandidate.createdAt)}</span>
                   </div>
                   <div>
                     <span className="text-slate-500 block text-[10px]">Documentos Anexados</span>
@@ -877,7 +1106,7 @@ export const PublicRegistrationView: React.FC = () => {
                           </div>
 
                           {/* Vacancy Progress */}
-                          <div className="mt-4 pt-3 border-t border-slate-800/80 space-y-1.5">
+                          <div className="mt-4 pt-3 border-t border-slate-800/80 space-y-2">
                             <div className="flex justify-between text-[10px] text-slate-400">
                               <span>Vagas Totais: {course.vacancies}</span>
                               <span className={filledPct > 85 ? 'text-amber-400 font-bold' : 'text-emerald-400 font-bold'}>
@@ -890,6 +1119,26 @@ export const PublicRegistrationView: React.FC = () => {
                                 style={{ width: `${filledPct}%` }}
                               ></div>
                             </div>
+                            {/* Botão Saber mais (visível apenas se a instituição tiver WhatsApp validado) */}
+                            {validatedWhatsAppNumber && (
+                              <div className="pt-2 flex justify-end">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const msg = encodeURIComponent(
+                                      `Olá ${resolvedPublicInst.name}! Gostaria de saber mais informações sobre o curso/sala "${course.courseName}".`
+                                    );
+                                    window.open(`https://wa.me/${validatedWhatsAppNumber}?text=${msg}`, '_blank');
+                                  }}
+                                  className="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                                  title="Saber mais via WhatsApp oficial da instituição"
+                                >
+                                  <MessageCircle className="w-3.5 h-3.5 text-emerald-400" />
+                                  <span>Saber mais</span>
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </div>
                       );
@@ -1411,8 +1660,15 @@ export const PublicRegistrationView: React.FC = () => {
                       4. Anexar Documentos Obrigatórios
                     </h3>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      Submeta cópias legíveis em formato PDF ou imagem dos documentos exigidos pelo {resolvedPublicInst.name}.
+                      Submeta cópias legíveis em formato PDF ou imagem (máx. 5 MB) dos documentos exigidos pelo {resolvedPublicInst.name}.
                     </p>
+                    <input
+                      ref={docFileInputRef}
+                      type="file"
+                      accept=".pdf,image/jpeg,image/png,image/webp"
+                      onChange={handleDocFileChange}
+                      className="hidden"
+                    />
                   </div>
 
                   <div className="space-y-3">
@@ -1543,40 +1799,64 @@ export const PublicRegistrationView: React.FC = () => {
 
                   {/* Payment Box */}
                   <div className="p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-4">
-                    {paymentMethod === 'M-Pesa' && (
+                    {(paymentMethod === 'M-Pesa' || paymentMethod === 'e-Mola') && (
                       <div className="space-y-3">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-semibold text-slate-200">Instruções M-Pesa Oficial</span>
+                          <span className="text-xs font-semibold text-slate-200">
+                            Instruções {paymentMethod} Oficial
+                          </span>
                           <span className="text-[11px] font-mono text-emerald-400">Taxa: {(selectedCourse?.price || 1500).toLocaleString()} MT</span>
                         </div>
                         <p className="text-xs text-slate-400">
-                          Número oficial de recebimento da instituição: <strong className="text-white font-mono">{resolvedPublicInst.paymentMethods?.mpesa || resolvedPublicInst.phone}</strong>.
+                          Número oficial de recebimento da instituição:{' '}
+                          <strong className="text-white font-mono">
+                            {paymentMethod === 'M-Pesa'
+                              ? (resolvedPublicInst.paymentMethods?.mpesa || resolvedPublicInst.phone || 'Contactar secretaria')
+                              : (resolvedPublicInst.paymentMethods?.emola || resolvedPublicInst.phone || 'Contactar secretaria')}
+                          </strong>.
                         </p>
-                        <div className="flex gap-2 max-w-sm">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-xl">
                           <input
                             type="tel"
                             value={mpesaNumber}
                             onChange={e => setMpesaNumber(e.target.value)}
-                            placeholder="84 / 85 XXX XXXX"
-                            className="flex-1 px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 font-mono"
+                            placeholder="Seu nº telemóvel (ex: 84/86 XXX XXXX)"
+                            className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 font-mono"
                           />
-                          <button
-                            type="button"
-                            onClick={handleSimulatePayment}
-                            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                              paymentSimulatedSuccess
-                                ? 'bg-emerald-500 text-slate-950'
-                                : 'bg-emerald-600 hover:bg-emerald-500 text-slate-950'
-                            }`}
-                          >
-                            {paymentSimulatedSuccess ? 'Pago com Sucesso!' : 'Confirmar Pagamento'}
-                          </button>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={paymentTxCode}
+                              onChange={e => {
+                                setPaymentTxCode(e.target.value);
+                                setPaymentReferenceSubmitted(false);
+                              }}
+                              placeholder="Código da Transação (ex: MP26...)"
+                              className="flex-1 px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 font-mono uppercase"
+                            />
+                            <button
+                              type="button"
+                              onClick={handleSubmitPaymentReference}
+                              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 ${
+                                paymentReferenceSubmitted
+                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                  : 'bg-emerald-600 hover:bg-emerald-500 text-slate-950'
+                              }`}
+                            >
+                              {paymentReferenceSubmitted ? 'Ref. Registada' : 'Registar Ref.'}
+                            </button>
+                          </div>
                         </div>
+                        <p className="text-[11px] text-slate-400">
+                          {paymentReferenceSubmitted
+                            ? 'Código registado para conferência. O pagamento fica com estado Pendente até validação pela tesouraria.'
+                            : 'Após transferir, introduza o código da transação recebido por SMS ou submeta para pagar depois na secretaria.'}
+                        </p>
                       </div>
                     )}
 
                     {paymentMethod === 'BIM' && (
-                      <div className="space-y-2 text-xs text-slate-300">
+                      <div className="space-y-3 text-xs text-slate-300">
                         <p className="font-semibold text-white">Coordenadas Bancárias da Instituição:</p>
                         <div className="p-3 rounded-xl bg-slate-900 font-mono text-[11px] space-y-1">
                           <p>Banco: {resolvedPublicInst.paymentMethods?.bankName || 'Millennium BIM'}</p>
@@ -1584,8 +1864,15 @@ export const PublicRegistrationView: React.FC = () => {
                           {resolvedPublicInst.paymentMethods?.accountNumber && <p>Conta: {resolvedPublicInst.paymentMethods.accountNumber}</p>}
                           {resolvedPublicInst.paymentMethods?.nib && <p>NIB: {resolvedPublicInst.paymentMethods.nib}</p>}
                         </div>
+                        <input
+                          type="text"
+                          value={paymentTxCode}
+                          onChange={e => setPaymentTxCode(e.target.value)}
+                          placeholder="Referência do talão / transferência (opcional)"
+                          className="w-full max-w-md px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 font-mono uppercase"
+                        />
                         <p className="text-[11px] text-slate-400">
-                          {resolvedPublicInst.paymentMethods?.instructions || 'Envie o comprovativo para a secretaria por WhatsApp.'}
+                          {resolvedPublicInst.paymentMethods?.instructions || 'Envie o comprovativo para a secretaria ou apresente no atendimento.'}
                         </p>
                       </div>
                     )}
@@ -1740,7 +2027,7 @@ export const PublicRegistrationView: React.FC = () => {
                     </div>
                     <div>
                       <span className="text-slate-500 block text-[10px]">Data de Submissão</span>
-                      <span>{lookedUpApplication.createdAt}</span>
+                      <span>{formatFirestoreTimestamp(lookedUpApplication.createdAt)}</span>
                     </div>
                     <div>
                       <span className="text-slate-500 block text-[10px]">Taxa de Inscrição</span>
@@ -1750,6 +2037,11 @@ export const PublicRegistrationView: React.FC = () => {
 
                   {/* Estado da Candidatura */}
                   <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 text-xs">
+                    {lookedUpApplication.status === 'submetida' && (
+                      <p className="text-amber-300">
+                        📋 Candidatura submetida com sucesso! Aguarda recepção e triagem inicial da secretaria acadêmica.
+                      </p>
+                    )}
                     {lookedUpApplication.status === 'Pendente' && (
                       <p className="text-amber-300">
                         ⏳ A sua candidatura foi recebida e aguarda revisão e conferência de documentos pela secretaria.
@@ -1791,17 +2083,20 @@ export const PublicRegistrationView: React.FC = () => {
                     </div>
                   )}
 
-                  {/* Botão de Contacto Direto com a Secretaria da Instituição */}
+                  {/* Botão de Contacto Direto com a Secretaria da Instituição (oculto se sem número) */}
                   <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
                     <span className="text-[11px] text-slate-400">Dúvidas sobre o seu processo?</span>
-                    {(resolvedPublicInst.whatsapp || resolvedPublicInst.phone) && (
+                    {validatedWhatsAppNumber && (
                       <button
                         type="button"
-                        onClick={() => openWhatsAppMessage(
-                          resolvedPublicInst.whatsapp || resolvedPublicInst.phone || '',
-                          `Olá Secretaria do ${resolvedPublicInst.name}! Gostaria de informações sobre o estado da candidatura #${lookedUpApplication.code}.`
-                        )}
+                        onClick={() => {
+                          const msg = encodeURIComponent(
+                            `Olá Secretaria do ${resolvedPublicInst.name}! Gostaria de informações sobre o estado da candidatura #${lookedUpApplication.code}.`
+                          );
+                          window.open(`https://wa.me/${validatedWhatsAppNumber}?text=${msg}`, '_blank');
+                        }}
                         className="px-4 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
+                        title="Contactar secretaria no WhatsApp"
                       >
                         <MessageCircle className="w-3.5 h-3.5" />
                         <span>Falar com a Secretaria no WhatsApp</span>

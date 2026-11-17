@@ -109,7 +109,7 @@ export const ContractsManagerView: React.FC = () => {
     data: new Date().toLocaleDateString('pt-MZ'),
     duracao: '12 Meses (1200 horas)',
     instituicao: activeInstitution.name,
-    diretor: 'Eng. Paulo Jafim'
+    diretor: activeInstitution.representativeName || (activeInstitution as any).signatoryName || ''
   });
   const [genAutoSignStudent, setGenAutoSignStudent] = useState(true);
   const [genAutoSignDirector, setGenAutoSignDirector] = useState(true);
@@ -152,7 +152,7 @@ export const ContractsManagerView: React.FC = () => {
       valor: String(targetCourse?.monthlyFee || targetCourse?.feeMonthly || 4500),
       duracao: targetCourse?.duration || '12 Meses (1200 horas)',
       instituicao: activeInstitution.name,
-      diretor: 'Eng. Paulo Jafim'
+      diretor: activeInstitution.representativeName || (activeInstitution as any).signatoryName || ''
     }));
   };
 
@@ -1040,7 +1040,7 @@ export const ContractsManagerView: React.FC = () => {
                       .replace(/{{data}}/g, new Date().toLocaleDateString('pt-MZ'))
                       .replace(/{{duracao}}/g, '12 Meses (1200 horas)')
                       .replace(/{{instituicao}}/g, activeInstitution.name)
-                      .replace(/{{diretor}}/g, 'Eng. Paulo Jafim')
+                      .replace(/{{diretor}}/g, activeInstitution.representativeName || (activeInstitution as any).signatoryName || 'Direção Geral')
                       .replace(/{{bi}}/g, students[0]?.documentNumber || '110100482914B')
                       .replace(/{{telefone}}/g, students[0]?.phone || '+258 84 391 8201')}
                   </pre>
@@ -1089,7 +1089,7 @@ export const ContractsManagerView: React.FC = () => {
           defaultSignerName={
             signingContract.party === 'student'
               ? signingContract.contract.studentName
-              : (signingContract.contract.directorName || 'Eng. Paulo Jafim')
+              : (signingContract.contract.directorName || activeInstitution.representativeName || (activeInstitution as any).signatoryName || 'Direção Geral')
           }
           defaultDocumentNumber={
             signingContract.party === 'student'
@@ -1182,7 +1182,7 @@ export const ContractsManagerView: React.FC = () => {
           { label: 'Valor da Propina / Custo', value: viewingContractDetails.valueFormatted || `${viewingContractDetails.value} MT` },
           { label: 'Data de Celebração', value: viewingContractDetails.date || viewingContractDetails.generatedDate },
           { label: 'Instituição Outorgante', value: (viewingContractDetails as any).variables?.instituicao || activeInstitution.name },
-          { label: 'Diretor Homologador', value: viewingContractDetails.directorName || (viewingContractDetails as any).variables?.diretor || 'Eng. Paulo Jafim' },
+          { label: 'Diretor Homologador', value: viewingContractDetails.directorName || (viewingContractDetails as any).variables?.diretor || activeInstitution.representativeName || (activeInstitution as any).signatoryName || 'Direção Geral' },
           { 
             label: 'Assinatura do Formando', 
             value: viewingContractDetails.signatures?.student?.signed 

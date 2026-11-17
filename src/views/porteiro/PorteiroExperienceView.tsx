@@ -1,23 +1,18 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { 
-  QrCode, 
-  LogIn, 
-  LogOut, 
-  Camera, 
-  CameraOff, 
-  Clock, 
-  CheckCircle2, 
-  Search, 
-  History, 
-  ShieldCheck, 
-  Volume2, 
-  VolumeX, 
+import {
+  QrCode,
+  LogIn,
+  LogOut,
+  Clock,
+  CheckCircle2,
+  Search,
+  History,
+  Volume2,
+  VolumeX,
   AlertCircle,
   X,
   UserCheck,
-  RefreshCw,
-  Send,
   Bell,
   Package,
   ChevronRight,
@@ -25,55 +20,90 @@ import {
   Mail,
   Users,
   ArrowDown,
-  ArrowUp,
-  Sparkles
+  MessageCircle,
+  ShieldAlert,
+  Ban,
+  ExternalLink
 } from 'lucide-react';
-import jsQR from 'jsqr';
 import { Student } from '../../types';
 import { soundManager } from '../../utils/audio';
+import { InstitutionLogoBadge } from '../../components/common/InstitutionLogoBadge';
+import { resolveInstitutionIdentity } from '../../utils/institutionIdentity';
+import { GateQrCameraScanner } from '../../components/access/GateQrCameraScanner';
+import {
+  buildGateWhatsAppMessage,
+  buildWhatsAppUrl,
+  checkStudentMonthlyPaymentStatus,
+  getStudentGuardianContact,
+  parseStudentQrPayload
+} from '../../utils/gateAccessUtils';
+
+interface QuickGateEntry {
+  id: string;
+  time: string;
+  name: string;
+  detail: string;
+}
 
 export const PorteiroExperienceView: React.FC = () => {
-  const { 
-    students, 
-    accessLogs, 
-    logGateAccess, 
+  const {
+    students,
+    courses,
+    paymentRecords,
+    contasReceber,
+    accessLogs,
+    logGateAccess,
     activeInstitution,
-    activeBranch 
+    activeBranch,
+    firebaseUser,
+    addNotification
   } = useApp();
 
-  const studentPool: Student[] = students;
+  const identity = resolveInstitutionIdentity(activeInstitution);
+  const centerName = identity.officialName || activeInstitution.name || 'Centro de Formação';
+  const studentPool: Student[] = identity.hasInstitution
+    ? students.filter(s => s.institutionId === activeInstitution.id)
+    : [];
 
   // Modo Operacional Ativo: Entrada ou Saída
   const [activeMode, setActiveMode] = useState<'entrada' | 'saida'>('entrada');
-  
+
   // Relógio digital em tempo real
   const [currentTime, setCurrentTime] = useState(new Date());
 
-  // Estado do Scanner de Câmara
-  const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
-  const [cameraError, setCameraError] = useState<string | null>(null);
-  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
+  // Mensagem de erro/aviso da leitura
+  const [scanError, setScanError] = useState<string | null>(null);
 
   // Input de código manual / leitor ótico USB
   const [manualCode, setManualCode] = useState<string>('');
-  
+
   // Aluno Identificado após leitura
   const [identifiedStudent, setIdentifiedStudent] = useState<Student | null>(null);
-  
-  // Feedback imediato da última ação
+
+  // Feedback imediato após confirmação de Entrada, Saída ou Registo de Barramento
   const [lastActionFeedback, setLastActionFeedback] = useState<{
-    type: 'entrada' | 'saida';
+    type: 'entrada' | 'saida' | 'barrado';
     studentName: string;
     studentCode: string;
+    institutionName: string;
     time: string;
+    guardianName: string;
+    guardianPhone: string;
+    whatsappMessage: string;
+    whatsappUrl: string | null;
+    reason?: string;
   } | null>(null);
 
   // Filtro do Histórico do Dia
-  const [historyFilter, setHistoryFilter] = useState<'todos' | 'entrada' | 'saida'>('todos');
+  const [historyFilter, setHistoryFilter] = useState<'todos' | 'entrada' | 'saida' | 'barrado'>('todos');
   const [historySearch, setHistorySearch] = useState<string>('');
 
   // Áudio habilitado
   const [soundOn, setSoundOn] = useState<boolean>(soundManager.isSoundEnabled());
+
+  // Registos locais de Visitantes & Entregas (sem dados fictícios fixos)
+  const [visitorsLog, setVisitorsLog] = useState<QuickGateEntry[]>([]);
+  const [deliveriesLog, setDeliveriesLog] = useState<QuickGateEntry[]>([]);
 
   // Modais de Registro Rápido
   const [showVisitorModal, setShowVisitorModal] = useState(false);
@@ -84,12 +114,15 @@ export const PorteiroExperienceView: React.FC = () => {
   const [deliveryProvider, setDeliveryProvider] = useState('Correios / Encomenda');
   const [deliveryRecipient, setDeliveryRecipient] = useState('Direção');
 
-  // Refs de vídeo e canvas para jsQR
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const animationFrameId = useRef<number | null>(null);
-  const manualInputRef = useRef<HTMLInputElement | null>(null);
+  // Limpar estado ao trocar de instituição (isolamento multi-instituição)
+  useEffect(() => {
+    setIdentifiedStudent(null);
+    setLastActionFeedback(null);
+    setScanError(null);
+    setManualCode('');
+    setVisitorsLog([]);
+    setDeliveriesLog([]);
+  }, [activeInstitution.id]);
 
   // Atualizar relógio
   useEffect(() => {
@@ -97,102 +130,20 @@ export const PorteiroExperienceView: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  // Parar câmara
-  const stopCamera = () => {
-    if (animationFrameId.current) {
-      cancelAnimationFrame(animationFrameId.current);
-      animationFrameId.current = null;
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    setIsCameraActive(false);
-  };
+  // Processar código lido pela câmara ou digitado manualmente
+  const handleRawCodeScanned = (rawText: string, allowNameFallback = false) => {
+    const result = parseStudentQrPayload(rawText, students, activeInstitution.id, {
+      allowNameFallback
+    });
 
-  // Iniciar câmara
-  const startCamera = async () => {
-    stopCamera();
-    setCameraError(null);
-
-    try {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('Acesso à câmara não suportado neste navegador.');
-      }
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode, width: { ideal: 640 }, height: { ideal: 480 } },
-        audio: false
-      });
-
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.setAttribute('playsinline', 'true');
-        await videoRef.current.play();
-        setIsCameraActive(true);
-        scanFrame();
-      }
-    } catch (err: any) {
-      console.warn('Erro ao aceder câmara:', err);
-      setIsCameraActive(false);
-      setCameraError('Permissão da câmara negada ou dispositivo sem câmara conectada.');
-    }
-  };
-
-  // Leitura de frames com jsQR
-  const scanFrame = () => {
-    if (!videoRef.current || !canvasRef.current) return;
-
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    const context = canvas.getContext('2d', { willReadFrequently: true });
-
-    if (video.readyState === video.HAVE_ENOUGH_DATA && context) {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-      const code = jsQR(imageData.data, imageData.width, imageData.height, {
-        inversionAttempts: 'dontInvert'
-      });
-
-      if (code && code.data) {
-        handleRawCodeScanned(code.data);
-        return; // Pausa para processar
-      }
-    }
-
-    animationFrameId.current = requestAnimationFrame(scanFrame);
-  };
-
-  // Processar qualquer texto ou código de QR lido
-  const handleRawCodeScanned = (rawText: string) => {
-    soundManager.playNotification();
-    const cleanText = rawText.trim().toUpperCase();
-
-    // Tentar localizar aluno por código, id, ou url param
-    let found = studentPool.find(s => 
-      s.code.toUpperCase() === cleanText ||
-      s.id.toUpperCase() === cleanText ||
-      cleanText.includes(s.code.toUpperCase()) ||
-      cleanText.includes(s.id.toUpperCase())
-    );
-
-    if (!found) {
-      // Tentar por BI ou nome
-      found = studentPool.find(s => 
-        (s.documentNumber && s.documentNumber.toUpperCase() === cleanText) ||
-        s.fullName.toUpperCase().includes(cleanText)
-      );
-    }
-
-    if (found) {
-      setIdentifiedStudent(found);
-      setCameraError(null);
+    if (result.student) {
+      soundManager.playNotification();
+      setIdentifiedStudent(result.student);
+      setScanError(null);
+      setLastActionFeedback(null);
     } else {
-      setCameraError(`Código "${rawText}" não encontrado no sistema discente.`);
+      soundManager.playError();
+      setScanError(result.errorReason || `Código "${rawText}" não encontrado nesta instituição.`);
     }
   };
 
@@ -200,71 +151,135 @@ export const PorteiroExperienceView: React.FC = () => {
   const handleManualSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualCode.trim()) return;
-    handleRawCodeScanned(manualCode);
+    handleRawCodeScanned(manualCode, true);
     setManualCode('');
   };
 
-  // Executar registro de Entrada ou Saída
-  const handleConfirmAccess = (type: 'entrada' | 'saida') => {
-    if (!identifiedStudent) return;
+  // Verificação da mensalidade do mês corrente para o aluno identificado
+  const paymentVerification = identifiedStudent
+    ? checkStudentMonthlyPaymentStatus({
+        student: identifiedStudent,
+        activeInstitution,
+        courses,
+        paymentRecords,
+        contasReceber
+      })
+    : null;
 
-    const operator = 'Porteiro em Turno (Guarita Principal)';
+  // Dados e links WhatsApp do aluno identificado quando barrado na porta
+  const identifiedGuardian = identifiedStudent ? getStudentGuardianContact(identifiedStudent) : null;
+  const hourNowStr = currentTime.toLocaleTimeString('pt-MZ', { hour: '2-digit', minute: '2-digit' });
+  const barredPreviewMessage =
+    identifiedStudent && paymentVerification && !paymentVerification.isPaidForCurrentMonth
+      ? buildGateWhatsAppMessage({
+          action: 'barrado',
+          student: identifiedStudent,
+          institution: activeInstitution,
+          timeStr: hourNowStr,
+          monthLabel: paymentVerification.currentMonthLabel
+        })
+      : '';
+  const barredWhatsAppUrl =
+    identifiedGuardian && barredPreviewMessage
+      ? buildWhatsAppUrl(identifiedGuardian.guardianPhone, barredPreviewMessage)
+      : null;
+
+  // Executar registro de Entrada, Saída ou Barramento
+  const handleConfirmAccess = (type: 'entrada' | 'saida' | 'barrado') => {
+    if (!identifiedStudent || !paymentVerification) return;
+
+    // Bloqueio rígido de entrada se mensalidade do mês atual não estiver paga
+    if (type === 'entrada' && !paymentVerification.isPaidForCurrentMonth) {
+      soundManager.playError();
+      setScanError(`Acesso não permitido: ${paymentVerification.reason}`);
+      return;
+    }
+
+    const now = new Date();
+    const hourOnly = now.toLocaleTimeString('pt-MZ', { hour: '2-digit', minute: '2-digit' });
+    const operator = firebaseUser?.displayName || 'Porteiro em Turno (Guarita Principal)';
     const location = activeBranch?.name ? `Portaria - ${activeBranch.name}` : 'Portão Principal';
+    const guardian = getStudentGuardianContact(identifiedStudent);
 
-    logGateAccess(identifiedStudent.id, type, location, operator, true);
-    
+    const whatsappMessage = buildGateWhatsAppMessage({
+      action: type,
+      student: identifiedStudent,
+      institution: activeInstitution,
+      timeStr: hourOnly,
+      monthLabel: paymentVerification.currentMonthLabel
+    });
+
+    const whatsappUrl = buildWhatsAppUrl(guardian.guardianPhone, whatsappMessage);
+
+    logGateAccess(
+      identifiedStudent.id,
+      type,
+      location,
+      operator,
+      true,
+      whatsappMessage,
+      type === 'barrado' ? paymentVerification.reason : undefined
+    );
+
     setLastActionFeedback({
       type,
       studentName: identifiedStudent.fullName,
       studentCode: identifiedStudent.code,
-      time: new Date().toLocaleTimeString('pt-MZ', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      institutionName: centerName,
+      time: hourOnly,
+      guardianName: guardian.guardianName,
+      guardianPhone: guardian.guardianPhone,
+      whatsappMessage,
+      whatsappUrl,
+      reason: type === 'barrado' ? paymentVerification.reason : undefined
     });
 
-    // Limpar aluno atual para o próximo scan após confirmação
+    // Limpar aluno identificado para a próxima leitura após confirmação
     setIdentifiedStudent(null);
-    if (isCameraActive) {
-      setTimeout(() => scanFrame(), 1200);
-    }
+    setScanError(null);
   };
 
-  // Filtrar histórico do dia (registos de hoje)
-  const todayStr = new Date().toLocaleDateString('pt-MZ');
-  const todayLogs = accessLogs.filter(log => {
-    const isToday = log.date === todayStr || log.timestamp?.includes(todayStr) || true; // Incluir recentes se sem data
-    if (!isToday) return false;
+  // Filtrar histórico do dia (apenas dados reais da instituição ativa)
+  const instAccessLogs = identity.hasInstitution
+    ? accessLogs.filter(log => log.institutionId === activeInstitution.id)
+    : [];
 
-    if (historyFilter === 'entrada' && log.type !== 'entrada') return false;
-    if (historyFilter === 'saida' && log.type !== 'saida') return false;
+  const todayStr = new Date().toLocaleDateString('pt-MZ');
+  const todayLogs = instAccessLogs.filter(log => {
+    if (historyFilter !== 'todos' && log.type !== historyFilter) return false;
 
     if (historySearch.trim()) {
       const q = historySearch.toLowerCase();
       const matchName = log.studentName.toLowerCase().includes(q);
       const matchCode = log.studentCode.toLowerCase().includes(q);
-      const matchCourse = log.courseName.toLowerCase().includes(q);
+      const matchCourse = (log.courseName || '').toLowerCase().includes(q);
       return matchName || matchCode || matchCourse;
     }
 
     return true;
   });
 
-  const totalEntradasHoje = accessLogs.filter(l => l.type === 'entrada').length;
-  const totalSaidasHoje = accessLogs.filter(l => l.type === 'saida').length;
+  const logsForTodayCount = instAccessLogs.filter(
+    l => !l.date || l.date === todayStr || l.timestamp?.includes(todayStr)
+  );
+  const totalEntradasHoje = logsForTodayCount.filter(l => l.type === 'entrada').length;
+  const totalSaidasHoje = logsForTodayCount.filter(l => l.type === 'saida').length;
+  const totalBarradosHoje = logsForTodayCount.filter(l => l.type === 'barrado').length;
+
+  const operatorDisplayName = firebaseUser?.displayName || 'Portaria em Turno';
 
   return (
     <div id="porteiro-experience-view" className="space-y-6 animate-fadeIn max-w-7xl mx-auto">
-      
       {/* 0. HEADER SUPERIOR DO PORTAL DO PORTEIRO */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-2 border-b border-slate-200 dark:border-slate-800">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-slate-800 flex items-center justify-center text-white shadow-md shadow-slate-900/30">
-            <ShieldCheck className="w-5 h-5 text-emerald-400" />
-          </div>
+          <InstitutionLogoBadge institution={activeInstitution} size="md" rounded="2xl" />
           <div>
             <h2 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">
               Portal do Porteiro
             </h2>
             <span className="text-xs text-slate-500 dark:text-slate-400">
-              Controlo de Acesso e Segurança da Instituição • {activeInstitution?.name || 'Centro Céu Azul'}
+              Controlo de Acesso e Mensalidade • {centerName}
             </span>
           </div>
         </div>
@@ -272,43 +287,42 @@ export const PorteiroExperienceView: React.FC = () => {
         <div className="flex items-center gap-3 self-end sm:self-auto">
           <div className="relative p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
             <Bell className="w-4 h-4" />
-            <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
-              2
-            </span>
+            {totalBarradosHoje > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                {totalBarradosHoje}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs">
-            <img
-              src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80"
-              alt="Porteiro"
-              className="w-8 h-8 rounded-full object-cover border border-slate-600"
-            />
+            <div className="w-8 h-8 rounded-full bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center text-emerald-500 shrink-0">
+              <UserCheck className="w-4 h-4" />
+            </div>
             <div className="text-left">
-              <div className="text-xs font-bold text-slate-900 dark:text-white truncate max-w-[130px]">
-                Sr. João Ferreira
+              <div className="text-xs font-bold text-slate-900 dark:text-white truncate max-w-[160px]">
+                {operatorDisplayName}
               </div>
-              <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                <span>Porteiro</span>
-                <span className="text-[9px]">▾</span>
+              <div className="text-[10px] text-slate-500 dark:text-slate-400">
+                Porteiro • {activeBranch?.name || 'Sede'}
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* BANNER DE BOAS-VINDAS DO PORTEIRO */}
+      {/* BANNER DO PORTEIRO */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 p-6 sm:p-8 text-white shadow-xl shadow-slate-950/40 border border-slate-800">
         <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="space-y-1.5">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-semibold tracking-wide">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>Terminal de Portaria Online • Guarita Ativa</span>
+              <span>Terminal de Portaria Online • {centerName}</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
-              Bem-vindo, Sr. João Ferreira!
+              Controlo de Entradas &amp; Saídas por QR Code
             </h1>
             <p className="text-xs sm:text-sm text-slate-300 max-w-xl leading-relaxed">
-              Controlo de acesso e segurança da instituição. Registo em tempo real de entradas, saídas, visitantes e encomendas com verificação biométrica e QR Code.
+              Abra a câmara para ler automaticamente o QR Code do aluno, valide a mensalidade do mês corrente e envie notificação WhatsApp ao encarregado após confirmar Entrada, Saída ou Barramento.
             </p>
           </div>
 
@@ -337,34 +351,42 @@ export const PorteiroExperienceView: React.FC = () => {
         </div>
       </div>
 
-      {/* 4 CARTÕES INFORMATIVOS (CONFORME IMAGEM DE REFERÊNCIA) */}
+      {/* 4 CARTÕES INFORMATIVOS COM CONTADORES REAIS DA INSTITUIÇÃO */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Card 1: Entradas Hoje */}
         <div className="p-5 rounded-2xl bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shrink-0">
             <Users className="w-6 h-6" />
           </div>
           <div>
             <div className="text-xs font-medium text-emerald-100 uppercase tracking-wider">Entradas Hoje</div>
-            <div className="text-2xl font-black mt-0.5">{totalEntradasHoje > 200 ? totalEntradasHoje : '248'}</div>
-            <div className="text-[11px] text-emerald-100">Pessoas</div>
+            <div className="text-2xl font-black mt-0.5">{totalEntradasHoje}</div>
+            <div className="text-[11px] text-emerald-100">Confirmadas</div>
           </div>
         </div>
 
-        {/* Card 2: Saídas Hoje */}
         <div className="p-5 rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/20 flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shrink-0">
             <ArrowDown className="w-6 h-6" />
           </div>
           <div>
             <div className="text-xs font-medium text-blue-100 uppercase tracking-wider">Saídas Hoje</div>
-            <div className="text-2xl font-black mt-0.5">{totalSaidasHoje > 150 ? totalSaidasHoje : '236'}</div>
-            <div className="text-[11px] text-blue-100">Pessoas</div>
+            <div className="text-2xl font-black mt-0.5">{totalSaidasHoje}</div>
+            <div className="text-[11px] text-blue-100">Registadas</div>
           </div>
         </div>
 
-        {/* Card 3: Visitantes */}
-        <div 
+        <div className="p-5 rounded-2xl bg-rose-600 text-white shadow-lg shadow-rose-600/20 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shrink-0">
+            <Ban className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="text-xs font-medium text-rose-100 uppercase tracking-wider">Barrados Hoje</div>
+            <div className="text-2xl font-black mt-0.5">{totalBarradosHoje}</div>
+            <div className="text-[11px] text-rose-100">Mensalidade em falta</div>
+          </div>
+        </div>
+
+        <div
           onClick={() => setShowVisitorModal(true)}
           className="p-5 rounded-2xl bg-amber-500 text-white shadow-lg shadow-amber-500/20 cursor-pointer hover:scale-[1.02] transition-transform flex items-center gap-4"
         >
@@ -372,181 +394,733 @@ export const PorteiroExperienceView: React.FC = () => {
             <UserCheck className="w-6 h-6" />
           </div>
           <div>
-            <div className="text-xs font-medium text-amber-100 uppercase tracking-wider">Visitantes</div>
-            <div className="text-2xl font-black mt-0.5">18</div>
-            <div className="text-[11px] text-amber-100">Registados</div>
-          </div>
-        </div>
-
-        {/* Card 4: Entregas */}
-        <div 
-          onClick={() => setShowDeliveryModal(true)}
-          className="p-5 rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-600/20 cursor-pointer hover:scale-[1.02] transition-transform flex items-center gap-4"
-        >
-          <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shrink-0">
-            <Package className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="text-xs font-medium text-indigo-100 uppercase tracking-wider">Entregas</div>
-            <div className="text-2xl font-black mt-0.5">12</div>
-            <div className="text-[11px] text-indigo-100">Registadas</div>
+            <div className="text-xs font-medium text-amber-100 uppercase tracking-wider">Visitantes &amp; Entregas</div>
+            <div className="text-2xl font-black mt-0.5">{visitorsLog.length + deliveriesLog.length}</div>
+            <div className="text-[11px] text-amber-100">Registar na guarita</div>
           </div>
         </div>
       </div>
 
-      {/* LINHA CENTRAL: REGISTO DE ACESSOS + AÇÕES RÁPIDAS + ALERTAS */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        
-        {/* 1. Registo de Acessos Recentes (Col 7) */}
-        <div className="lg:col-span-7 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
-                <span>Registo de Acessos</span>
-              </h3>
-              <a
-                href="#historico-acessos"
-                className="text-xs font-semibold text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-1 cursor-pointer"
+      {/* FEEDBACK APÓS CONFIRMAÇÃO COM BOTÃO DIRETO DO WHATSAPP AO ENCARREGADO */}
+      {lastActionFeedback && (
+        <div
+          className={`p-5 rounded-2xl border-2 space-y-3 animate-in fade-in duration-200 ${
+            lastActionFeedback.type === 'entrada'
+              ? 'bg-emerald-50 border-emerald-400 text-emerald-950'
+              : lastActionFeedback.type === 'saida'
+              ? 'bg-amber-50 border-amber-400 text-amber-950'
+              : 'bg-rose-50 border-rose-400 text-rose-950'
+          }`}
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div
+                className={`p-2.5 rounded-xl text-white shrink-0 ${
+                  lastActionFeedback.type === 'entrada'
+                    ? 'bg-emerald-600'
+                    : lastActionFeedback.type === 'saida'
+                    ? 'bg-amber-600'
+                    : 'bg-rose-600'
+                }`}
               >
-                <span>Ver Histórico</span>
-                <ChevronRight className="w-3.5 h-3.5" />
-              </a>
+                {lastActionFeedback.type === 'entrada' ? (
+                  <LogIn className="w-6 h-6" />
+                ) : lastActionFeedback.type === 'saida' ? (
+                  <LogOut className="w-6 h-6" />
+                ) : (
+                  <Ban className="w-6 h-6" />
+                )}
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={`text-xs font-black uppercase tracking-wider px-2.5 py-0.5 rounded ${
+                      lastActionFeedback.type === 'entrada'
+                        ? 'bg-emerald-600 text-white'
+                        : lastActionFeedback.type === 'saida'
+                        ? 'bg-amber-600 text-white'
+                        : 'bg-rose-600 text-white'
+                    }`}
+                  >
+                    {lastActionFeedback.type === 'entrada'
+                      ? 'ENTRADA CONFIRMADA'
+                      : lastActionFeedback.type === 'saida'
+                      ? 'SAÍDA CONFIRMADA'
+                      : 'ALUNO BARRADO NA PORTA'}
+                  </span>
+                  <span className="text-xs font-mono font-bold text-slate-700">
+                    Hora: {lastActionFeedback.time}
+                  </span>
+                  <span className="text-xs font-semibold text-slate-600">
+                    • {lastActionFeedback.institutionName}
+                  </span>
+                </div>
+                <p className="text-sm font-black text-slate-900 mt-1">
+                  {lastActionFeedback.studentName}{' '}
+                  <span className="font-mono text-xs text-slate-500">({lastActionFeedback.studentCode})</span>
+                </p>
+                <p className="text-xs text-slate-700 mt-1 bg-white/80 p-2.5 rounded-xl border border-slate-200/80 italic">
+                  "{lastActionFeedback.whatsappMessage}"
+                </p>
+              </div>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
-                    <th className="pb-2.5 font-semibold">Data/Hora</th>
-                    <th className="pb-2.5 font-semibold">Nome</th>
-                    <th className="pb-2.5 font-semibold">Tipo</th>
-                    <th className="pb-2.5 font-semibold text-right">Ação</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                  {[
-                    { hora: '10:15', nome: 'Ana Silva', tipo: 'Aluno', acao: 'Entrada', status: 'entrada' },
-                    { hora: '10:12', nome: 'Carlos Pereira', tipo: 'Professor', acao: 'Entrada', status: 'entrada' },
-                    { hora: '10:10', nome: 'Maria Santos', tipo: 'Aluno', acao: 'Saída', status: 'saida' },
-                    { hora: '09:58', nome: 'Pedro Costa', tipo: 'Visitante', acao: 'Entrada', status: 'entrada' },
-                  ].map((row, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                      <td className="py-2.5 font-mono text-slate-500 dark:text-slate-400">{row.hora}</td>
-                      <td className="py-2.5 font-bold text-slate-800 dark:text-slate-200">{row.nome}</td>
-                      <td className="py-2.5 text-slate-600 dark:text-slate-400">{row.tipo}</td>
-                      <td className="py-2.5 text-right">
-                        <span className={`px-2 py-0.5 rounded-md font-bold text-[10px] ${
-                          row.status === 'entrada'
-                            ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
-                            : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30'
-                        }`}>
-                          {row.acao}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <button
+              type="button"
+              onClick={() => setLastActionFeedback(null)}
+              className="p-1.5 text-slate-500 hover:text-slate-800 rounded-lg cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
 
-          {/* Alertas (Conforme Imagem) */}
-          <div className="mt-5 pt-4 border-t border-slate-200 dark:border-slate-800">
-            <h4 className="font-bold text-xs uppercase text-slate-500 dark:text-slate-400 mb-2.5 tracking-wider">
-              Alertas
-            </h4>
-            <div className="space-y-2">
-              <div className="p-2.5 rounded-xl border border-amber-300/40 bg-amber-500/10 text-xs flex items-center justify-between text-amber-700 dark:text-amber-300">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500" />
-                  <span>Entrega pendente: Correspondência (1)</span>
-                </div>
-                <span className="text-[11px] opacity-75">Há 30 min</span>
-              </div>
-
-              <div className="p-2.5 rounded-xl border border-emerald-300/40 bg-emerald-500/10 text-xs flex items-center justify-between text-emerald-700 dark:text-emerald-300">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
-                  <span>Acesso normal – Escola segura</span>
-                </div>
-                <span className="text-[11px] opacity-75">Há 1 h</span>
-              </div>
+          {/* BOTÃO WHATSAPP PÓS-CONFIRMAÇÃO APONTANDO PARA O ENCARREGADO DO CENTRO */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-200/70">
+            <div className="text-xs text-slate-700">
+              Encarregado: <strong>{lastActionFeedback.guardianName}</strong>{' '}
+              {lastActionFeedback.guardianPhone ? (
+                <span className="font-mono font-semibold text-slate-900">
+                  ({lastActionFeedback.guardianPhone})
+                </span>
+              ) : (
+                <span className="text-rose-600 font-semibold">(Sem telefone cadastrado)</span>
+              )}
             </div>
+
+            {lastActionFeedback.whatsappUrl ? (
+              <a
+                href={lastActionFeedback.whatsappUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#25D366] hover:bg-[#1fb858] text-white rounded-xl text-xs font-black shadow-md transition cursor-pointer"
+              >
+                <MessageCircle className="w-4 h-4" />
+                <span>
+                  Enviar WhatsApp ao Encarregado ({lastActionFeedback.guardianPhone})
+                </span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            ) : (
+              <span className="text-xs font-bold text-rose-700 bg-rose-100 px-3 py-1.5 rounded-xl">
+                Número WhatsApp do encarregado não disponível no cadastro do aluno.
+              </span>
+            )}
           </div>
         </div>
+      )}
 
-        {/* 2. Ações Rápidas (Col 5) */}
-        <div className="lg:col-span-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
-          <div>
-            <h3 className="font-bold text-sm text-slate-900 dark:text-white mb-3">
-              Ações Rápidas
-            </h3>
+      {/* ÁREA PRINCIPAL: SCANNER + FICHA DO ALUNO (ESQUERDA) E HISTÓRICO DO DIA (DIREITA) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* COLUNA ESQUERDA: SCANNER QR E CONTROLO DE PASSAGEM */}
+        <div className="lg:col-span-7 space-y-6">
+          {/* SELETORES DE MODO: ENTRADA / SAÍDA */}
+          <div className="grid grid-cols-2 gap-4">
+            <button
+              id="btn-modo-entrada"
+              type="button"
+              onClick={() => setActiveMode('entrada')}
+              className={`p-5 rounded-2xl border-2 flex items-center justify-center gap-3 transition-all cursor-pointer ${
+                activeMode === 'entrada'
+                  ? 'bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-600/20 scale-[1.01]'
+                  : 'bg-white border-slate-200 text-slate-600 hover:border-emerald-300 hover:bg-emerald-50/50'
+              }`}
+            >
+              <LogIn className={`w-8 h-8 ${activeMode === 'entrada' ? 'text-white' : 'text-emerald-600'}`} />
+              <div className="text-left">
+                <span className="text-[11px] font-bold uppercase tracking-wider block opacity-90">Modo Portaria</span>
+                <span className="text-xl sm:text-2xl font-black">ENTRADA</span>
+              </div>
+            </button>
 
-            <div className="space-y-3">
-              {/* 1. Registar Visitante */}
+            <button
+              id="btn-modo-saida"
+              type="button"
+              onClick={() => setActiveMode('saida')}
+              className={`p-5 rounded-2xl border-2 flex items-center justify-center gap-3 transition-all cursor-pointer ${
+                activeMode === 'saida'
+                  ? 'bg-amber-600 border-amber-500 text-white shadow-lg shadow-amber-600/20 scale-[1.01]'
+                  : 'bg-white border-slate-200 text-slate-600 hover:border-amber-300 hover:bg-amber-50/50'
+              }`}
+            >
+              <LogOut className={`w-8 h-8 ${activeMode === 'saida' ? 'text-white' : 'text-amber-600'}`} />
+              <div className="text-left">
+                <span className="text-[11px] font-bold uppercase tracking-wider block opacity-90">Modo Portaria</span>
+                <span className="text-xl sm:text-2xl font-black">SAÍDA</span>
+              </div>
+            </button>
+          </div>
+
+          {/* CARTÃO DO SCANNER QR COM CÂMARA REAL */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-2xs space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <QrCode className="w-5 h-5 text-emerald-600" />
+                <h2 className="text-base font-bold text-slate-900">Scanner QR do Crachá (Câmara ao Vivo)</h2>
+              </div>
+              <span className="text-[11px] font-mono font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
+                {studentPool.length} alunos ativos
+              </span>
+            </div>
+
+            <GateQrCameraScanner
+              onCodeDetected={code => handleRawCodeScanned(code, false)}
+              pauseDetection={Boolean(identifiedStudent)}
+              theme="light"
+            />
+
+            {scanError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                  <span>{scanError}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setScanError(null)}
+                  className="text-rose-500 hover:text-rose-800 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {/* DIGITAÇÃO MANUAL OU LEITOR USB */}
+            <form onSubmit={handleManualSearch} className="space-y-3 pt-2">
+              <label className="text-xs font-bold text-slate-700 block">
+                Digitação Rápida (Código do Aluno, BI ou leitor USB):
+              </label>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={manualCode}
+                    onChange={e => setManualCode(e.target.value)}
+                    placeholder={`Ex: ${identity.code || 'SIGAR'}-AL-001 ou nome do aluno...`}
+                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="px-5 py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold cursor-pointer transition shrink-0"
+                >
+                  Localizar
+                </button>
+              </div>
+
+              {/* Atalhos rápidos com alunos reais da instituição */}
+              {studentPool.length > 0 && (
+                <div className="pt-2">
+                  <span className="text-[11px] text-slate-400 font-semibold block mb-1.5">
+                    Teste Rápido de Alunos da Instituição:
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {studentPool.slice(0, 5).map(st => {
+                      const check = checkStudentMonthlyPaymentStatus({
+                        student: st,
+                        activeInstitution,
+                        courses,
+                        paymentRecords,
+                        contasReceber
+                      });
+                      return (
+                        <button
+                          key={st.id}
+                          type="button"
+                          onClick={() => {
+                            setIdentifiedStudent(st);
+                            setLastActionFeedback(null);
+                            setScanError(null);
+                            soundManager.playNotification();
+                          }}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-medium cursor-pointer transition border flex items-center gap-1.5 ${
+                            check.isPaidForCurrentMonth
+                              ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border-emerald-200'
+                              : 'bg-rose-50 hover:bg-rose-100 text-rose-900 border-rose-200'
+                          }`}
+                        >
+                          <span>{st.fullName.split(' ')[0]} ({st.code})</span>
+                          <span
+                            className={`text-[9px] font-black uppercase px-1.5 py-0.2 rounded ${
+                              check.isPaidForCurrentMonth
+                                ? 'bg-emerald-600 text-white'
+                                : 'bg-rose-600 text-white'
+                            }`}
+                          >
+                            {check.isPaidForCurrentMonth ? 'Pago' : 'Não Pago'}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </form>
+          </div>
+
+          {/* FICHA DO ALUNO IDENTIFICADO + VALIDAÇÃO DE MENSALIDADE DO MÊS CORRENTE */}
+          {identifiedStudent && paymentVerification && (
+            <div
+              className={`bg-white rounded-2xl border-2 p-6 shadow-md space-y-5 animate-in slide-in-from-top-2 duration-200 ${
+                paymentVerification.isPaidForCurrentMonth ? 'border-emerald-500' : 'border-rose-500'
+              }`}
+            >
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <span
+                  className={`text-xs font-black uppercase tracking-wider flex items-center gap-1.5 ${
+                    paymentVerification.isPaidForCurrentMonth ? 'text-emerald-700' : 'text-rose-700'
+                  }`}
+                >
+                  {paymentVerification.isPaidForCurrentMonth ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  ) : (
+                    <ShieldAlert className="w-4 h-4 text-rose-600" />
+                  )}
+                  {paymentVerification.isPaidForCurrentMonth
+                    ? 'Aluno Identificado • Acesso Permitido'
+                    : 'ACESSO NÃO PERMITIDO — MENSALIDADE POR PAGAR'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIdentifiedStudent(null)}
+                  className="p-1 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center gap-5">
+                {identifiedStudent.photoUrl ? (
+                  <img
+                    src={identifiedStudent.photoUrl}
+                    alt={identifiedStudent.fullName}
+                    className="w-24 h-28 rounded-2xl object-cover border-2 border-slate-200 shadow-xs shrink-0"
+                  />
+                ) : (
+                  <div className="w-24 h-28 rounded-2xl bg-slate-100 border-2 border-slate-200 flex items-center justify-center text-slate-400 shrink-0">
+                    <Users className="w-8 h-8" />
+                  </div>
+                )}
+
+                <div className="space-y-1.5 text-center sm:text-left flex-1 min-w-0">
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
+                      paymentVerification.isPaidForCurrentMonth
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-rose-100 text-rose-800'
+                    }`}
+                  >
+                    {identifiedStudent.code}
+                  </span>
+                  <h3 className="text-lg font-black text-slate-900 truncate">
+                    {identifiedStudent.fullName}
+                  </h3>
+                  <p className="text-xs text-slate-600 font-medium">{identifiedStudent.courseName}</p>
+                  <p className="text-xs text-slate-500">
+                    Turma: <strong className="text-slate-800">{identifiedStudent.classGroupName || '—'}</strong> • Regime:{' '}
+                    {identifiedStudent.regime}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Encarregado: <strong className="text-slate-800">{identifiedGuardian?.guardianName}</strong>{' '}
+                    {identifiedGuardian?.guardianPhone ? (
+                      <span className="font-mono text-slate-700">({identifiedGuardian.guardianPhone})</span>
+                    ) : null}
+                  </p>
+                </div>
+              </div>
+
+              {/* RESULTADO DA VERIFICAÇÃO DA MENSALIDADE DO MÊS ATUAL */}
+              {paymentVerification.isPaidForCurrentMonth ? (
+                <div className="space-y-4">
+                  <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5 text-xs text-emerald-900">
+                      <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                      <div>
+                        <strong className="block font-black">
+                          Mensalidade de {paymentVerification.currentMonthLabel} Regularizada
+                        </strong>
+                        <span className="text-[11px] text-emerald-700">{paymentVerification.reason}</span>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-[10px] font-black uppercase">
+                      Autorizado
+                    </span>
+                  </div>
+
+                  {/* BOTÕES ENTRAR OU SAIR */}
+                  <div className="grid grid-cols-2 gap-3 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => handleConfirmAccess('entrada')}
+                      className="py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-black flex items-center justify-center gap-2 cursor-pointer shadow-xs transition"
+                    >
+                      <LogIn className="w-4 h-4" />
+                      <span>Entrar (Confirmar)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleConfirmAccess('saida')}
+                      className="py-3.5 px-4 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-sm font-black flex items-center justify-center gap-2 cursor-pointer shadow-xs transition"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      <span>Sair (Confirmar)</span>
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-center text-slate-500">
+                    Após confirmar <strong>Entrar</strong> ou <strong>Sair</strong>, será exibido o botão do WhatsApp para avisar o encarregado com a hora exata.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* ALERTA VERMELHO: ACESSO NÃO PERMITIDO */}
+                  <div className="p-4 rounded-2xl bg-rose-50 border-2 border-rose-300 space-y-2">
+                    <div className="flex items-center gap-2.5 text-rose-800">
+                      <Ban className="w-6 h-6 text-rose-600 shrink-0" />
+                      <div>
+                        <div className="text-sm font-black uppercase tracking-wide text-rose-700">
+                          ACESSO NÃO PERMITIDO
+                        </div>
+                        <p className="text-xs font-semibold text-rose-900">
+                          {paymentVerification.reason}
+                        </p>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-rose-700 leading-relaxed">
+                      O(A) aluno(a) não pode entrar sem regularizar a mensalidade de{' '}
+                      <strong>{paymentVerification.currentMonthLabel}</strong>. Clique no botão abaixo para avisar o encarregado via WhatsApp.
+                    </p>
+                  </div>
+
+                  {/* BOTÃO ENTRAR BLOQUEADO + SAÍDA SE JÁ ESTIVER DENTRO */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      disabled
+                      className="py-3.5 px-4 bg-rose-100 text-rose-500 border border-rose-200 rounded-xl text-xs font-black flex items-center justify-center gap-2 cursor-not-allowed"
+                    >
+                      <Ban className="w-4 h-4" />
+                      <span>ENTRADA BLOQUEADA</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleConfirmAccess('saida')}
+                      className="py-3.5 px-4 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-black flex items-center justify-center gap-2 cursor-pointer shadow-xs transition"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      <span>Confirmar SAÍDA</span>
+                    </button>
+                  </div>
+
+                  {/* BOTÃO WHATSAPP DE ALUNO BARRADO NA PORTA */}
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+                    <div className="text-xs text-slate-700">
+                      <span className="font-bold text-slate-900 block mb-1">
+                        Mensagem pronta para o Encarregado ({identifiedGuardian?.guardianName}):
+                      </span>
+                      <p className="italic text-[11px] text-slate-600 bg-white p-2.5 rounded-xl border border-slate-200">
+                        "{barredPreviewMessage}"
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {barredWhatsAppUrl ? (
+                        <a
+                          href={barredWhatsAppUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={() => {
+                            logGateAccess(
+                              identifiedStudent.id,
+                              'barrado',
+                              activeBranch?.name ? `Portaria - ${activeBranch.name}` : 'Portão Principal',
+                              operatorDisplayName,
+                              true,
+                              barredPreviewMessage,
+                              paymentVerification.reason
+                            );
+                          }}
+                          className="flex-1 min-w-[220px] py-3 px-4 bg-[#25D366] hover:bg-[#1fb858] text-white rounded-xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition cursor-pointer"
+                        >
+                          <MessageCircle className="w-4 h-4" />
+                          <span>
+                            Avisar Encarregado no WhatsApp ({identifiedGuardian?.guardianPhone})
+                          </span>
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                      ) : (
+                        <span className="text-xs font-bold text-rose-700 bg-rose-100 px-3 py-2 rounded-xl">
+                          Sem número WhatsApp registado para o encarregado deste aluno.
+                        </span>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => handleConfirmAccess('barrado')}
+                        className="py-3 px-4 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold cursor-pointer transition"
+                      >
+                        Registar Barramento
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* REGISTOS RECENTES + AÇÕES RÁPIDAS */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-sm text-slate-900">Últimos Movimentos</h3>
+                <a
+                  href="#historico-acessos"
+                  className="text-xs font-semibold text-sky-600 hover:underline flex items-center gap-1"
+                >
+                  <span>Ver Todos</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </a>
+              </div>
+              {instAccessLogs.length === 0 ? (
+                <p className="text-xs text-slate-500 py-4 text-center">
+                  Sem movimentos registados nesta sessão.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {instAccessLogs.slice(0, 4).map(row => (
+                    <div key={row.id} className="flex items-center justify-between text-xs py-1.5 border-b border-slate-100 last:border-0">
+                      <div className="min-w-0 pr-2">
+                        <div className="font-bold text-slate-800 truncate">{row.studentName}</div>
+                        <div className="text-[10px] font-mono text-slate-500">{row.time || row.timestamp}</div>
+                      </div>
+                      <span
+                        className={`px-2 py-0.5 rounded-md font-bold text-[10px] uppercase shrink-0 ${
+                          row.type === 'entrada'
+                            ? 'bg-emerald-500/10 text-emerald-700 border border-emerald-500/30'
+                            : row.type === 'saida'
+                            ? 'bg-amber-500/10 text-amber-700 border border-amber-500/30'
+                            : 'bg-rose-500/10 text-rose-700 border border-rose-500/30'
+                        }`}
+                      >
+                        {row.type}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-2.5">
+              <h3 className="font-bold text-sm text-slate-900">Ações Rápidas da Guarita</h3>
               <button
+                type="button"
                 onClick={() => setShowVisitorModal(true)}
-                className="w-full p-3 rounded-xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/60 dark:bg-blue-950/30 hover:bg-blue-100 flex items-center gap-3 text-left transition cursor-pointer"
+                className="w-full p-2.5 rounded-xl border border-blue-200 bg-blue-50/70 hover:bg-blue-100 flex items-center gap-3 text-left transition cursor-pointer"
               >
-                <div className="w-9 h-9 rounded-lg bg-blue-600 text-white flex items-center justify-center shrink-0">
+                <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center shrink-0">
                   <Users className="w-4 h-4" />
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-blue-950 dark:text-blue-200">Registar Visitante</div>
-                  <div className="text-[10px] text-slate-500">Registo de BI, destino e horário</div>
+                  <div className="text-xs font-bold text-blue-950">Registar Visitante</div>
+                  <div className="text-[10px] text-slate-500">BI, destino e horário ({visitorsLog.length})</div>
                 </div>
               </button>
 
-              {/* 2. Registar Entrega */}
               <button
+                type="button"
                 onClick={() => setShowDeliveryModal(true)}
-                className="w-full p-3 rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/60 dark:bg-emerald-950/30 hover:bg-emerald-100 flex items-center gap-3 text-left transition cursor-pointer"
+                className="w-full p-2.5 rounded-xl border border-emerald-200 bg-emerald-50/70 hover:bg-emerald-100 flex items-center gap-3 text-left transition cursor-pointer"
               >
-                <div className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
                   <Package className="w-4 h-4" />
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-emerald-950 dark:text-emerald-200">Registar Entrega</div>
-                  <div className="text-[10px] text-slate-500">Correspondência e encomendas recebidas</div>
+                  <div className="text-xs font-bold text-emerald-950">Registar Entrega</div>
+                  <div className="text-[10px] text-slate-500">Correspondência recebida ({deliveriesLog.length})</div>
                 </div>
               </button>
 
-              {/* 3. Consultar Acessos */}
-              <a
-                href="#historico-acessos"
-                className="w-full p-3 rounded-xl border border-purple-200 dark:border-purple-900/60 bg-purple-50/60 dark:bg-purple-950/30 hover:bg-purple-100 flex items-center gap-3 text-left transition cursor-pointer block"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-purple-600 text-white flex items-center justify-center shrink-0">
-                    <Search className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-purple-950 dark:text-purple-200">Consultar Acessos</div>
-                    <div className="text-[10px] text-slate-500">Histórico detalhado com filtros</div>
-                  </div>
-                </div>
-              </a>
-
-              {/* 4. Comunicações */}
               <button
+                type="button"
                 onClick={() => {
                   soundManager.playSuccess();
-                  alert('Linha direta com a Direção e Secretaria: Terminal pronto.');
+                  addNotification({
+                    title: 'Linha Direta com a Secretaria',
+                    message: `Comunicação da guarita (${centerName}) encaminhada à Secretaria.`,
+                    type: 'system'
+                  });
                 }}
-                className="w-full p-3 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/30 hover:bg-amber-100 flex items-center gap-3 text-left transition cursor-pointer"
+                className="w-full p-2.5 rounded-xl border border-amber-200 bg-amber-50/70 hover:bg-amber-100 flex items-center gap-3 text-left transition cursor-pointer"
               >
-                <div className="w-9 h-9 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0">
+                <div className="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0">
                   <Mail className="w-4 h-4" />
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-amber-950 dark:text-amber-200">Comunicações</div>
-                  <div className="text-[10px] text-slate-500">Avisos urgentes com a Secretaria</div>
+                  <div className="text-xs font-bold text-amber-950">Avisar Secretaria</div>
+                  <div className="text-[10px] text-slate-500">Notificar direção/secretaria sem sair da guarita</div>
                 </div>
               </button>
             </div>
           </div>
         </div>
 
+        {/* COLUNA DIREITA: HISTÓRICO DO DIA */}
+        <div id="historico-acessos" className="lg:col-span-5 space-y-6">
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-2xs space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <History className="w-5 h-5 text-emerald-600" />
+                <h2 className="text-base font-bold text-slate-900">Histórico do Dia</h2>
+              </div>
+              <span className="text-xs font-mono font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
+                {todayLogs.length} Registos
+              </span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <div className="p-2.5 bg-emerald-50 rounded-xl border border-emerald-100">
+                <span className="text-[10px] font-bold text-emerald-800 uppercase block">Entradas</span>
+                <span className="text-xl font-black text-emerald-700">{totalEntradasHoje}</span>
+              </div>
+              <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-100">
+                <span className="text-[10px] font-bold text-amber-800 uppercase block">Saídas</span>
+                <span className="text-xl font-black text-amber-700">{totalSaidasHoje}</span>
+              </div>
+              <div className="p-2.5 bg-rose-50 rounded-xl border border-rose-100">
+                <span className="text-[10px] font-bold text-rose-800 uppercase block">Barrados</span>
+                <span className="text-xl font-black text-rose-700">{totalBarradosHoje}</span>
+              </div>
+            </div>
+
+            {/* FILTROS E BUSCA DO HISTÓRICO */}
+            <div className="space-y-2">
+              <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
+                {(['todos', 'entrada', 'saida', 'barrado'] as const).map(tab => (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => setHistoryFilter(tab)}
+                    className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold transition cursor-pointer capitalize ${
+                      historyFilter === tab
+                        ? tab === 'entrada'
+                          ? 'bg-emerald-600 text-white'
+                          : tab === 'saida'
+                          ? 'bg-amber-600 text-white'
+                          : tab === 'barrado'
+                          ? 'bg-rose-600 text-white'
+                          : 'bg-white text-slate-900 shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    {tab === 'todos' ? 'Todos' : tab === 'entrada' ? 'Entradas' : tab === 'saida' ? 'Saídas' : 'Barrados'}
+                  </button>
+                ))}
+              </div>
+
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={historySearch}
+                  onChange={e => setHistorySearch(e.target.value)}
+                  placeholder="Pesquisar no histórico..."
+                  className="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                />
+              </div>
+            </div>
+
+            {/* LISTAGEM DOS REGISTOS */}
+            <div className="space-y-2.5 max-h-[560px] overflow-y-auto pr-1">
+              {todayLogs.length === 0 ? (
+                <div className="text-center py-10 px-4 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                  <Clock className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                  <p className="text-xs font-bold text-slate-600">Nenhum movimento registado</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    As entradas, saídas e bloqueios aparecerão aqui em tempo real.
+                  </p>
+                </div>
+              ) : (
+                todayLogs.map(log => {
+                  const isEntrada = log.type === 'entrada';
+                  const isBarrado = log.type === 'barrado';
+                  const msg =
+                    log.notificationMessage ||
+                    `Olá ${log.guardianName || 'Encarregado'}, informamos que o(a) aluno(a) ${log.studentName} do centro ${
+                      log.institutionName || centerName
+                    } ${isEntrada ? 'ENTROU' : isBarrado ? 'foi BARRADO(A) NA PORTA' : 'SAIU'} às ${
+                      log.time || log.timestamp
+                    }.`;
+                  const waUrl = buildWhatsAppUrl(log.guardianPhone, msg);
+
+                  return (
+                    <div
+                      key={log.id}
+                      className={`p-3 rounded-xl border flex items-center justify-between gap-3 transition ${
+                        isBarrado
+                          ? 'bg-rose-50/70 border-rose-200'
+                          : 'bg-slate-50/70 hover:bg-slate-50 border-slate-100'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        {log.photoUrl ? (
+                          <img
+                            src={log.photoUrl}
+                            alt={log.studentName}
+                            className="w-10 h-10 rounded-xl object-cover border border-slate-200 shrink-0"
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-xl bg-slate-200/70 border border-slate-200 flex items-center justify-center text-slate-500 shrink-0">
+                            <UserCheck className="w-4 h-4" />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-slate-900 truncate">{log.studentName}</p>
+                          <p className="text-[11px] text-slate-500 truncate">
+                            {log.courseName} • <span className="font-mono">{log.studentCode}</span>
+                          </p>
+                          {isBarrado && log.blockReason && (
+                            <p className="text-[10px] text-rose-700 font-semibold truncate">{log.blockReason}</p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        {waUrl && (
+                          <a
+                            href={waUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title={`Enviar WhatsApp para ${log.guardianPhone}`}
+                            className="p-2 rounded-lg bg-[#25D366]/15 hover:bg-[#25D366] text-[#128C7E] hover:text-white transition"
+                          >
+                            <MessageCircle className="w-4 h-4" />
+                          </a>
+                        )}
+                        <div className="text-right">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider block ${
+                              isEntrada
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : isBarrado
+                                ? 'bg-rose-600 text-white'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            {isEntrada ? 'ENTRADA' : isBarrado ? 'BARRADO' : 'SAÍDA'}
+                          </span>
+                          <span className="text-[11px] font-mono font-bold text-slate-500 block mt-0.5">
+                            {log.time || log.timestamp?.split(' ')[1] || '—'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Sub-modais de Registo Rápido */}
@@ -558,7 +1132,11 @@ export const PorteiroExperienceView: React.FC = () => {
                 <Users className="w-5 h-5 text-blue-600" />
                 <span>Registar Novo Visitante</span>
               </h3>
-              <button onClick={() => setShowVisitorModal(false)} className="p-1 rounded-lg text-slate-400 hover:text-white cursor-pointer">
+              <button
+                type="button"
+                onClick={() => setShowVisitorModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -611,11 +1189,25 @@ export const PorteiroExperienceView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => {
+                    if (!visitorName.trim()) return;
                     soundManager.playSuccess();
+                    setVisitorsLog(prev => [
+                      {
+                        id: `vis-${Date.now()}`,
+                        time: new Date().toLocaleTimeString('pt-MZ', { hour: '2-digit', minute: '2-digit' }),
+                        name: visitorName.trim(),
+                        detail: `${visitorDest}${visitorBi ? ` • BI: ${visitorBi}` : ''}`
+                      },
+                      ...prev
+                    ]);
+                    addNotification({
+                      title: 'Visitante Registado',
+                      message: `${visitorName.trim()} encaminhado(a) para ${visitorDest}.`,
+                      type: 'system'
+                    });
                     setShowVisitorModal(false);
                     setVisitorName('');
                     setVisitorBi('');
-                    alert(`Visitante registado com sucesso para ${visitorDest}.`);
                   }}
                   className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold cursor-pointer"
                 >
@@ -635,7 +1227,11 @@ export const PorteiroExperienceView: React.FC = () => {
                 <Package className="w-5 h-5 text-emerald-600" />
                 <span>Registar Entrada de Encomenda / Entrega</span>
               </h3>
-              <button onClick={() => setShowDeliveryModal(false)} className="p-1 rounded-lg text-slate-400 hover:text-white cursor-pointer">
+              <button
+                type="button"
+                onClick={() => setShowDeliveryModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -678,8 +1274,21 @@ export const PorteiroExperienceView: React.FC = () => {
                   type="button"
                   onClick={() => {
                     soundManager.playSuccess();
+                    setDeliveriesLog(prev => [
+                      {
+                        id: `del-${Date.now()}`,
+                        time: new Date().toLocaleTimeString('pt-MZ', { hour: '2-digit', minute: '2-digit' }),
+                        name: deliveryProvider.trim() || 'Encomenda',
+                        detail: deliveryRecipient
+                      },
+                      ...prev
+                    ]);
+                    addNotification({
+                      title: 'Entrega Registada',
+                      message: `Entrega de ${deliveryProvider} registada para ${deliveryRecipient}.`,
+                      type: 'system'
+                    });
                     setShowDeliveryModal(false);
-                    alert(`Entrega de ${deliveryProvider} registada para ${deliveryRecipient}.`);
                   }}
                   className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold cursor-pointer"
                 >
@@ -690,417 +1299,8 @@ export const PorteiroExperienceView: React.FC = () => {
           </div>
         </div>
       )}
-
-
-
-      {/* FEEDBACK DE SUCESSO DA ÚLTIMA AÇÃO */}
-      {lastActionFeedback && (
-        <div className={`p-4 rounded-2xl border flex items-center justify-between gap-4 animate-in fade-in duration-200 ${
-          lastActionFeedback.type === 'entrada' 
-            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-900' 
-            : 'bg-amber-500/10 border-amber-500/30 text-amber-900'
-        }`}>
-          <div className="flex items-center gap-3">
-            <div className={`p-2.5 rounded-xl text-white ${
-              lastActionFeedback.type === 'entrada' ? 'bg-emerald-600' : 'bg-amber-600'
-            }`}>
-              {lastActionFeedback.type === 'entrada' ? <LogIn className="w-6 h-6" /> : <LogOut className="w-6 h-6" />}
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className={`text-xs font-black uppercase tracking-wider px-2 py-0.5 rounded ${
-                  lastActionFeedback.type === 'entrada' ? 'bg-emerald-600 text-white' : 'bg-amber-600 text-white'
-                }`}>
-                  {lastActionFeedback.type === 'entrada' ? 'ENTRADA CONFIRMADA' : 'SAÍDA CONFIRMADA'}
-                </span>
-                <span className="text-xs font-mono font-bold text-slate-600">{lastActionFeedback.time}</span>
-              </div>
-              <p className="text-sm font-bold text-slate-900 mt-0.5">
-                {lastActionFeedback.studentName} <span className="font-mono text-xs text-slate-500">({lastActionFeedback.studentCode})</span>
-              </p>
-              <span className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Notificação enviada ao encarregado de educação (WhatsApp)
-              </span>
-            </div>
-          </div>
-          <button 
-            type="button" 
-            onClick={() => setLastActionFeedback(null)}
-            className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
-      {/* ÁREA PRINCIPAL: SCANNER + ENTRADA/SAÍDA (ESQUERDA) E HISTÓRICO DO DIA (DIREITA) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-
-        {/* COLUNA ESQUERDA: SCANNER QR E CONTROLO DE PASSAGEM */}
-        <div className="lg:col-span-7 space-y-6">
-
-          {/* SELETORES GIGANTES DE MODO: ENTRADA / SAÍDA */}
-          <div className="grid grid-cols-2 gap-4">
-            <button
-              id="btn-modo-entrada"
-              type="button"
-              onClick={() => setActiveMode('entrada')}
-              className={`p-5 rounded-2xl border-2 flex items-center justify-center gap-3 transition-all cursor-pointer ${
-                activeMode === 'entrada'
-                  ? 'bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-600/20 scale-[1.01]'
-                  : 'bg-white border-slate-200 text-slate-600 hover:border-emerald-300 hover:bg-emerald-50/50'
-              }`}
-            >
-              <LogIn className={`w-8 h-8 ${activeMode === 'entrada' ? 'text-white' : 'text-emerald-600'}`} />
-              <div className="text-left">
-                <span className="text-[11px] font-bold uppercase tracking-wider block opacity-90">Modo Portaria</span>
-                <span className="text-xl sm:text-2xl font-black">ENTRADA</span>
-              </div>
-            </button>
-
-            <button
-              id="btn-modo-saida"
-              type="button"
-              onClick={() => setActiveMode('saida')}
-              className={`p-5 rounded-2xl border-2 flex items-center justify-center gap-3 transition-all cursor-pointer ${
-                activeMode === 'saida'
-                  ? 'bg-amber-600 border-amber-500 text-white shadow-lg shadow-amber-600/20 scale-[1.01]'
-                  : 'bg-white border-slate-200 text-slate-600 hover:border-amber-300 hover:bg-amber-50/50'
-              }`}
-            >
-              <LogOut className={`w-8 h-8 ${activeMode === 'saida' ? 'text-white' : 'text-amber-600'}`} />
-              <div className="text-left">
-                <span className="text-[11px] font-bold uppercase tracking-wider block opacity-90">Modo Portaria</span>
-                <span className="text-xl sm:text-2xl font-black">SAÍDA</span>
-              </div>
-            </button>
-          </div>
-
-          {/* CARTÃO DO SCANNER QR */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-2xs space-y-5">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2">
-                <QrCode className="w-5 h-5 text-emerald-600" />
-                <h2 className="text-base font-bold text-slate-900">Scanner QR do Crachá</h2>
-              </div>
-
-              <div className="flex items-center gap-2">
-                {isCameraActive ? (
-                  <button
-                    type="button"
-                    onClick={stopCamera}
-                    className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
-                  >
-                    <CameraOff className="w-3.5 h-3.5" />
-                    <span>Desligar Câmara</span>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={startCamera}
-                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
-                  >
-                    <Camera className="w-3.5 h-3.5" />
-                    <span>Ligar Câmara QR</span>
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* ÁREA DO VÍDEO / MIRA DA CÂMARA */}
-            {isCameraActive ? (
-              <div className="relative rounded-2xl overflow-hidden bg-black aspect-video max-h-72 flex items-center justify-center border-2 border-emerald-500 shadow-inner">
-                <video
-                  ref={videoRef}
-                  className="w-full h-full object-cover"
-                  playsInline
-                />
-                <canvas ref={canvasRef} className="hidden" />
-
-                {/* Retículo de mira central para leitura do QR Code */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="w-48 h-48 border-2 border-emerald-400 rounded-2xl relative shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]">
-                    <div className="absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 border-emerald-400 -mt-1 -ml-1"></div>
-                    <div className="absolute top-0 right-0 w-4 h-4 border-t-4 border-r-4 border-emerald-400 -mt-1 -mr-1"></div>
-                    <div className="absolute bottom-0 left-0 w-4 h-4 border-b-4 border-l-4 border-emerald-400 -mb-1 -ml-1"></div>
-                    <div className="absolute bottom-0 right-0 w-4 h-4 border-b-4 border-r-4 border-emerald-400 -mb-1 -mr-1"></div>
-                    <div className="w-full h-0.5 bg-emerald-400/80 absolute top-1/2 -translate-y-1/2 animate-pulse"></div>
-                  </div>
-                </div>
-
-                <div className="absolute bottom-3 bg-black/70 backdrop-blur-xs text-white text-[11px] px-3 py-1 rounded-full font-semibold">
-                  Aponte o QR Code do cartão do aluno para a moldura
-                </div>
-              </div>
-            ) : (
-              <div 
-                onClick={startCamera}
-                className="bg-slate-50 border-2 border-dashed border-slate-200 hover:border-emerald-400 hover:bg-emerald-50/20 rounded-2xl p-8 text-center cursor-pointer transition space-y-2"
-              >
-                <div className="w-12 h-12 bg-white rounded-2xl shadow-xs border border-slate-200 flex items-center justify-center mx-auto text-emerald-600">
-                  <Camera className="w-6 h-6" />
-                </div>
-                <h3 className="text-sm font-bold text-slate-800">Câmara de Leitura Desligada</h3>
-                <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                  Clique aqui para ativar a câmara e ler o QR Code do cartão escolar ou utilize o leitor ótico abaixo.
-                </p>
-              </div>
-            )}
-
-            {cameraError && (
-              <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
-                <span>{cameraError}</span>
-              </div>
-            )}
-
-            {/* DIGITAÇÃO MANUAL OU LEITOR USB DE CÓDIGO DE BARRAS / QR */}
-            <form onSubmit={handleManualSearch} className="space-y-3 pt-2">
-              <label className="text-xs font-bold text-slate-700 block">
-                Digitação Rápida (Código do Aluno ou aproximar leitor USB):
-              </label>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    ref={manualInputRef}
-                    type="text"
-                    value={manualCode}
-                    onChange={(e) => setManualCode(e.target.value)}
-                    placeholder="Ex: CFTPM-AL-1042 ou nome do aluno..."
-                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="px-5 py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold cursor-pointer transition shrink-0"
-                >
-                  Localizar
-                </button>
-              </div>
-
-              {/* Botões de Teste Rápido com Alunos da Base */}
-              <div className="pt-2">
-                <span className="text-[11px] text-slate-400 font-semibold block mb-1.5">
-                  Simulação Rápida (1 toque para testar):
-                </span>
-                <div className="flex flex-wrap gap-1.5">
-                  {studentPool.slice(0, 4).map(st => (
-                    <button
-                      key={st.id}
-                      type="button"
-                      onClick={() => {
-                        setIdentifiedStudent(st);
-                        soundManager.playNotification();
-                      }}
-                      className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-medium cursor-pointer transition"
-                    >
-                      {st.fullName.split(' ')[0]} ({st.code})
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </form>
-          </div>
-
-          {/* FICHA DO ALUNO IDENTIFICADO (SOMENTE DADOS DE IDENTIFICAÇÃO E NENHUM DADO ADMINISTRATIVO) */}
-          {identifiedStudent && (
-            <div className="bg-white rounded-2xl border-2 border-emerald-500 p-6 shadow-md space-y-5 animate-in slide-in-from-top-2 duration-200">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <span className="text-xs font-black uppercase tracking-wider text-emerald-700 flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  Aluno Identificado na Portaria
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setIdentifiedStudent(null)}
-                  className="p-1 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="flex flex-col sm:flex-row items-center gap-5">
-                <img
-                  src={identifiedStudent.photoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80'}
-                  alt={identifiedStudent.fullName}
-                  className="w-24 h-28 rounded-2xl object-cover border-2 border-slate-200 shadow-xs shrink-0"
-                />
-
-                <div className="space-y-1.5 text-center sm:text-left flex-1 min-w-0">
-                  <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded text-[10px] font-bold font-mono">
-                    {identifiedStudent.code}
-                  </span>
-                  <h3 className="text-lg font-black text-slate-900 truncate">
-                    {identifiedStudent.fullName}
-                  </h3>
-                  <p className="text-xs text-slate-600 font-medium">
-                    {identifiedStudent.courseName}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    Turma: <strong className="text-slate-800">{identifiedStudent.classGroupName}</strong> • Regime: {identifiedStudent.regime}
-                  </p>
-                  <div className="pt-1">
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                      ✓ Acesso Autorizado
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* BOTÕES DE AÇÃO IMEDIATA: CONFIRMAR ENTRADA OU SAÍDA */}
-              <div className="grid grid-cols-2 gap-3 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => handleConfirmAccess('entrada')}
-                  className="py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-black flex items-center justify-center gap-2 cursor-pointer shadow-xs transition"
-                >
-                  <LogIn className="w-4 h-4" />
-                  <span>Confirmar ENTRADA</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleConfirmAccess('saida')}
-                  className="py-3.5 px-4 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-sm font-black flex items-center justify-center gap-2 cursor-pointer shadow-xs transition"
-                >
-                  <LogOut className="w-4 h-4" />
-                  <span>Confirmar SAÍDA</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-        </div>
-
-        {/* COLUNA DIREITA: HISTÓRICO DO DIA */}
-        <div className="lg:col-span-5 space-y-6">
-
-          {/* CARD DE HISTÓRICO DO DIA */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-2xs space-y-5">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2">
-                <History className="w-5 h-5 text-emerald-600" />
-                <h2 className="text-base font-bold text-slate-900">Histórico do Dia</h2>
-              </div>
-              <span className="text-xs font-mono font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
-                {todayLogs.length} Registros
-              </span>
-            </div>
-
-            {/* CONTADORES RESUMIDOS DO DIA */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100">
-                <span className="text-[11px] font-bold text-emerald-800 uppercase block">Entradas Hoje</span>
-                <span className="text-2xl font-black text-emerald-700">{totalEntradasHoje}</span>
-              </div>
-              <div className="p-3 bg-amber-50 rounded-xl border border-amber-100">
-                <span className="text-[11px] font-bold text-amber-800 uppercase block">Saídas Hoje</span>
-                <span className="text-2xl font-black text-amber-700">{totalSaidasHoje}</span>
-              </div>
-            </div>
-
-            {/* FILTROS E BUSCA DO HISTÓRICO */}
-            <div className="space-y-2">
-              <div className="flex gap-1.5 bg-slate-100 p-1 rounded-xl">
-                <button
-                  type="button"
-                  onClick={() => setHistoryFilter('todos')}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                    historyFilter === 'todos' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Todos
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setHistoryFilter('entrada')}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                    historyFilter === 'entrada' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Entradas
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setHistoryFilter('saida')}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                    historyFilter === 'saida' ? 'bg-amber-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Saídas
-                </button>
-              </div>
-
-              <div className="relative">
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={historySearch}
-                  onChange={(e) => setHistorySearch(e.target.value)}
-                  placeholder="Pesquisar no histórico de hoje..."
-                  className="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                />
-              </div>
-            </div>
-
-            {/* LISTAGEM DOS REGISTOS DO DIA */}
-            <div className="space-y-2.5 max-h-[520px] overflow-y-auto pr-1">
-              {todayLogs.length === 0 ? (
-                <div className="text-center py-10 px-4 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                  <Clock className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                  <p className="text-xs font-bold text-slate-600">Nenhum movimento registrado hoje</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    Os registros de entrada e saída aparecerão aqui em tempo real.
-                  </p>
-                </div>
-              ) : (
-                todayLogs.map(log => {
-                  const isEntrada = log.type === 'entrada';
-                  return (
-                    <div
-                      key={log.id}
-                      className="p-3 bg-slate-50/70 hover:bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between gap-3 transition"
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <img
-                          src={log.photoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'}
-                          alt={log.studentName}
-                          className="w-10 h-10 rounded-xl object-cover border border-slate-200 shrink-0"
-                        />
-                        <div className="min-w-0">
-                          <p className="text-xs font-bold text-slate-900 truncate">
-                            {log.studentName}
-                          </p>
-                          <p className="text-[11px] text-slate-500 truncate">
-                            {log.courseName} • <span className="font-mono">{log.studentCode}</span>
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="text-right shrink-0">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider block ${
-                          isEntrada ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                        }`}>
-                          {isEntrada ? 'ENTRADA' : 'SAÍDA'}
-                        </span>
-                        <span className="text-[11px] font-mono font-bold text-slate-500 block mt-0.5">
-                          {log.time || log.timestamp?.split(' ')[1] || '08:00'}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-          </div>
-
-        </div>
-
-      </div>
-
     </div>
   );
 };
+
 export default PorteiroExperienceView;

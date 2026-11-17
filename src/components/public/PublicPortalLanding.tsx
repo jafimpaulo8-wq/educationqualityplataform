@@ -29,10 +29,12 @@ import {
   X,
   Phone,
   Mail,
-  Info
+  Info,
+  MessageCircle
 } from 'lucide-react';
 import { soundManager } from '../../utils/audio';
 import { useApp } from '../../context/AppContext';
+import { validateAndFormatInternationalPhone } from '../../views/public/PublicRegistrationView';
 import { COURSES_DATA } from '../../data/mockData';
 import { Course, Institution } from '../../types';
 
@@ -114,9 +116,9 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
       list.push({
         ...c,
         image: courseImg,
-        instName: inst?.name || 'CFTPM Moztechwave',
-        instCode: inst?.code || 'MTW-CF-0001',
-        instCity: inst?.city || 'Matola'
+        instName: inst?.name || 'Instituição Parceira',
+        instCode: inst?.code || '',
+        instCity: inst?.city || ''
       });
     });
 
@@ -412,33 +414,57 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
                     </div>
 
                     {/* Botões de Ação do Curso */}
-                    <div className="flex items-center gap-2 mt-5 pt-3">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedCourseDetails(c)}
-                        className={`flex-1 py-2 px-3 rounded-xl text-xs font-semibold border transition-all cursor-pointer text-center ${
-                          isLight 
-                            ? 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200' 
-                            : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
-                        }`}
-                      >
-                        Ver Detalhes
-                      </button>
+                    <div className="flex flex-col gap-2 mt-5 pt-3 border-t border-slate-100 dark:border-slate-800">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedCourseDetails(c)}
+                          className={`flex-1 py-2 px-3 rounded-xl text-xs font-semibold border transition-all cursor-pointer text-center ${
+                            isLight 
+                              ? 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200' 
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                          }`}
+                        >
+                          Ver Detalhes
+                        </button>
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (onOpenOnlineRegistration) {
-                            onOpenOnlineRegistration(c.name);
-                          } else {
-                            navigate('inscricao_publica');
-                          }
-                        }}
-                        className="flex-1 py-2 px-3 rounded-xl text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white shadow-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1"
-                      >
-                        <span>Inscrever-se</span>
-                        <ArrowRight className="w-3 h-3" />
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onOpenOnlineRegistration) {
+                              onOpenOnlineRegistration(c.name);
+                            } else {
+                              navigate('inscricao_publica');
+                            }
+                          }}
+                          className="flex-1 py-2 px-3 rounded-xl text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white shadow-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1"
+                        >
+                          <span>Inscrever-se</span>
+                          <ArrowRight className="w-3 h-3" />
+                        </button>
+                      </div>
+
+                      {/* Botão Saber mais via WhatsApp oficial da instituição do curso (oculto se sem número) */}
+                      {(() => {
+                        const courseInst = allInstitutions.find(i => i.id === c.institutionId) || activeInstitution;
+                        const instWhatsApp = validateAndFormatInternationalPhone(courseInst?.whatsapp || courseInst?.phone);
+                        if (!instWhatsApp) return null;
+                        return (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const msg = encodeURIComponent(`Olá ${courseInst.name}! Gostaria de saber mais informações sobre o curso de "${c.name}".`);
+                              window.open(`https://wa.me/${instWhatsApp}?text=${msg}`, '_blank');
+                            }}
+                            className="w-full py-1.5 px-3 rounded-xl text-xs font-semibold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                            title="Saber mais no WhatsApp institucional"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5 text-emerald-500" />
+                            <span>Saber mais</span>
+                          </button>
+                        );
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -779,23 +805,45 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
                 Fechar
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  const courseName = selectedCourseDetails.name;
-                  setSelectedCourseDetails(null);
-                  if (onOpenOnlineRegistration) {
-                    onOpenOnlineRegistration(courseName);
-                  } else {
-                    navigate('inscricao_publica');
-                  }
-                }}
-                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-md transition cursor-pointer flex items-center gap-2"
-              >
-                <GraduationCap className="w-4 h-4" />
-                <span>Inscrever-se neste Curso</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
+              <div className="flex items-center gap-2">
+                {(() => {
+                  const courseInst = allInstitutions.find(i => i.id === selectedCourseDetails.institutionId) || activeInstitution;
+                  const modalWhatsApp = validateAndFormatInternationalPhone(courseInst?.whatsapp || courseInst?.phone);
+                  if (!modalWhatsApp) return null;
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const msg = encodeURIComponent(`Olá ${courseInst.name}! Gostaria de saber mais informações sobre o curso de "${selectedCourseDetails.name}".`);
+                        window.open(`https://wa.me/${modalWhatsApp}?text=${msg}`, '_blank');
+                      }}
+                      className="px-4 py-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                      title="Saber mais no WhatsApp institucional"
+                    >
+                      <MessageCircle className="w-3.5 h-3.5" />
+                      <span>Saber mais</span>
+                    </button>
+                  );
+                })()}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const courseName = selectedCourseDetails.name;
+                    setSelectedCourseDetails(null);
+                    if (onOpenOnlineRegistration) {
+                      onOpenOnlineRegistration(courseName);
+                    } else {
+                      navigate('inscricao_publica');
+                    }
+                  }}
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-md transition cursor-pointer flex items-center gap-2"
+                >
+                  <GraduationCap className="w-4 h-4" />
+                  <span>Inscrever-se neste Curso</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
           </div>
         </div>

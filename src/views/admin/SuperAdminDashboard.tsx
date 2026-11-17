@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { Institution } from '../../types';
+import { InstitutionLogoBadge } from '../../components/common/InstitutionLogoBadge';
 
 export const SuperAdminDashboard: React.FC = () => {
   const { 
@@ -93,7 +94,7 @@ export const SuperAdminDashboard: React.FC = () => {
         <div className="space-y-2">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 text-xs font-bold uppercase tracking-wider">
             <Database className="w-3.5 h-3.5" />
-            Moztechwave Core • Super Admin
+            SIGAR PRO • Super Admin
           </div>
           <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
             Painel Central de Gestão Multi-Institucional
@@ -234,7 +235,7 @@ export const SuperAdminDashboard: React.FC = () => {
       <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
           <div>
-            <h3 className="text-lg font-bold text-white">Diretório de Instituições &amp; Centros Moztechwave</h3>
+            <h3 className="text-lg font-bold text-white">Diretório de Instituições &amp; Centros SIGAR PRO</h3>
             <p className="text-xs text-slate-400">
               Cada centro opera em ambiente autônomo com logotipo, prefixos, contas financeiras e WhatsApp independentes.
             </p>
@@ -283,14 +284,17 @@ export const SuperAdminDashboard: React.FC = () => {
                   </span>
                 </div>
 
-                <div>
-                  <h4 className="text-sm font-bold text-white group-hover:text-sky-300 transition-colors">
-                    {inst.name}
-                  </h4>
-                  <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
-                    <MapPin className="w-3 h-3 text-amber-400" />
-                    {inst.province} • {inst.city}
-                  </p>
+                <div className="flex items-center gap-3">
+                  <InstitutionLogoBadge institution={inst} size="sm" rounded="xl" />
+                  <div className="min-w-0">
+                    <h4 className="text-sm font-bold text-white group-hover:text-sky-300 transition-colors truncate">
+                      {inst.name}
+                    </h4>
+                    <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
+                      <MapPin className="w-3 h-3 text-amber-400" />
+                      {inst.province} • {inst.city}
+                    </p>
+                  </div>
                 </div>
 
                 {/* Independent Config Badges */}
@@ -401,7 +405,7 @@ export const SuperAdminDashboard: React.FC = () => {
             <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950">
               <div>
                 <div className="flex items-center gap-2">
-                  <Building2 className="w-5 h-5 text-sky-400" />
+                  <InstitutionLogoBadge institution={selectedInstForConfig} size="xs" rounded="lg" />
                   <h3 className="text-base font-bold text-white">{selectedInstForConfig.name}</h3>
                   <span className="font-mono text-xs font-bold text-sky-400 px-2 py-0.5 rounded bg-sky-500/10 border border-sky-500/20">
                     {selectedInstForConfig.code}

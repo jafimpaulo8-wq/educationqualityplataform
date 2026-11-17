@@ -36,6 +36,8 @@ import {
   InternshipEvaluation, 
   InternshipDocumentType 
 } from '../../types';
+import { resolveInstitutionIdentity } from '../../utils/institutionIdentity';
+import { InstitutionLogoBadge } from '../../components/common/InstitutionLogoBadge';
 
 export const InternshipsView: React.FC = () => {
   const { 
@@ -1064,20 +1066,30 @@ export const InternshipsView: React.FC = () => {
             </div>
 
             {/* Cabeçalho Oficial do Documento */}
-            <div className="text-center space-y-1 pb-4 border-b-2 border-slate-900">
-              <h4 className="text-[11px] font-bold uppercase tracking-widest text-slate-600">
-                República de Moçambique
-              </h4>
-              <h5 className="text-[10px] font-semibold uppercase tracking-wider text-slate-600">
-                Ministério da Ciência, Tecnologia e Ensino Superior • ANEP
-              </h5>
-              <h2 className="text-lg font-black text-slate-900 mt-1 uppercase">
-                {activeInstitution.name}
-              </h2>
-              <p className="text-[11px] text-slate-500">
-                Gabinete de Estágios & Inserção Profissional • {activeInstitution.address} • NUIT: {activeInstitution.nuit || '400192841'}
-              </p>
-            </div>
+            {(() => {
+              const instIdentity = resolveInstitutionIdentity(activeInstitution);
+              return (
+                <div className="text-center space-y-1 pb-4 border-b-2 border-slate-900">
+                  <div className="flex justify-center mb-1.5">
+                    <InstitutionLogoBadge institution={activeInstitution} size="sm" rounded="xl" className="border border-slate-300" />
+                  </div>
+                  <h4 className="text-[11px] font-bold uppercase tracking-widest text-slate-600">
+                    República de Moçambique
+                  </h4>
+                  <h5 className="text-[10px] font-semibold uppercase tracking-wider text-slate-600">
+                    Ministério da Ciência, Tecnologia e Ensino Superior • ANEP
+                  </h5>
+                  <h2 className="text-lg font-black text-slate-900 mt-1 uppercase">
+                    {instIdentity.officialName}
+                  </h2>
+                  <p className="text-[11px] text-slate-500">
+                    Gabinete de Estágios & Inserção Profissional
+                    {instIdentity.address ? ` • ${instIdentity.address}` : ''}
+                    {instIdentity.nuit ? ` • NUIT: ${instIdentity.nuit}` : ''}
+                  </p>
+                </div>
+              );
+            })()}
 
             {/* CONTEÚDO ESPECÍFICO DO DOCUMENTO */}
             {selectedDocType === 'termo_compromisso' && (

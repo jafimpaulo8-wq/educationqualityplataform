@@ -1,6 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Users, 
+  User,
   CheckCircle2, 
   XCircle, 
   Clock, 
@@ -53,6 +54,15 @@ import { ConfirmationModal } from '../../components/common/ConfirmationModal';
 import { RecordHistoryModal } from '../../components/common/RecordHistoryModal';
 import { RecordDetailsModal, DetailField } from '../../components/common/RecordDetailsModal';
 import { StudentInvitationModal } from '../../components/students/StudentInvitationModal';
+
+function formatDateValue(val: any): string {
+  if (!val) return '';
+  if (typeof val === 'string') return val;
+  if (typeof val.toDate === 'function') return val.toDate().toLocaleString('pt-MZ');
+  if (val.seconds !== undefined) return new Date(val.seconds * 1000).toLocaleString('pt-MZ');
+  if (val instanceof Date) return val.toLocaleString('pt-MZ');
+  return String(val);
+}
 
 export const CandidatesManagementView: React.FC = () => {
   const { 
@@ -180,6 +190,22 @@ export const CandidatesManagementView: React.FC = () => {
   const [cfgNewDocInput, setCfgNewDocInput] = useState('');
   const [cfgCourses, setCfgCourses] = useState<OnlineCourseConfig[]>(onlineRegistrationConfig.coursesConfig || []);
   const [cfgQuestions, setCfgQuestions] = useState(onlineRegistrationConfig.customQuestions || []);
+
+  useEffect(() => {
+    setCfgIsOpen(onlineRegistrationConfig.isOpen);
+    setCfgTitle(onlineRegistrationConfig.title);
+    setCfgDescription(onlineRegistrationConfig.description);
+    setCfgStartDate(onlineRegistrationConfig.startDate);
+    setCfgEndDate(onlineRegistrationConfig.endDate);
+    setCfgAcademicYear(onlineRegistrationConfig.academicYear);
+    setCfgSemester(onlineRegistrationConfig.semester);
+    setCfgConfirmationTemplate(onlineRegistrationConfig.confirmationMessageTemplate || '');
+    setCfgRequiredFields(onlineRegistrationConfig.requiredFields);
+    setCfgRequiredDocs(onlineRegistrationConfig.requiredDocuments || []);
+    setCfgCourses(onlineRegistrationConfig.coursesConfig || []);
+    setCfgQuestions(onlineRegistrationConfig.customQuestions || []);
+    setSelectedCandidate(null);
+  }, [activeInstitution.id, onlineRegistrationConfig]);
   
   // New Question Form State
   const [newQuestionText, setNewQuestionText] = useState('');
@@ -202,8 +228,12 @@ export const CandidatesManagementView: React.FC = () => {
       }
 
       // Status
-      if (selectedStatusFilter !== 'todos' && app.status !== selectedStatusFilter) {
-        return false;
+      if (selectedStatusFilter !== 'todos') {
+        if (selectedStatusFilter === 'Pendente') {
+          if (app.status !== 'Pendente' && app.status !== 'submetida') return false;
+        } else if (app.status !== selectedStatusFilter) {
+          return false;
+        }
       }
 
       // Course
@@ -222,7 +252,7 @@ export const CandidatesManagementView: React.FC = () => {
 
   // Statistics KPIs
   const totalCandidates = applications.length;
-  const pendingCandidates = applications.filter(a => a.status === 'Pendente' || a.status === 'Em Análise').length;
+  const pendingCandidates = applications.filter(a => a.status === 'Pendente' || a.status === 'submetida' || a.status === 'Em Análise').length;
   const approvedCandidates = applications.filter(a => a.status === 'Aprovada').length;
   const enrolledCandidates = applications.filter(a => a.status === 'Matriculado').length;
   const rejectedCandidates = applications.filter(a => a.status === 'Rejeitada').length;
@@ -390,7 +420,7 @@ export const CandidatesManagementView: React.FC = () => {
         `"${c.status}"`,
         `"${c.paymentStatus}"`,
         `"${c.paymentAmount || 1500}"`,
-        `"${c.createdAt || ''}"`,
+        `"${formatDateValue(c.createdAt)}"`,
         `"${c.analyzedAt || ''}"`,
         `"${(c.analysisNotes || '').replace(/"/g, '""')}"`
       ]);
@@ -442,7 +472,7 @@ export const CandidatesManagementView: React.FC = () => {
       regime: candidateFormData.regime,
       shift: candidateFormData.shift,
       status: 'Pendente',
-      photoUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&auto=format&fit=crop&q=80',
+      photoUrl: '',
       paymentReference: `BALCAO-${Date.now().toString().slice(-6)}`,
       paymentStatus: candidateFormData.paymentStatus,
       paymentAmount: Number(candidateFormData.paymentAmount) || 1500,
@@ -791,7 +821,7 @@ export const CandidatesManagementView: React.FC = () => {
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs scrollbar-thin">
             {[
               { id: 'todos', label: 'Todas', count: applications.length },
-              { id: 'Pendente', label: 'Submetida', count: applications.filter(a => a.status === 'Pendente').length },
+              { id: 'Pendente', label: 'Submetida', count: applications.filter(a => a.status === 'Pendente' || a.status === 'submetida').length },
               { id: 'Em Análise', label: 'Em Análise', count: applications.filter(a => a.status === 'Em Análise').length },
               { id: 'Documentação Pendente', label: 'Doc. Pendente', count: applications.filter(a => a.status === 'Documentação Pendente').length },
               { id: 'Correcção Solicitada', label: 'Correcção Solicitada', count: applications.filter(a => a.status === 'Correcção Solicitada').length },
@@ -831,7 +861,7 @@ export const CandidatesManagementView: React.FC = () => {
                 type="text"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Pesquisar por nome, código (CFTPM-CAND...), BI, telefone ou email..."
+                placeholder={`Pesquisar por nome, código (${activeInstitution.prefixes?.candidatePrefix || activeInstitution.code || 'CAND'}-...), BI, telefone ou email...`}
                 className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/60 transition-colors"
               />
               {searchQuery && (
@@ -942,13 +972,13 @@ export const CandidatesManagementView: React.FC = () => {
                   ) : (
                     filteredCandidates.map(candidate => {
                       // Status Badge Styling
-                      let statusBadge = { bg: 'bg-slate-800 text-slate-300 border-slate-700', label: candidate.status };
+                      let statusBadge: { bg: string; label: string } = { bg: 'bg-slate-800 text-slate-300 border-slate-700', label: candidate.status };
                       if (candidate.status === 'Aprovada') {
                         statusBadge = { bg: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30', label: 'Aprovada' };
                       } else if (candidate.status === 'Em Análise') {
                         statusBadge = { bg: 'bg-amber-500/15 text-amber-300 border-amber-500/30', label: 'Em Análise' };
-                      } else if (candidate.status === 'Pendente') {
-                        statusBadge = { bg: 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30', label: 'Pendente' };
+                      } else if (candidate.status === 'Pendente' || candidate.status === 'submetida') {
+                        statusBadge = { bg: 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30', label: candidate.status === 'submetida' ? 'Submetida' : 'Pendente' };
                       } else if (candidate.status === 'Matriculado') {
                         statusBadge = { bg: 'bg-blue-500/15 text-blue-300 border-blue-500/30', label: 'Matriculado' };
                       } else if (candidate.status === 'Rejeitada') {
@@ -966,12 +996,18 @@ export const CandidatesManagementView: React.FC = () => {
                           {/* Candidate Identity */}
                           <td className="py-3 px-4" onClick={() => handleOpenDetail(candidate)}>
                             <div className="flex items-center gap-3">
-                              <img 
-                                src={candidate.photoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'} 
-                                alt={candidate.fullName} 
-                                className="w-10 h-10 rounded-full object-cover border border-slate-700/80 shrink-0"
-                                referrerPolicy="no-referrer"
-                              />
+                              {candidate.photoUrl ? (
+                                <img 
+                                  src={candidate.photoUrl} 
+                                  alt={candidate.fullName} 
+                                  className="w-10 h-10 rounded-full object-cover border border-slate-700/80 shrink-0"
+                                  referrerPolicy="no-referrer"
+                                />
+                              ) : (
+                                <div className="w-10 h-10 rounded-full bg-slate-800 border border-slate-700/80 shrink-0 flex items-center justify-center text-slate-400">
+                                  <User className="w-5 h-5" />
+                                </div>
+                              )}
                               <div className="min-w-0">
                                 <p className="font-semibold text-white truncate group-hover:text-emerald-400 transition-colors">
                                   {candidate.fullName}
@@ -1029,7 +1065,7 @@ export const CandidatesManagementView: React.FC = () => {
 
                           {/* Submission Date */}
                           <td className="py-3 px-4 text-slate-400 text-[11px] whitespace-nowrap" onClick={() => handleOpenDetail(candidate)}>
-                            {candidate.createdAt}
+                            {formatDateValue(candidate.createdAt)}
                           </td>
 
                           {/* Actions */}
@@ -1514,19 +1550,25 @@ export const CandidatesManagementView: React.FC = () => {
             {/* Modal Header */}
             <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
               <div className="flex items-center gap-3">
-                <img 
-                  src={selectedCandidate.photoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80'} 
-                  alt={selectedCandidate.fullName} 
-                  className="w-12 h-12 rounded-full object-cover border-2 border-emerald-500/40"
-                  referrerPolicy="no-referrer"
-                />
+                {selectedCandidate.photoUrl ? (
+                  <img 
+                    src={selectedCandidate.photoUrl} 
+                    alt={selectedCandidate.fullName} 
+                    className="w-12 h-12 rounded-full object-cover border-2 border-emerald-500/40"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className="w-12 h-12 rounded-full bg-slate-800 border-2 border-emerald-500/40 flex items-center justify-center text-slate-400 shrink-0">
+                    <User className="w-6 h-6" />
+                  </div>
+                )}
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
                       {selectedCandidate.code}
                     </span>
                     <span className="text-xs text-slate-400">•</span>
-                    <span className="text-xs text-slate-400">Submetido: {selectedCandidate.createdAt}</span>
+                    <span className="text-xs text-slate-400">Submetido: {formatDateValue(selectedCandidate.createdAt)}</span>
                   </div>
                   <h3 className="text-lg font-bold text-white mt-0.5">{selectedCandidate.fullName}</h3>
                 </div>
@@ -2553,7 +2595,7 @@ export const CandidatesManagementView: React.FC = () => {
             { label: 'Taxa de Inscrição', value: `${(viewingCandidateDetails.paymentAmount || 1500).toLocaleString()} MT` },
             { label: 'Estado do Pagamento', value: viewingCandidateDetails.paymentStatus },
             { label: 'Método de Pagamento', value: viewingCandidateDetails.paymentMethod || 'Dinheiro / Balcão' },
-            { label: 'Data de Submissão', value: viewingCandidateDetails.createdAt },
+            { label: 'Data de Submissão', value: formatDateValue(viewingCandidateDetails.createdAt) },
             { label: 'Parecer da Secretaria', value: viewingCandidateDetails.analysisNotes || 'Pendente de parecer formal', fullWidth: true },
             { label: 'Motivo de Rejeição', value: viewingCandidateDetails.rejectionReason || 'Nenhum', fullWidth: true }
           ]}

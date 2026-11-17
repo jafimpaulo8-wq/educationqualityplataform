@@ -2,6 +2,8 @@ import React from 'react';
 import { X, Printer, Download, CheckCircle2 } from 'lucide-react';
 import { Announcement } from '../../../types';
 import { useApp } from '../../../context/AppContext';
+import { InstitutionLogoBadge } from '../../../components/common/InstitutionLogoBadge';
+import { resolveInstitutionIdentity } from '../../../utils/institutionIdentity';
 
 interface AnnouncementPrintModalProps {
   isOpen: boolean;
@@ -15,6 +17,7 @@ export const AnnouncementPrintModal: React.FC<AnnouncementPrintModalProps> = ({
   announcement
 }) => {
   const { activeInstitution } = useApp();
+  const identity = resolveInstitutionIdentity(activeInstitution);
 
   if (!isOpen || !announcement) return null;
 
@@ -72,13 +75,20 @@ export const AnnouncementPrintModal: React.FC<AnnouncementPrintModalProps> = ({
             <h5 className="text-[11px] tracking-wider uppercase font-semibold text-slate-600">
               Ministério da Ciência, Tecnologia e Ensino Superior / ANEP - SIVEC
             </h5>
-            <div className="py-2">
+            <div className="py-2 flex flex-col items-center gap-2">
+              <InstitutionLogoBadge institution={activeInstitution} size="lg" rounded="xl" />
               <h1 className="text-xl sm:text-2xl font-black uppercase tracking-wide text-slate-950 font-sans">
-                {activeInstitution.name}
+                {identity.officialName || 'Instituição de Ensino'}
               </h1>
-              <p className="text-xs font-sans text-slate-600">
-                {activeInstitution.address} • NUIT: {activeInstitution.nuit} • Contato: {activeInstitution.phone}
-              </p>
+              {(identity.address || identity.nuit || identity.phone) && (
+                <p className="text-xs font-sans text-slate-600">
+                  {[
+                    identity.address,
+                    identity.nuit ? `NUIT: ${identity.nuit}` : '',
+                    identity.phone ? `Contacto: ${identity.phone}` : ''
+                  ].filter(Boolean).join(' • ')}
+                </p>
+              )}
             </div>
             <div className="inline-block px-4 py-1 border border-slate-800 text-xs font-bold uppercase tracking-wider">
               {announcement.type === 'aviso' && 'AVISO OFICIAL Nº ' + announcement.id.toUpperCase().replace('ANN-', 'AV-')}
@@ -178,26 +188,34 @@ export const AnnouncementPrintModal: React.FC<AnnouncementPrintModalProps> = ({
 
           {/* Signatures & Seal Section */}
           <div className="pt-16 grid grid-cols-2 gap-8 text-center font-sans text-xs">
-            <div className="space-y-12">
-              <div className="w-48 mx-auto border-b border-slate-900 pb-1"></div>
+            <div className="space-y-4">
+              <div className="w-48 h-14 mx-auto border-b border-slate-900 pb-1 flex items-end justify-center">
+                {identity.signatureUrl && (
+                  <img src={identity.signatureUrl} alt="Assinatura autorizada" className="max-h-12 object-contain" />
+                )}
+              </div>
               <div>
-                <p className="font-bold text-slate-900 uppercase">{announcement.authorName}</p>
-                <p className="text-slate-600">{announcement.authorRole || 'Direção Pedagógica'}</p>
+                <p className="font-bold text-slate-900 uppercase">{announcement.authorName || identity.signatoryName || 'Direção'}</p>
+                <p className="text-slate-600">{announcement.authorRole || identity.signatoryRole || 'Direção Pedagógica'}</p>
               </div>
             </div>
 
-            <div className="space-y-12">
-              <div className="w-48 mx-auto border-b border-slate-900 pb-1"></div>
+            <div className="space-y-4">
+              <div className="w-48 h-14 mx-auto border-b border-slate-900 pb-1 flex items-end justify-center">
+                {identity.stampUrl && (
+                  <img src={identity.stampUrl} alt="Carimbo institucional" className="max-h-12 object-contain" />
+                )}
+              </div>
               <div>
-                <p className="font-bold text-slate-900 uppercase">A Direção Geral</p>
-                <p className="text-slate-600">[Carimbo em Branco / Selo Branco]</p>
+                <p className="font-bold text-slate-900 uppercase">{identity.representativeName || 'A Direção Geral'}</p>
+                <p className="text-slate-600">{identity.representativeRole || 'Carimbo Institucional'}</p>
               </div>
             </div>
           </div>
 
           {/* Footer Footnote */}
           <div className="pt-16 mt-8 border-t border-slate-200 text-center font-sans text-[10px] text-slate-500">
-            Documento emitido electronicamente via Plataforma Moztechwave Education • Sistema Integrado de Gestão Académica (SIGA) • {new Date().getFullYear()}
+            Documento emitido electronicamente via Plataforma SIGAR PRO • Sistema Integrado de Gestão Académica • {new Date().getFullYear()}
           </div>
         </div>
       </div>

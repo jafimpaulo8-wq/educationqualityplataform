@@ -5,4 +5,5 @@ export const EnrollmentsPage: React.FC = () => {
   return <CandidatesManagementView />;
 };
 
+export { PublicEnrollmentPage } from '../../views/public/PublicEnrollmentPage';
 export default EnrollmentsPage;

@@ -125,7 +125,7 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
   // Self-assignment for unassigned account
   const [unassignedName, setUnassignedName] = useState('');
   const [unassignedRole, setUnassignedRole] = useState<UserRole>('ALUNO');
-  const [unassignedInstId, setUnassignedInstId] = useState<string>(CEU_AZUL_INSTITUTION_ID);
+  const [unassignedInstId, setUnassignedInstId] = useState<string>('');
 
   // User-associated institutions list (only real ones from Firestore)
   const [userInstitutions, setUserInstitutions] = useState<Institution[]>([]);
@@ -240,19 +240,19 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
 
       // 0. SUPER ADMIN SOBERANO: moztechwavenacala8@gmail.com
       if (user.email === 'moztechwavenacala8@gmail.com') {
+        const existingData = userDocSnap.exists() ? userDocSnap.data() : {};
+        const superInstId = (existingData?.lastInstitutionId || existingData?.institutionId || '').trim();
         const superAdminProfile = {
           id: user.uid,
           uid: user.uid,
-          name: 'Super Admin Global',
-          displayName: 'Super Admin Global (Moztechwave)',
+          name: existingData?.name || 'Super Admin Global',
+          displayName: existingData?.displayName || 'Super Admin Global',
           email: 'moztechwavenacala8@gmail.com',
           role: 'SUPER_ADMIN' as UserRole,
           roles: ['SUPER_ADMIN' as UserRole, 'DIRETOR' as UserRole, 'SECRETARIA' as UserRole, 'FINANCEIRO' as UserRole, 'PROFESSOR' as UserRole, 'PORTEIRO' as UserRole],
-          institutionId: 'ceu-azul-nacala',
-          institutionIds: ['ceu-azul-nacala', 'inst-1', 'moztechwave'],
+          institutionId: superInstId,
           status: 'aprovado',
-          branchId: 'todas',
-          createdAt: new Date().toISOString(),
+          branchId: existingData?.branchId || 'todas',
           lastLoginAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         };
@@ -262,22 +262,21 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
           role: 'SUPER_ADMIN',
           grantedAt: new Date().toISOString()
         }, { merge: true });
-        setActiveInstitution(CEU_AZUL_INSTITUTION);
         setActiveRole('SUPER_ADMIN');
         setHasSigarProfile(true);
         soundManager.playSuccess();
         await proceedAfterAuth({
           uid: user.uid,
           email: user.email,
-          name: 'Super Admin Global',
+          name: superAdminProfile.name,
           isSuperAdmin: true,
           authorizedRoles: ['SUPER_ADMIN', 'DIRETOR', 'SECRETARIA', 'FINANCEIRO', 'PROFESSOR', 'PORTEIRO'],
-          institutionId: 'ceu-azul-nacala',
-          branchId: 'todas'
+          institutionId: superInstId,
+          branchId: superAdminProfile.branchId
         });
         addNotification({
           title: 'Super Admin Global Conectado',
-          message: 'Bem-vindo, Super Administrador Global (moztechwavenacala8@gmail.com). Acesso pleno a todos os portais.',
+          message: 'Bem-vindo, Super Administrador Global (moztechwavenacala8@gmail.com). Selecione a instituição pretendida no painel.',
           type: 'success'
         });
         onClose();
@@ -532,19 +531,19 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
 
       // 0. SUPER ADMIN SOBERANO: moztechwavenacala8@gmail.com
       if (user.email === 'moztechwavenacala8@gmail.com') {
+        const existingData = userDocSnap.exists() ? userDocSnap.data() : {};
+        const superInstId = (existingData?.lastInstitutionId || existingData?.institutionId || '').trim();
         const superAdminProfile = {
           id: user.uid,
           uid: user.uid,
-          name: 'Super Admin Global',
-          displayName: 'Super Admin Global (Moztechwave)',
+          name: existingData?.name || 'Super Admin Global',
+          displayName: existingData?.displayName || 'Super Admin Global',
           email: 'moztechwavenacala8@gmail.com',
           role: 'SUPER_ADMIN' as UserRole,
           roles: ['SUPER_ADMIN' as UserRole, 'DIRETOR' as UserRole, 'SECRETARIA' as UserRole, 'FINANCEIRO' as UserRole, 'PROFESSOR' as UserRole, 'PORTEIRO' as UserRole],
-          institutionId: 'ceu-azul-nacala',
-          institutionIds: ['ceu-azul-nacala', 'inst-1', 'moztechwave'],
+          institutionId: superInstId,
           status: 'aprovado',
-          branchId: 'todas',
-          createdAt: new Date().toISOString(),
+          branchId: existingData?.branchId || 'todas',
           lastLoginAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         };
@@ -554,22 +553,21 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
           role: 'SUPER_ADMIN',
           grantedAt: new Date().toISOString()
         }, { merge: true });
-        setActiveInstitution(CEU_AZUL_INSTITUTION);
         setActiveRole('SUPER_ADMIN');
         setHasSigarProfile(true);
         soundManager.playSuccess();
         await proceedAfterAuth({
           uid: user.uid,
           email: user.email,
-          name: 'Super Admin Global',
+          name: superAdminProfile.name,
           isSuperAdmin: true,
           authorizedRoles: ['SUPER_ADMIN', 'DIRETOR', 'SECRETARIA', 'FINANCEIRO', 'PROFESSOR', 'PORTEIRO'],
-          institutionId: 'ceu-azul-nacala',
-          branchId: 'todas'
+          institutionId: superInstId,
+          branchId: superAdminProfile.branchId
         });
         addNotification({
           title: 'Super Admin Global Conectado',
-          message: 'Bem-vindo, Super Administrador Global (moztechwavenacala8@gmail.com). Acesso pleno a todos os portais.',
+          message: 'Bem-vindo, Super Administrador Global (moztechwavenacala8@gmail.com). Selecione a instituição pretendida no painel.',
           type: 'success'
         });
         onClose();
@@ -848,10 +846,14 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
   // Self-assignment for authenticated user without prior profile
   const handleAssignProfileAndEnter = async () => {
     if (!unassignedAccount) return;
+    const targetInst = allInstitutions.find(i => i.id === unassignedInstId);
+    if (!targetInst) {
+      setFeedback({ success: false, message: 'Selecione uma instituição válida ou solicite associação ao administrador.' });
+      return;
+    }
     setLoading(true);
     setFeedback(null);
     try {
-      const targetInst = allInstitutions.find(i => i.id === unassignedInstId) || CEU_AZUL_INSTITUTION;
       const targetRole = unassignedRole;
       const name = unassignedName.trim() || unassignedAccount.email.split('@')[0] || 'Utilizador SIGAR';
       const newProfile = {
@@ -992,7 +994,7 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
         } catch (e) {
           console.warn('Firestore write warning:', e);
         }
-        const cftpm = allInstitutions.find(i => i.id === 'inst-1' || i.id === 'moztechwave') || allInstitutions[0];
+        const cftpm = allInstitutions.find(i => i.id === 'inst-1' || i.id === 'moztechwave');
         if (cftpm) setActiveInstitution(cftpm);
         setActiveRole('SECRETARIA');
         soundManager.playSuccess();
@@ -1852,6 +1854,7 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
                           isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'
                         }`}
                       >
+                        <option value="">Selecionar Instituição...</option>
                         {allInstitutions.map((i) => (
                           <option key={i.id} value={i.id}>
                             {i.name} ({i.city || i.province})

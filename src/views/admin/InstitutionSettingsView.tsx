@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Building2, 
   Save, 
@@ -28,7 +28,8 @@ import {
   RefreshCw,
   Stamp,
   PenTool,
-  Globe
+  Globe,
+  Palette
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { useToast } from '../../context/ToastContext';
@@ -36,6 +37,8 @@ import { useTranslation } from '../../i18n/LanguageContext';
 import { soundManager } from '../../utils/audio';
 import { Institution, InstitutionPrefixes, FinancialSettings, OnlineRegistrationConfig } from '../../types';
 import { OnlineRegistrationSettingsPanel } from '../../components/settings/OnlineRegistrationSettingsPanel';
+import { InstitutionLogoBadge } from '../../components/common/InstitutionLogoBadge';
+import { DEFAULT_INSTITUTION_COLORS, resolveInstitutionIdentity } from '../../utils/institutionIdentity';
 
 export const InstitutionSettingsView: React.FC = () => {
   const { activeInstitution, updateInstitution } = useApp();
@@ -45,33 +48,45 @@ export const InstitutionSettingsView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'geral' | 'prefixos' | 'assinatura_carimbo' | 'modelos' | 'regras_mensagens' | 'inscricoes_online'>('geral');
   const [saving, setSaving] = useState(false);
 
+  const identity = resolveInstitutionIdentity(activeInstitution);
+
   // Form states initialized with activeInstitution data
-  const [name, setName] = useState(activeInstitution.name || '');
+  const [name, setName] = useState(identity.hasInstitution ? identity.officialName : '');
+  const [shortName, setShortName] = useState(activeInstitution.shortName || activeInstitution.sigla || '');
   const [code, setCode] = useState(activeInstitution.code || '');
   const [type, setType] = useState(activeInstitution.type || 'Centro de Formação Profissional');
   const [nuit, setNuit] = useState(activeInstitution.nuit || '');
   const [licenseNumber, setLicenseNumber] = useState(activeInstitution.licenseNumber || '');
   const [representativeName, setRepresentativeName] = useState(activeInstitution.representativeName || '');
-  const [representativeRole, setRepresentativeRole] = useState(activeInstitution.representativeRole || 'Diretor Geral');
+  const [representativeRole, setRepresentativeRole] = useState(activeInstitution.representativeRole || '');
   const [phone, setPhone] = useState(activeInstitution.phone || '');
   const [phoneAlt, setPhoneAlt] = useState(activeInstitution.phoneAlt || '');
   const [email, setEmail] = useState(activeInstitution.email || '');
   const [whatsapp, setWhatsapp] = useState(activeInstitution.whatsapp || activeInstitution.whatsAppConfig?.phoneNumber || '');
-  const [province, setProvince] = useState(activeInstitution.province || 'Maputo Cidade');
-  const [city, setCity] = useState(activeInstitution.city || 'Maputo');
+  const [website, setWebsite] = useState(activeInstitution.website || '');
+  const [facebook, setFacebook] = useState(activeInstitution.socialLinks?.facebook || '');
+  const [instagram, setInstagram] = useState(activeInstitution.socialLinks?.instagram || '');
+  const [linkedin, setLinkedin] = useState(activeInstitution.socialLinks?.linkedin || '');
+  const [youtube, setYoutube] = useState(activeInstitution.socialLinks?.youtube || '');
+  const [province, setProvince] = useState(activeInstitution.province || '');
+  const [city, setCity] = useState(activeInstitution.city || '');
   const [address, setAddress] = useState(activeInstitution.address || '');
-  const [logoUrl, setLogoUrl] = useState(activeInstitution.logoUrl || '');
+  const [logoUrl, setLogoUrl] = useState(identity.logoUrl);
+  const [emblemUrl, setEmblemUrl] = useState(activeInstitution.emblemUrl || '');
+  const [primaryColor, setPrimaryColor] = useState(identity.colors.primary);
+  const [secondaryColor, setSecondaryColor] = useState(identity.colors.secondary);
+  const [accentColor, setAccentColor] = useState(identity.colors.accent);
   const [currency, setCurrency] = useState(activeInstitution.currency || 'MT');
   const [timezone, setTimezone] = useState(activeInstitution.timezone || 'Africa/Maputo (GMT+2)');
 
   // Prefixes & Numbering
   const [prefixes, setPrefixes] = useState<InstitutionPrefixes>({
-    studentPrefix: activeInstitution.prefixes?.studentPrefix || `${activeInstitution.code}-AL`,
-    candidatePrefix: activeInstitution.prefixes?.candidatePrefix || `${activeInstitution.code}-CAND`,
-    certificatePrefix: activeInstitution.prefixes?.certificatePrefix || `${activeInstitution.code}-CERT`,
-    receiptPrefix: activeInstitution.prefixes?.receiptPrefix || `${activeInstitution.code}-REC`,
-    contractPrefix: activeInstitution.prefixes?.contractPrefix || `${activeInstitution.code}-CTR`,
-    invoicePrefix: activeInstitution.prefixes?.invoicePrefix || `${activeInstitution.code}-FT`,
+    studentPrefix: activeInstitution.prefixes?.studentPrefix || `${activeInstitution.code || 'INST'}-AL`,
+    candidatePrefix: activeInstitution.prefixes?.candidatePrefix || `${activeInstitution.code || 'INST'}-CAND`,
+    certificatePrefix: activeInstitution.prefixes?.certificatePrefix || `${activeInstitution.code || 'INST'}-CERT`,
+    receiptPrefix: activeInstitution.prefixes?.receiptPrefix || `${activeInstitution.code || 'INST'}-REC`,
+    contractPrefix: activeInstitution.prefixes?.contractPrefix || `${activeInstitution.code || 'INST'}-CTR`,
+    invoicePrefix: activeInstitution.prefixes?.invoicePrefix || `${activeInstitution.code || 'INST'}-FT`,
     studentNextSeq: activeInstitution.prefixes?.studentNextSeq || 101,
     candidateNextSeq: activeInstitution.prefixes?.candidateNextSeq || 205,
     certificateNextSeq: activeInstitution.prefixes?.certificateNextSeq || 54,
@@ -80,13 +95,13 @@ export const InstitutionSettingsView: React.FC = () => {
     zeroPadding: activeInstitution.prefixes?.zeroPadding || 4
   });
 
-  // Signature & Stamp
-  const [signatureUrl, setSignatureUrl] = useState(activeInstitution.signatureUrl || 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=300&auto=format&fit=crop&q=80');
-  const [signatoryName, setSignatoryName] = useState(activeInstitution.signatoryName || activeInstitution.representativeName || 'Prof. Dr. Mateus Macuácua');
-  const [signatoryRole, setSignatoryRole] = useState(activeInstitution.signatoryRole || activeInstitution.representativeRole || 'Diretor Pedagógico e Geral');
-  const [stampUrl, setStampUrl] = useState(activeInstitution.stampUrl || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=300&auto=format&fit=crop&q=80');
-  const [stampText, setStampText] = useState(activeInstitution.stampText || `${activeInstitution.name.toUpperCase()} • DIRECÇÃO GERAL • AUTENTICAÇÃO OFICIAL`);
-  const [showStampOnDocuments, setShowStampOnDocuments] = useState(activeInstitution.showStampOnDocuments ?? true);
+  // Signature & Stamp (no fake stock placeholder images or hardcoded names)
+  const [signatureUrl, setSignatureUrl] = useState(identity.signatureUrl);
+  const [signatoryName, setSignatoryName] = useState(activeInstitution.signatoryName || activeInstitution.representativeName || '');
+  const [signatoryRole, setSignatoryRole] = useState(activeInstitution.signatoryRole || activeInstitution.representativeRole || '');
+  const [stampUrl, setStampUrl] = useState(identity.stampUrl);
+  const [stampText, setStampText] = useState(activeInstitution.stampText || '');
+  const [showStampOnDocuments, setShowStampOnDocuments] = useState(activeInstitution.showStampOnDocuments ?? Boolean(identity.stampUrl || activeInstitution.stampText));
 
   // Document Models
   const [defaultContractModel, setDefaultContractModel] = useState(activeInstitution.officialModels?.defaultContractModel || 'modelo_padrao_formacao');
@@ -120,15 +135,105 @@ export const InstitutionSettingsView: React.FC = () => {
     `Recebemos com sucesso o pagamento de {VALOR} referente a {SERVICO}. Recibo emitido: #{NUMERO_RECIBO}. Obrigado, {INSTITUICAO}.`
   );
 
+  // Sync local form fields whenever activeInstitution switches (e.g. Super Admin switching institution)
+  useEffect(() => {
+    const resolved = resolveInstitutionIdentity(activeInstitution);
+    const codePrefix = activeInstitution.code || 'INST';
+    setName(resolved.hasInstitution ? resolved.officialName : '');
+    setShortName(activeInstitution.shortName || activeInstitution.sigla || '');
+    setCode(activeInstitution.code || '');
+    setType(activeInstitution.type || 'Centro de Formação Profissional');
+    setNuit(activeInstitution.nuit || '');
+    setLicenseNumber(activeInstitution.licenseNumber || '');
+    setRepresentativeName(activeInstitution.representativeName || '');
+    setRepresentativeRole(activeInstitution.representativeRole || '');
+    setPhone(activeInstitution.phone || '');
+    setPhoneAlt(activeInstitution.phoneAlt || '');
+    setEmail(activeInstitution.email || '');
+    setWhatsapp(activeInstitution.whatsapp || activeInstitution.whatsAppConfig?.phoneNumber || '');
+    setWebsite(activeInstitution.website || '');
+    setFacebook(activeInstitution.socialLinks?.facebook || '');
+    setInstagram(activeInstitution.socialLinks?.instagram || '');
+    setLinkedin(activeInstitution.socialLinks?.linkedin || '');
+    setYoutube(activeInstitution.socialLinks?.youtube || '');
+    setProvince(activeInstitution.province || '');
+    setCity(activeInstitution.city || '');
+    setAddress(activeInstitution.address || '');
+    setLogoUrl(resolved.logoUrl);
+    setEmblemUrl(activeInstitution.emblemUrl || '');
+    setPrimaryColor(resolved.colors.primary);
+    setSecondaryColor(resolved.colors.secondary);
+    setAccentColor(resolved.colors.accent);
+    setCurrency(activeInstitution.currency || 'MT');
+    setTimezone(activeInstitution.timezone || 'Africa/Maputo (GMT+2)');
+
+    setPrefixes({
+      studentPrefix: activeInstitution.prefixes?.studentPrefix || `${codePrefix}-AL`,
+      candidatePrefix: activeInstitution.prefixes?.candidatePrefix || `${codePrefix}-CAND`,
+      certificatePrefix: activeInstitution.prefixes?.certificatePrefix || `${codePrefix}-CERT`,
+      receiptPrefix: activeInstitution.prefixes?.receiptPrefix || `${codePrefix}-REC`,
+      contractPrefix: activeInstitution.prefixes?.contractPrefix || `${codePrefix}-CTR`,
+      invoicePrefix: activeInstitution.prefixes?.invoicePrefix || `${codePrefix}-FT`,
+      studentNextSeq: activeInstitution.prefixes?.studentNextSeq || 101,
+      candidateNextSeq: activeInstitution.prefixes?.candidateNextSeq || 205,
+      certificateNextSeq: activeInstitution.prefixes?.certificateNextSeq || 54,
+      receiptNextSeq: activeInstitution.prefixes?.receiptNextSeq || 1420,
+      contractNextSeq: activeInstitution.prefixes?.contractNextSeq || 88,
+      zeroPadding: activeInstitution.prefixes?.zeroPadding || 4
+    });
+
+    setSignatureUrl(resolved.signatureUrl);
+    setSignatoryName(activeInstitution.signatoryName || activeInstitution.representativeName || '');
+    setSignatoryRole(activeInstitution.signatoryRole || activeInstitution.representativeRole || '');
+    setStampUrl(resolved.stampUrl);
+    setStampText(activeInstitution.stampText || '');
+    setShowStampOnDocuments(activeInstitution.showStampOnDocuments ?? Boolean(resolved.stampUrl || activeInstitution.stampText));
+
+    setDefaultContractModel(activeInstitution.officialModels?.defaultContractModel || 'modelo_padrao_formacao');
+    setDefaultDeclarationModel(activeInstitution.officialModels?.defaultDeclarationModel || 'declaracao_com_notas_siverc');
+    setDefaultCertificateModel(activeInstitution.officialModels?.defaultCertificateModel || 'certificado_diploma_nacional');
+
+    setDueDay(activeInstitution.financialSettings?.dueDay || 10);
+    setToleranceDays(activeInstitution.financialSettings?.toleranceDays || 5);
+    setFineAmount(activeInstitution.financialSettings?.fineAmount || 250);
+    setFinePercentage(activeInstitution.financialSettings?.finePercentage || 10);
+    setInterestRateDaily(activeInstitution.financialSettings?.interestRateDaily || 0.5);
+    setMaxFinePercentage(activeInstitution.financialSettings?.maxFinePercentage || 30);
+    setFamilyDiscountPercentage(activeInstitution.financialSettings?.familyDiscountPercentage || 10);
+
+    setWelcomeMessage(
+      activeInstitution.customMessages?.welcomeMessageTemplate ||
+      `Prezado(a) {NOME}, bem-vindo(a) à {INSTITUICAO}! Sua matrícula no curso {CURSO} foi confirmada com o código {CODIGO}. Aceda ao portal: {PORTAL}`
+    );
+    setDueReminderMessage(
+      activeInstitution.customMessages?.dueReminderMessageTemplate ||
+      `Olá {NOME}, informamos que a propina de {MES} vence no dia {DIA_VENCIMENTO}. Evite acréscimo de multas efetuando o pagamento via M-Pesa ou Conta Bancária.`
+    );
+    setOverdueMessage(
+      activeInstitution.customMessages?.overdueMessageTemplate ||
+      `Aviso: Constatamos que a mensalidade de {MES} referente ao aluno {NOME} encontra-se vencida. Foi aplicada multa de {MULTA}. Regularize hoje mesmo.`
+    );
+    setReceiptMessage(
+      activeInstitution.customMessages?.receiptMessageTemplate ||
+      `Recebemos com sucesso o pagamento de {VALOR} referente a {SERVICO}. Recibo emitido: #{NUMERO_RECIBO}. Obrigado, {INSTITUICAO}.`
+    );
+  }, [activeInstitution]);
+
   const formatPreviewCode = (prefix: string, seq: number, padding: number) => {
     return `${prefix}-${String(seq).padStart(padding, '0')}`;
   };
 
   const handleSaveAll = () => {
+    if (!activeInstitution?.id) {
+      error('Sem instituição ativa', 'Selecione uma instituição válida antes de salvar configurações.');
+      return;
+    }
     setSaving(true);
     try {
       const updatedData: Partial<Institution> = {
         name,
+        shortName: shortName.trim(),
+        sigla: shortName.trim() || activeInstitution.sigla,
         code,
         type: type as any,
         nuit,
@@ -139,10 +244,23 @@ export const InstitutionSettingsView: React.FC = () => {
         phoneAlt,
         email,
         whatsapp,
+        website: website.trim(),
+        socialLinks: {
+          facebook: facebook.trim(),
+          instagram: instagram.trim(),
+          linkedin: linkedin.trim(),
+          youtube: youtube.trim(),
+        },
         province,
         city,
         address,
         logoUrl,
+        emblemUrl: emblemUrl.trim(),
+        institutionalColors: {
+          primary: primaryColor || DEFAULT_INSTITUTION_COLORS.primary,
+          secondary: secondaryColor || DEFAULT_INSTITUTION_COLORS.secondary,
+          accent: accentColor || DEFAULT_INSTITUTION_COLORS.accent,
+        },
         currency,
         timezone,
         prefixes: {
@@ -210,10 +328,11 @@ export const InstitutionSettingsView: React.FC = () => {
               </span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-3">
-              <Building2 className="w-8 h-8 text-blue-400" />
-              {t('institution.title', 'Configurações da Instituição')}
+              <InstitutionLogoBadge institution={activeInstitution} size="md" rounded="xl" />
+              <span>{t('institution.title', 'Configurações da Instituição')}</span>
             </h1>
             <p className="text-slate-400 text-sm mt-1 max-w-3xl">
+              {identity.hasInstitution ? `${identity.officialName} — ` : ''}
               {t('institution.subtitle', 'Configure identidade visual, contactos, prefixos, assinaturas, carimbo oficial, modelos de documentos e mensagens.')}
             </p>
           </div>
@@ -370,6 +489,64 @@ export const InstitutionSettingsView: React.FC = () => {
               </p>
             </div>
 
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                URL do Símbolo / Emblema Alternativo (Opcional)
+              </label>
+              <input
+                type="text"
+                value={emblemUrl}
+                onChange={(e) => setEmblemUrl(e.target.value)}
+                placeholder="https://exemplo.co.mz/emblema.png"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-[#0d1527] border border-slate-800 text-white text-xs focus:border-blue-500 focus:outline-hidden"
+              />
+            </div>
+
+            <div className="pt-4 border-t border-slate-800/80 space-y-3">
+              <label className="block text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                <Palette className="w-4 h-4 text-purple-400" />
+                Cores Institucionais
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <span className="block text-[10px] text-slate-400 mb-1">Primária</span>
+                  <div className="flex items-center gap-1.5 bg-[#0d1527] border border-slate-800 rounded-lg px-2 py-1">
+                    <input
+                      type="color"
+                      value={primaryColor}
+                      onChange={(e) => setPrimaryColor(e.target.value)}
+                      className="w-6 h-6 rounded cursor-pointer bg-transparent border-0"
+                    />
+                    <span className="text-[10px] font-mono text-slate-300 uppercase">{primaryColor}</span>
+                  </div>
+                </div>
+                <div>
+                  <span className="block text-[10px] text-slate-400 mb-1">Secundária</span>
+                  <div className="flex items-center gap-1.5 bg-[#0d1527] border border-slate-800 rounded-lg px-2 py-1">
+                    <input
+                      type="color"
+                      value={secondaryColor}
+                      onChange={(e) => setSecondaryColor(e.target.value)}
+                      className="w-6 h-6 rounded cursor-pointer bg-transparent border-0"
+                    />
+                    <span className="text-[10px] font-mono text-slate-300 uppercase">{secondaryColor}</span>
+                  </div>
+                </div>
+                <div>
+                  <span className="block text-[10px] text-slate-400 mb-1">Destaque</span>
+                  <div className="flex items-center gap-1.5 bg-[#0d1527] border border-slate-800 rounded-lg px-2 py-1">
+                    <input
+                      type="color"
+                      value={accentColor}
+                      onChange={(e) => setAccentColor(e.target.value)}
+                      className="w-6 h-6 rounded cursor-pointer bg-transparent border-0"
+                    />
+                    <span className="text-[10px] font-mono text-slate-300 uppercase">{accentColor}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className="pt-4 border-t border-slate-800/80 space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5">
@@ -415,7 +592,7 @@ export const InstitutionSettingsView: React.FC = () => {
             </h3>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="md:col-span-2">
+              <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1.5">
                   {t('institution.name', 'Nome Oficial da Instituição')} *
                 </label>
@@ -423,7 +600,20 @@ export const InstitutionSettingsView: React.FC = () => {
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="Ex: Centro de Formação Técnica e Profissional de Maputo"
+                  placeholder="Ex: Nome oficial completo da instituição"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#0d1527] border border-slate-800 text-white text-sm font-semibold focus:border-blue-500 focus:outline-hidden"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  Nome Abreviado / Sigla Institucional
+                </label>
+                <input
+                  type="text"
+                  value={shortName}
+                  onChange={(e) => setShortName(e.target.value)}
+                  placeholder="Ex: Céu Azul / CFTPM"
                   className="w-full px-3.5 py-2.5 rounded-xl bg-[#0d1527] border border-slate-800 text-white text-sm font-semibold focus:border-blue-500 focus:outline-hidden"
                 />
               </div>
@@ -436,7 +626,7 @@ export const InstitutionSettingsView: React.FC = () => {
                   type="text"
                   value={code}
                   onChange={(e) => setCode(e.target.value.toUpperCase())}
-                  placeholder="Ex: CFTPM"
+                  placeholder="Ex: INST-001"
                   className="w-full px-3.5 py-2.5 rounded-xl bg-[#0d1527] border border-slate-800 text-white text-xs font-mono font-bold focus:border-blue-500 focus:outline-hidden"
                 />
               </div>
@@ -592,7 +782,60 @@ export const InstitutionSettingsView: React.FC = () => {
                     type="text"
                     value={address}
                     onChange={(e) => setAddress(e.target.value)}
-                    placeholder="Av. 24 de Julho, nº 1540, Bairro Central"
+                    placeholder="Endereço físico completo da instituição"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#0d1527] border border-slate-800 text-white text-xs focus:border-blue-500 focus:outline-hidden"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                    Website Institucional
+                  </label>
+                  <input
+                    type="url"
+                    value={website}
+                    onChange={(e) => setWebsite(e.target.value)}
+                    placeholder="https://www.instituicao.ac.mz"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#0d1527] border border-slate-800 text-white text-xs focus:border-blue-500 focus:outline-hidden"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                    Facebook / Instagram
+                  </label>
+                  <input
+                    type="text"
+                    value={facebook}
+                    onChange={(e) => setFacebook(e.target.value)}
+                    placeholder="URL Facebook institucional"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#0d1527] border border-slate-800 text-white text-xs focus:border-blue-500 focus:outline-hidden mb-1.5"
+                  />
+                  <input
+                    type="text"
+                    value={instagram}
+                    onChange={(e) => setInstagram(e.target.value)}
+                    placeholder="URL Instagram institucional"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#0d1527] border border-slate-800 text-white text-xs focus:border-blue-500 focus:outline-hidden"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                    LinkedIn / YouTube
+                  </label>
+                  <input
+                    type="text"
+                    value={linkedin}
+                    onChange={(e) => setLinkedin(e.target.value)}
+                    placeholder="URL LinkedIn institucional"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#0d1527] border border-slate-800 text-white text-xs focus:border-blue-500 focus:outline-hidden mb-1.5"
+                  />
+                  <input
+                    type="text"
+                    value={youtube}
+                    onChange={(e) => setYoutube(e.target.value)}
+                    placeholder="URL YouTube institucional"
                     className="w-full px-3.5 py-2.5 rounded-xl bg-[#0d1527] border border-slate-800 text-white text-xs focus:border-blue-500 focus:outline-hidden"
                   />
                 </div>
@@ -823,7 +1066,7 @@ export const InstitutionSettingsView: React.FC = () => {
                   type="text"
                   value={signatoryName}
                   onChange={(e) => setSignatoryName(e.target.value)}
-                  placeholder="Prof. Dr. Mateus Macuácua"
+                  placeholder="Nome completo do signatário oficial"
                   className="w-full px-3.5 py-2.5 rounded-xl bg-[#0d1527] border border-slate-800 text-white text-xs focus:border-blue-500 focus:outline-hidden"
                 />
               </div>

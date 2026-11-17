@@ -12,7 +12,7 @@ export const DEFAULT_STUDIO_TEMPLATES: StudioTemplate[] = [
     hasBackSide: true,
     isActive: true,
     version: 'v2.1',
-    author: 'Direção Geral Moztechwave',
+    author: 'SIGAR PRO Studio',
     isSystemDefault: true,
     createdAt: '2026-01-10',
     updatedAt: '2026-09-12',
@@ -87,7 +87,7 @@ export const DEFAULT_STUDIO_TEMPLATES: StudioTemplate[] = [
         height: 8,
         zIndex: 12,
         side: 'frente',
-        imageUrl: 'https://images.unsplash.com/photo-1599305445671-ac291c95aaa9?w=150&auto=format&fit=crop&q=80'
+        imageUrl: ''
       },
       {
         id: 'el-c1-title',
@@ -214,7 +214,7 @@ export const DEFAULT_STUDIO_TEMPLATES: StudioTemplate[] = [
         height: 16,
         zIndex: 15,
         side: 'frente',
-        qrCodeUrl: 'https://sivec.moztechwave.co.mz/verify?cert=CERT-2026-9021',
+        qrCodeUrl: '{{qr_code}}',
         showQrHash: true,
         qrHashText: 'HASH: e7c90b41aa89',
         qrCaption: 'Validação Oficial'
@@ -362,7 +362,7 @@ export const DEFAULT_STUDIO_TEMPLATES: StudioTemplate[] = [
         zIndex: 10,
         side: 'verso',
         footerLegalText: 'Documento registrado no Livro Geral de Termos de Certificação sob o Assento nº 891/2026. A validade deste verso depende da autenticidade da frente.',
-        footerVerificationUrl: 'https://sivec.moztechwave.co.mz/validar'
+        footerVerificationUrl: '/validar-documento'
       }
     ]
   },
@@ -512,7 +512,7 @@ export const DEFAULT_STUDIO_TEMPLATES: StudioTemplate[] = [
         stampType: 'autenticado',
         stampTextTop: 'SECRETARIA ACADÊMICA',
         stampCenterText: 'AUTENTICADO',
-        stampTextBottom: 'CFTPM • MOÇAMBIQUE',
+        stampTextBottom: '{{instituicao}}',
         stampColor: '#1d4ed8'
       },
       {
@@ -835,7 +835,7 @@ export const DEFAULT_STUDIO_TEMPLATES: StudioTemplate[] = [
         height: 14,
         zIndex: 12,
         side: 'frente',
-        qrCodeUrl: 'https://financeiro.moztechwave.co.mz/recibo/REC-2026-09812',
+        qrCodeUrl: '{{qr_code}}',
         showQrHash: true,
         qrHashText: 'CRC32: 9b12a84'
       },
@@ -934,12 +934,12 @@ export const DEFAULT_STUDIO_TEMPLATES: StudioTemplate[] = [
         side: 'frente',
         tableColumns: ['Nº', 'Cód. Processo', 'Nome Completo do Formando', 'Teste 1 (30%)', 'Teste 2 (30%)', 'Exame (40%)', 'Média Final', 'Situação'],
         tableRows: [
-          ['01', 'CFTPM-AL-1042', 'ARMANDO JOSÉ MACHAVA', '17.5', '18.0', '18.5', '18.1', 'APROVADO'],
-          ['02', 'CFTPM-AL-1043', 'ERMELINDA CHISSANO', '19.0', '18.5', '19.0', '18.9', 'APROVADO (DISTINÇÃO)'],
-          ['03', 'CFTPM-AL-1044', 'MAURO CÉSAR SITOE', '14.0', '15.0', '16.0', '15.1', 'APROVADO'],
-          ['04', 'CFTPM-AL-1045', 'ZAIDA DA GRAÇA', '13.5', '14.0', '14.5', '14.1', 'APROVADO'],
-          ['05', 'CFTPM-AL-1046', 'MATEUS SEBASTIÃO NHATITIMA', '11.0', '12.0', '12.5', '11.9', 'APROVADO'],
-          ['06', 'CFTPM-AL-1047', 'BENEDITO AUGUSTO COSSA', '18.0', '17.5', '18.0', '17.8', 'APROVADO']
+          ['01', 'AL-1042', 'ARMANDO JOSÉ MACHAVA', '17.5', '18.0', '18.5', '18.1', 'APROVADO'],
+          ['02', 'AL-1043', 'ERMELINDA CHISSANO', '19.0', '18.5', '19.0', '18.9', 'APROVADO (DISTINÇÃO)'],
+          ['03', 'AL-1044', 'MAURO CÉSAR SITOE', '14.0', '15.0', '16.0', '15.1', 'APROVADO'],
+          ['04', 'AL-1045', 'ZAIDA DA GRAÇA', '13.5', '14.0', '14.5', '14.1', 'APROVADO'],
+          ['05', 'AL-1046', 'MATEUS SEBASTIÃO NHATITIMA', '11.0', '12.0', '12.5', '11.9', 'APROVADO'],
+          ['06', 'AL-1047', 'BENEDITO AUGUSTO COSSA', '18.0', '17.5', '18.0', '17.8', 'APROVADO']
         ],
         tableHeaderBg: '#1e293b',
         tableHeaderColor: '#ffffff'
@@ -1070,7 +1070,7 @@ export const DEFAULT_STUDIO_TEMPLATES: StudioTemplate[] = [
         height: 11,
         zIndex: 10,
         side: 'frente',
-        imageUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
+        imageUrl: '',
         borderRadius: 6
       },
       {
@@ -1103,7 +1103,7 @@ export const DEFAULT_STUDIO_TEMPLATES: StudioTemplate[] = [
         tableColumns: ['Disciplina / Módulo', 'Docente', 'Carga (h)', 'Faltas', 'Nota (0-20)', 'Situação'],
         tableRows: [
           ['Algoritmos & Lógica', 'Eng. Arone Malendza', '120h', '1', '18.0 v.', 'Aprovado'],
-          ['Arquitetura Web React', 'Eng. Paulo Jafim', '160h', '0', '19.0 v.', 'Aprovado'],
+          ['Arquitetura Web React', 'Docente Titular', '160h', '0', '19.0 v.', 'Aprovado'],
           ['Bancos de Dados PostgreSQL', 'Eng. Carlos Manuel', '140h', '2', '17.5 v.', 'Aprovado'],
           ['Inglês Técnico', 'Profª. Sarah Jenkins', '80h', '0', '16.0 v.', 'Aprovado'],
           ['Estágio Supervisionado', 'Coord. Estágios', '240h', '0', '18.5 v.', 'Aprovado']
@@ -1154,7 +1154,7 @@ export const DEFAULT_STUDIO_TEMPLATES: StudioTemplate[] = [
         height: 12,
         zIndex: 12,
         side: 'frente',
-        qrCodeUrl: 'https://boletim.moztechwave.co.mz/view?student=CFTPM-AL-1042',
+        qrCodeUrl: '{{qr_code}}',
         showQrHash: false
       }
     ],
@@ -1204,7 +1204,7 @@ export const DEFAULT_STUDIO_TEMPLATES: StudioTemplate[] = [
         height: 6,
         zIndex: 10,
         side: 'frente',
-        content: 'MOZTECHWAVE • CARTÃO DE ESTUDANTE',
+        content: '{{instituicao}} • CARTÃO DE ESTUDANTE',
         fontSize: 11,
         fontWeight: 'bold',
         textAlign: 'center',
@@ -1220,7 +1220,7 @@ export const DEFAULT_STUDIO_TEMPLATES: StudioTemplate[] = [
         height: 32,
         zIndex: 12,
         side: 'frente',
-        imageUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80',
+        imageUrl: '',
         borderRadius: 12,
         borderColor: '#f59e0b',
         borderWidth: 2
@@ -1283,7 +1283,7 @@ export const DEFAULT_STUDIO_TEMPLATES: StudioTemplate[] = [
         height: 22,
         zIndex: 15,
         side: 'frente',
-        qrCodeUrl: 'https://portaria.sivec.mz/access?id=CFTPM-AL-1042',
+        qrCodeUrl: '{{qr_code}}',
         showQrHash: false
       }
     ],
@@ -1414,7 +1414,7 @@ export const DEFAULT_STUDIO_TEMPLATES: StudioTemplate[] = [
         height: 25,
         zIndex: 12,
         side: 'frente',
-        imageUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&auto=format&fit=crop&q=80',
+        imageUrl: '',
         borderRadius: 8,
         borderColor: '#b45309',
         borderWidth: 2
@@ -1449,7 +1449,7 @@ export const DEFAULT_STUDIO_TEMPLATES: StudioTemplate[] = [
         stampType: 'concluido',
         stampTextTop: 'INSPEÇÃO OPERACIONAL',
         stampCenterText: 'APTO / QUALIFICADO',
-        stampTextBottom: 'CFTPM • MOZTECHWAVE',
+        stampTextBottom: '{{instituicao}}',
         stampColor: '#059669'
       },
       {
@@ -1596,7 +1596,7 @@ export const DEFAULT_STUDIO_TEMPLATES: StudioTemplate[] = [
         stampType: 'autenticado',
         stampTextTop: 'SECRETARIA ACADÊMICA',
         stampCenterText: 'EMITIDO & VÁLIDO',
-        stampTextBottom: 'CFTPM • MOZTECHWAVE',
+        stampTextBottom: '{{instituicao}}',
         stampColor: '#0284c7'
       },
       {

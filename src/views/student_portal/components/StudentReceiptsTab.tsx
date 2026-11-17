@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Student } from '../../../types';
 import { useApp } from '../../../context/AppContext';
+import { InstitutionLogoBadge } from '../../../components/common/InstitutionLogoBadge';
+import { resolveInstitutionIdentity } from '../../../utils/institutionIdentity';
 import { 
   Receipt, 
   Printer, 
@@ -26,6 +28,11 @@ export const StudentReceiptsTab: React.FC<StudentReceiptsTabProps> = ({
   initialSelectedReceipt
 }) => {
   const { activeInstitution } = useApp();
+  const identity = resolveInstitutionIdentity(activeInstitution);
+  const receiptLocationLine = [
+    identity.nuit ? `NUIT: ${identity.nuit}` : null,
+    [identity.city, identity.province].filter(Boolean).join(', ') || identity.address || null,
+  ].filter(Boolean).join(' • ');
 
   const receiptsList = [
     {
@@ -226,12 +233,15 @@ export const StudentReceiptsTab: React.FC<StudentReceiptsTabProps> = ({
             {/* Conteúdo do Recibo Imprimível */}
             <div className="p-6 overflow-y-auto space-y-6 text-xs text-slate-800">
               
-              {/* Cabeçalho da Empresa */}
+              {/* Cabeçalho da Instituição */}
               <div className="text-center border-b border-slate-200 pb-4 space-y-1">
+                <InstitutionLogoBadge institution={activeInstitution} size="sm" rounded="xl" className="mx-auto mb-1.5" />
                 <h3 className="text-sm font-black text-slate-900 uppercase">
-                  {activeInstitution?.name || 'Moztechwave Professional Institute'}
+                  {identity.officialName}
                 </h3>
-                <p className="text-[10px] text-slate-500">NUIT: 400192837 • Maputo, Moçambique</p>
+                {receiptLocationLine && (
+                  <p className="text-[10px] text-slate-500">{receiptLocationLine}</p>
+                )}
                 <div className="inline-block mt-1 px-3 py-0.5 bg-slate-100 rounded text-xs font-mono font-bold text-slate-900">
                   {activeReceiptModal.number}
                 </div>

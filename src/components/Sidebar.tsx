@@ -42,6 +42,8 @@ import {
 } from '../types/rbac';
 import { getRoleDisplayName } from '../security/routeSecurity';
 import { RBACModal } from './RBACModal';
+import { InstitutionLogoBadge } from './common/InstitutionLogoBadge';
+import { resolveInstitutionIdentity } from '../utils/institutionIdentity';
 
 interface SidebarProps {
   mobileOpen: boolean;
@@ -61,6 +63,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
     navigate, 
     activeInstitution, 
     allInstitutions,
+    setActiveInstitution,
     activeRole, 
     setActiveRole,
     authorizedRoles,
@@ -71,6 +74,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
     firebaseUser,
     themeMode 
   } = useApp();
+
+  const identity = resolveInstitutionIdentity(activeInstitution);
 
   const isLight = themeMode === 'branco';
 
@@ -272,16 +277,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
       >
         {/* Brand & Institution Header */}
         <div className={`p-4 border-b flex items-center justify-between transition-colors ${headerBg}`}>
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center shrink-0 shadow-md">
-              {brandIcon}
-            </div>
-            <div>
+          <div className="flex items-center gap-3 min-w-0">
+            <InstitutionLogoBadge institution={activeInstitution} size="sm" rounded="xl" />
+            <div className="min-w-0">
               <div className="flex items-center gap-1.5">
-                <span className="font-black text-sm tracking-wider text-white">SIGAR PRO</span>
+                <span className={`font-black text-sm tracking-wider ${isLight ? 'text-slate-900' : 'text-white'}`}>SIGAR PRO</span>
               </div>
-              <p className={`text-[10px] truncate max-w-[155px] font-medium ${brandSubtext}`}>
-                Sistema Integrado de Gestão
+              <p
+                title={identity.hasInstitution ? identity.officialName : 'Nenhuma instituição selecionada'}
+                className={`text-[10px] truncate max-w-[165px] font-semibold ${brandSubtext}`}
+              >
+                {identity.hasInstitution ? identity.shortName : 'Nenhuma instituição ativa'}
               </p>
             </div>
           </div>
@@ -295,9 +301,40 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
           </button>
         </div>
 
-        {/* Super Admin Sovereign 4-Portals Quick Jump */}
+        {/* Super Admin Institution Selector & 4-Portals Quick Jump */}
         {isSuper && (
-          <div className="px-3 py-2 border-b border-amber-500/30 bg-amber-500/10 space-y-1">
+          <div className="px-3 py-2 border-b border-amber-500/30 bg-amber-500/10 space-y-2">
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-[10px] font-bold text-amber-300">
+                <span>Instituição Ativa:</span>
+                <span className="text-[9px] uppercase font-mono bg-amber-500/20 px-1 rounded">
+                  {allInstitutions.length} Reg.
+                </span>
+              </div>
+              <select
+                value={activeInstitution?.id || ''}
+                onChange={(e) => {
+                  const chosen = allInstitutions.find((inst) => inst.id === e.target.value);
+                  if (chosen) {
+                    setActiveInstitution(chosen);
+                  }
+                }}
+                aria-label="Selecionar Instituição Ativa"
+                className={`w-full border text-[11px] font-bold rounded-lg px-2 py-1.5 focus:outline-hidden cursor-pointer ${
+                  isLight
+                    ? 'bg-white border-amber-300 text-slate-900'
+                    : 'bg-slate-950/90 border-amber-500/40 text-amber-200'
+                }`}
+              >
+                <option value="">Selecionar Instituição...</option>
+                {allInstitutions.map((inst) => (
+                  <option key={inst.id} value={inst.id} className={isLight ? 'bg-white text-slate-900' : 'bg-slate-900 text-white'}>
+                    {inst.shortName || inst.name} ({inst.code || inst.id})
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div className="flex items-center justify-between text-[10px] font-bold text-amber-300">
               <span>Ambientes (4 Portais):</span>
               <span className="text-[9px] uppercase font-mono bg-amber-500/20 px-1 rounded">Super Admin</span>
@@ -514,7 +551,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
             </div>
 
             <p className="text-xs text-slate-300">
-              Instituição: <strong className="text-sky-400">{activeInstitution.name}</strong> ({activeInstitution.code})
+              Instituição: <strong className="text-sky-400">{identity.officialName}</strong> {identity.code ? `(${identity.code})` : ''}
             </p>
 
             <form

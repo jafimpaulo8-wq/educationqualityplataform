@@ -30,6 +30,8 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { AppRoute } from '../../types';
+import { InstitutionLogoBadge } from '../../components/common/InstitutionLogoBadge';
+import { resolveInstitutionIdentity } from '../../utils/institutionIdentity';
 
 export const DirectorExperienceView: React.FC = () => {
   const { 
@@ -47,6 +49,8 @@ export const DirectorExperienceView: React.FC = () => {
     updateInstitution,
     activeRole
   } = useApp();
+
+  const identity = resolveInstitutionIdentity(activeInstitution);
 
   // 15 Pillars Tab Selector for the Director
   const [activeTab, setActiveTab] = useState<
@@ -72,7 +76,7 @@ export const DirectorExperienceView: React.FC = () => {
   const [approvedPautaId, setApprovedPautaId] = useState<string | null>(null);
 
   // Institution code & access code
-  const accessCode = activeInstitution.accessCode || `SIGAR-ACC-8819-${activeInstitution.code.replace('MTW-', '')}`;
+  const accessCode = activeInstitution.accessCode || (identity.code ? `SIGAR-ACC-${identity.code.replace('MTW-', '')}` : 'N/D');
 
   const handleCopyAccessCode = () => {
     navigator.clipboard.writeText(accessCode);
@@ -80,12 +84,12 @@ export const DirectorExperienceView: React.FC = () => {
     setTimeout(() => setCopiedCode(false), 2000);
   };
 
-  // Metrics for active institution
-  const instStudents = students.filter(s => s.institutionId === activeInstitution.id || !s.institutionId);
-  const instCourses = courses.filter(c => c.institutionId === activeInstitution.id || !c.institutionId);
-  const instClasses = classes.filter(cl => cl.institutionId === activeInstitution.id || !cl.institutionId);
-  const instTeachers = teachers.filter(t => t.institutionId === activeInstitution.id || !t.institutionId);
-  const instInternships = (internships || []).filter(i => i.institutionId === activeInstitution.id || !i.institutionId);
+  // Metrics strictly scoped to active institution
+  const instStudents = identity.hasInstitution ? students.filter(s => s.institutionId === activeInstitution.id) : [];
+  const instCourses = identity.hasInstitution ? courses.filter(c => c.institutionId === activeInstitution.id) : [];
+  const instClasses = identity.hasInstitution ? classes.filter(cl => cl.institutionId === activeInstitution.id) : [];
+  const instTeachers = identity.hasInstitution ? teachers.filter(t => t.institutionId === activeInstitution.id) : [];
+  const instInternships = identity.hasInstitution ? (internships || []).filter(i => i.institutionId === activeInstitution.id) : [];
 
   // Financial summary
   const totalRevenueMZN = (paymentRecords || [])
@@ -107,16 +111,21 @@ export const DirectorExperienceView: React.FC = () => {
         
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 text-xs font-bold uppercase tracking-wider">
-              <School className="w-3.5 h-3.5" />
-              Módulo 75: Experiência do Diretor Geral • {activeInstitution.code}
+            <div className="flex items-center gap-3">
+              <InstitutionLogoBadge institution={activeInstitution} size="lg" rounded="2xl" />
+              <div className="space-y-1">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 text-xs font-bold uppercase tracking-wider">
+                  <School className="w-3.5 h-3.5" />
+                  Experiência do Diretor Geral {identity.code ? `• ${identity.code}` : ''}
+                </div>
+                <h1 className="text-2xl sm:text-3xl md:text-4xl font-black text-white tracking-tight">
+                  {identity.officialName}
+                </h1>
+              </div>
             </div>
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-black text-white tracking-tight">
-              {activeInstitution.name}
-            </h1>
             <p className="text-slate-400 text-sm max-w-2xl leading-relaxed">
               Painel de governança executiva, pedagógica e financeira do Diretor. 
-              Gestão integrada dos 15 módulos do centro, aprovação de pautas, outorga de certificados, homologação SIVEC e supervisão de filiais.
+              Gestão integrada dos módulos do centro, aprovação de pautas, outorga de certificados, homologação SIVEC e supervisão de filiais.
             </p>
             <div className="pt-2 flex flex-wrap items-center gap-2">
               <button
@@ -124,21 +133,21 @@ export const DirectorExperienceView: React.FC = () => {
                 className="px-3 py-1.5 rounded-xl bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/30 font-bold text-xs cursor-pointer transition-all flex items-center gap-1.5"
               >
                 <FileText className="w-3.5 h-3.5" />
-                <span>Secretaria Acadêmica (Módulo 76) →</span>
+                <span>Secretaria Acadêmica →</span>
               </button>
               <button
                 onClick={() => navigate('experiencia_financeiro')}
                 className="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 font-bold text-xs cursor-pointer transition-all flex items-center gap-1.5"
               >
                 <DollarSign className="w-3.5 h-3.5" />
-                <span>Gestão Financeira &amp; Tesouraria (Módulo 77) →</span>
+                <span>Gestão Financeira &amp; Tesouraria →</span>
               </button>
               <button
-                onClick={() => navigate('experiencia_professor')}
+                onClick={() => navigate('portal_professor')}
                 className="px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 font-bold text-xs cursor-pointer transition-all flex items-center gap-1.5"
               >
                 <GraduationCap className="w-3.5 h-3.5" />
-                <span>Portal do Professor (Módulo 78) →</span>
+                <span>Portal do Professor →</span>
               </button>
             </div>
           </div>
@@ -149,7 +158,7 @@ export const DirectorExperienceView: React.FC = () => {
               Diretor(a) Responsável:
             </div>
             <div className="text-sm font-black text-white flex items-center gap-1.5">
-              <span>{activeInstitution.representativeName || 'Dr. Diretor Geral'}</span>
+              <span>{identity.representativeName || 'Não configurado'}</span>
             </div>
             <div className="pt-2 border-t border-slate-850 flex items-center justify-between gap-2">
               <span className="text-[10px] text-indigo-300 font-mono font-bold">
