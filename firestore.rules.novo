@@ -1,0 +1,579 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default-deny catch-all (Global Safety Net)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Base authentication & identity helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
+    }
+
+    // Lookup user profile in /users/{uid}
+    function hasUserProfile() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Role detection (Normalized uppercase with fallback)
+    function userRole() {
+      return (hasUserProfile() && ('role' in getUserData()) ? getUserData().role : 'VISITANTE');
+    }
+
+    function userInstitution() {
+      return hasUserProfile() && ('institutionId' in getUserData()) 
+        ? getUserData().institutionId 
+        : '';
+    }
+
+    // FASE A: Super Admin exclusivo = moztechwavenacala8@gmail.com com email verificado.
+    // Removida whitelist de jafimpaulo8@gmail.com, custom claims e escalamento via /users ou /admins.
+    function isSuperAdmin() {
+      return isSignedIn() &&
+        ('email' in request.auth.token) &&
+        ('email_verified' in request.auth.token) &&
+        request.auth.token.email == 'moztechwavenacala8@gmail.com' &&
+        request.auth.token.email_verified == true;
+    }
+
+    function isNonSuperAdminPayload(d) {
+      return (!('role' in d) || !(d.role in ['SUPER_ADMIN', 'superadmin', 'Super Admin', 'Super Administrador'])) &&
+             (!('roles' in d) || (d.roles is list && d.roles.size() <= 10 && !d.roles.hasAny(['SUPER_ADMIN', 'superadmin', 'Super Admin', 'Super Administrador']))) &&
+             (!('isSuperAdmin' in d) || d.isSuperAdmin == false);
+    }
+
+    function isInstAdmin(instId) {
+      return isSuperAdmin() || (
+        isSignedIn() && 
+        userInstitution() == instId && 
+        (userRole() == 'ADMIN_INSTITUICAO' || userRole() == 'DIRETOR' || userRole() == 'director')
+      );
+    }
+
+    function isSecretaria(instId) {
+      return isInstAdmin(instId) || (
+        isSignedIn() && 
+        userInstitution() == instId && 
+        (userRole() == 'SECRETARIA' || userRole() == 'secretaria')
+      );
+    }
+
+    function isFinanceiro(instId) {
+      return isInstAdmin(instId) || (
+        isSignedIn() && 
+        userInstitution() == instId && 
+        (userRole() == 'FINANCEIRO' || userRole() == 'SECRETARIA' || userRole() == 'financeiro' || userRole() == 'secretaria')
+      );
+    }
+
+    function isDocente(instId) {
+      return isInstAdmin(instId) || (
+        isSignedIn() && 
+        userInstitution() == instId && 
+        (userRole() == 'PROFESSOR' || userRole() == 'FORMADOR' || userRole() == 'professor' || userRole() == 'formador')
+      );
+    }
+
+    function isPorteiro(instId) {
+      return isInstAdmin(instId) || (
+        isSignedIn() && 
+        userInstitution() == instId && 
+        (userRole() == 'PORTEIRO' || userRole() == 'SECRETARIA' || userRole() == 'porteiro')
+      );
+    }
+
+    function isTenantUser(instId) {
+      return isSuperAdmin() || (isSignedIn() && userInstitution() == instId);
+    }
+
+    // Test connectivity endpoint
+    match /test/{testId} {
+      allow read, write: if true;
+    }
+
+    // FASE A: Admins Collection fechada (leitura e escrita apenas Super Admin)
+    match /admins/{adminId} {
+      allow get, list: if isSuperAdmin();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    // FASE A: Access Codes fechados ao público; restritos ao Super Admin e Admin da própria instituição
+    function isValidAccessCodePayload(d) {
+      return ('institutionId' in d) &&
+        d.institutionId is string &&
+        d.institutionId.size() > 0 &&
+        d.institutionId.size() <= 128 &&
+        isNonSuperAdminPayload(d);
+    }
+
+    match /access_codes/{codeId} {
+      allow get, list: if isSuperAdmin() || (
+        isSignedIn() &&
+        resource != null &&
+        ('institutionId' in resource.data) &&
+        resource.data.institutionId is string &&
+        resource.data.institutionId.size() > 0 &&
+        isInstAdmin(resource.data.institutionId)
+      );
+      allow create: if isSignedIn() && isValidId(codeId) && (
+        isSuperAdmin() || (
+          isValidAccessCodePayload(request.resource.data) &&
+          isInstAdmin(request.resource.data.institutionId)
+        )
+      );
+      allow update: if isSignedIn() && isValidId(codeId) && (
+        isSuperAdmin() || (
+          resource != null &&
+          ('institutionId' in resource.data) &&
+          isInstAdmin(resource.data.institutionId) &&
+          isValidAccessCodePayload(request.resource.data) &&
+          request.resource.data.institutionId == resource.data.institutionId
+        )
+      );
+      allow delete: if isSuperAdmin() || (
+        isSignedIn() &&
+        resource != null &&
+        ('institutionId' in resource.data) &&
+        resource.data.institutionId is string &&
+        resource.data.institutionId.size() > 0 &&
+        isInstAdmin(resource.data.institutionId)
+      );
+    }
+
+    // FASE A: User Profiles & RBAC Management — sem leitura pública e sem auto-promoção
+    // Ninguém (nem mesmo DIRETOR) altera role, roles, institutionId ou status do próprio perfil.
+    match /users/{userId} {
+      allow get: if isSuperAdmin() || isSelf(userId) || (
+        isSignedIn() &&
+        resource != null &&
+        ('institutionId' in resource.data) &&
+        resource.data.institutionId is string &&
+        resource.data.institutionId.size() > 0 &&
+        isSecretaria(resource.data.institutionId)
+      );
+      allow list: if isSuperAdmin() || (
+        isSignedIn() &&
+        resource != null &&
+        ('institutionId' in resource.data) &&
+        resource.data.institutionId is string &&
+        resource.data.institutionId.size() > 0 &&
+        isSecretaria(resource.data.institutionId)
+      );
+      allow create: if isSignedIn() && isValidId(userId) && (
+        isSuperAdmin() || (
+          userId != request.auth.uid &&
+          ('institutionId' in request.resource.data) &&
+          request.resource.data.institutionId is string &&
+          request.resource.data.institutionId.size() > 0 &&
+          request.resource.data.institutionId.size() <= 128 &&
+          isInstAdmin(request.resource.data.institutionId) &&
+          isNonSuperAdminPayload(request.resource.data) &&
+          (!('institutionIds' in request.resource.data) || (request.resource.data.institutionIds is list && request.resource.data.institutionIds.hasOnly([request.resource.data.institutionId]))) &&
+          (!('ownedInstitutions' in request.resource.data) || (request.resource.data.ownedInstitutions is list && request.resource.data.ownedInstitutions.hasOnly([request.resource.data.institutionId])))
+        )
+      );
+      allow update: if isSignedIn() && isValidId(userId) && (
+        isSuperAdmin() ||
+        (
+          isSelf(userId) &&
+          resource != null &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'name', 'displayName', 'phone', 'photoURL', 'avatarUrl', 'preferences', 'lastLoginAt', 'updatedAt'
+          ])
+        ) ||
+        (
+          userId != request.auth.uid &&
+          resource != null &&
+          ('institutionId' in resource.data) &&
+          resource.data.institutionId is string &&
+          resource.data.institutionId.size() > 0 &&
+          isInstAdmin(resource.data.institutionId) &&
+          isNonSuperAdminPayload(resource.data) &&
+          request.resource.data.institutionId == resource.data.institutionId &&
+          isNonSuperAdminPayload(request.resource.data) &&
+          (!('institutionIds' in request.resource.data) || (request.resource.data.institutionIds is list && request.resource.data.institutionIds.hasOnly([resource.data.institutionId]))) &&
+          (!('ownedInstitutions' in request.resource.data) || (request.resource.data.ownedInstitutions is list && request.resource.data.ownedInstitutions.hasOnly([resource.data.institutionId])))
+        )
+      );
+      allow delete: if isSuperAdmin();
+    }
+
+    // Institutions (SIGAR Core)
+    match /institutions/{institutionId} {
+      allow read, write: if true;
+    }
+
+    // Branches / Filiais
+    match /branches/{branchId} {
+      allow get, list: if true;
+      allow create, update, delete: if isInstAdmin(request.resource.data.institutionId);
+    }
+
+    // Students (SIGAR Académico)
+    // Granular permissions:
+    // alunos.view -> Tenant staff, or student accessing own record, or guardian
+    // alunos.create, alunos.edit, alunos.terminate -> Secretaria or above
+    // alunos.delete -> Inst Admin or SuperAdmin
+    match /students/{studentId} {
+      allow get, list: if true;
+      allow create, update: if true;
+      allow delete: if isSuperAdmin() || isInstAdmin(resource.data.institutionId);
+    }
+
+    // Courses (Oferta Formativa)
+    // Public read so applicants can inspect curriculum
+    // Write restricted to institution administration
+    match /courses/{courseId} {
+      allow get, list: if true;
+      allow create, update, delete: if isInstAdmin(request.resource.data.institutionId);
+    }
+
+    // Classes / Turmas
+    match /classes/{classId} {
+      allow get, list: if true;
+      allow create, update, delete: if isSecretaria(request.resource.data.institutionId);
+    }
+
+    // Teachers & Instructors (Professores / Formadores)
+    match /teachers/{teacherId} {
+      allow get, list: if true;
+      allow create, update, delete: if isSecretaria(request.resource.data.institutionId) || isInstAdmin(request.resource.data.institutionId);
+    }
+
+    // Student Transfers (Histórico de Transferências)
+    match /transfers/{transferId} {
+      allow get, list: if true;
+      allow create, update: if isSecretaria(request.resource.data.institutionId);
+      allow delete: if isInstAdmin(resource.data.institutionId);
+    }
+
+    // Class Schedules & Calendar Slots (Horários & Calendário com Detecção de Conflitos)
+    match /schedules/{scheduleId} {
+      allow get, list: if true;
+      allow create, update, delete: if isSecretaria(request.resource.data.institutionId) || isSuperAdmin();
+    }
+
+    // Lessons & Diário de Classe (Pedagógico)
+    // notas.create, notas.edit, diario.attendance -> Docentes, Formadores, Secretaria, Diretor
+    match /lessons/{lessonId} {
+      allow get, list: if isTenantUser(resource.data.institutionId);
+      allow create, update: if isDocente(request.resource.data.institutionId) || isSecretaria(request.resource.data.institutionId);
+      allow delete: if isInstAdmin(resource.data.institutionId);
+    }
+
+    // Cash Sessions & Transactions (Financeiro / Tesouraria)
+    // pagamentos.view, caixa.open, caixa.close, caixa.transact, caixa.bleed
+    // Restricted strictly to Financeiro, Secretaria, Direção and SuperAdmin
+    match /cashSessions/{sessionId} {
+      allow get, list: if isFinanceiro(resource.data.institutionId);
+      allow create, update: if isFinanceiro(request.resource.data.institutionId);
+      allow delete: if isSuperAdmin();
+    }
+
+    // Gate Access Logs (Portaria & Acesso)
+    // portaria.view, portaria.log_entry, portaria.log_exit
+    match /accessLogs/{logId} {
+      allow get, list: if isPorteiro(resource.data.institutionId) || isTenantUser(resource.data.institutionId);
+      allow create, update: if isPorteiro(request.resource.data.institutionId);
+      allow delete: if isSuperAdmin();
+    }
+
+    // Certificates (SIVERC Studio)
+    // Public read for certificate verification URL / QR code
+    // certificados.create -> Secretaria or above
+    // certificados.approve / certificados.revoke -> Diretor or SuperAdmin
+    match /certificates/{certId} {
+      allow get, list: if true;
+      allow create: if isSecretaria(request.resource.data.institutionId);
+      allow update: if isInstAdmin(request.resource.data.institutionId);
+      allow delete: if isSuperAdmin();
+    }
+
+    // Public Institutions by Slug (Portais Públicos Isolados)
+    // Permite get público pelo slug exato; proíbe listagem global para evitar raspagem; escrita restrita a administradores
+    match /publicInstitutions/{slug} {
+      allow get: if true;
+      allow list: if false;
+      allow write: if isInstAdmin(request.resource.data.institutionId) || isSuperAdmin();
+    }
+
+    // Public Registration Applications (Candidaturas & Admissões Online)
+    match /applications/{appId} {
+      allow create: if request.resource.data.institutionId != null && request.resource.data.fullName != null;
+      allow get: if true; // Permite consulta direta por código/ID pelo próprio candidato
+      allow list: if isSecretaria(resource.data.institutionId) || isSuperAdmin();
+      allow update: if isSecretaria(resource.data.institutionId) || isSuperAdmin();
+      allow delete: if isSecretaria(resource.data.institutionId) || isSuperAdmin();
+    }
+
+    // Student Invitations & Single-Use Activation Tokens (Convites Portal do Aluno)
+    match /studentInvitations/{invId} {
+      allow get: if true; // Token verification & activation portal
+      allow list: if isSecretaria(resource.data.institutionId) || isSuperAdmin(); // Proíbe listagem pública indiscriminada
+      allow create: if isSecretaria(request.resource.data.institutionId) || isSuperAdmin();
+      allow update: if true; // Permite marcar used: true na ativação de conta
+      allow delete: if isInstAdmin(resource.data.institutionId) || isSuperAdmin();
+    }
+
+    // 56. BANCO DE DADOS - MODULAR COLLECTIONS & PERMISSIONS
+    // Académico & Pedagógico
+    match /guardians/{guardianId} {
+      allow get, list, write: if isSignedIn() && isSecretaria(request.resource.data.institutionId);
+    }
+    match /enrollments/{enrollmentId} {
+      allow get, list, write: if isSignedIn() && isSecretaria(request.resource.data.institutionId);
+    }
+    match /subjects/{subjectId} {
+      allow get, list: if true;
+      allow write: if isSecretaria(request.resource.data.institutionId);
+    }
+    match /attendance/{attendanceId} {
+      allow get, list: if isTenantUser(resource.data.institutionId);
+      allow write: if isDocente(request.resource.data.institutionId);
+    }
+    match /evaluations/{evalId} {
+      allow get, list: if isTenantUser(resource.data.institutionId);
+      allow write: if isDocente(request.resource.data.institutionId) || isSecretaria(request.resource.data.institutionId);
+    }
+    match /grades/{gradeId} {
+      allow get, list: if isTenantUser(resource.data.institutionId);
+      allow write: if isDocente(request.resource.data.institutionId);
+    }
+    match /reportCards/{cardId} {
+      allow get, list: if isTenantUser(resource.data.institutionId);
+      allow write: if isSecretaria(request.resource.data.institutionId);
+    }
+
+    // Estágios & Empresas
+    match /internships/{internshipId} {
+      allow get, list: if isTenantUser(resource.data.institutionId);
+      allow write: if isSecretaria(request.resource.data.institutionId);
+    }
+    match /companies/{companyId} {
+      allow get, list: if isTenantUser(resource.data.institutionId);
+      allow write: if isSecretaria(request.resource.data.institutionId);
+    }
+
+    // Contratos & Documentos
+    match /contracts/{contractId} {
+      allow get, list: if isTenantUser(resource.data.institutionId);
+      allow write: if isSecretaria(request.resource.data.institutionId);
+    }
+    match /documents/{docId} {
+      allow get, list: if isTenantUser(resource.data.institutionId);
+      allow write: if isSecretaria(request.resource.data.institutionId);
+    }
+    match /documentTemplates/{templateId} {
+      allow get, list: if isTenantUser(resource.data.institutionId);
+      allow write: if isInstAdmin(request.resource.data.institutionId);
+    }
+    match /certificateVersions/{versionId} {
+      allow get, list: if true;
+      allow write: if isInstAdmin(request.resource.data.institutionId);
+    }
+    match /signatures/{signatureId} {
+      allow get, list: if true;
+      allow write: if isInstAdmin(request.resource.data.institutionId);
+    }
+
+    // Financeiro & Tesouraria
+    match /payments/{paymentId} {
+      allow get, list: if isFinanceiro(resource.data.institutionId);
+      allow write: if isFinanceiro(request.resource.data.institutionId);
+    }
+    match /paymentRequests/{reqId} {
+      allow get, list: if isFinanceiro(resource.data.institutionId);
+      allow write: if isFinanceiro(request.resource.data.institutionId);
+    }
+    match /receipts/{receiptId} {
+      allow get, list: if isFinanceiro(resource.data.institutionId);
+      allow write: if isFinanceiro(request.resource.data.institutionId);
+      // Historical preservation: No ordinary deletion of generated receipts!
+      allow delete: if isSuperAdmin();
+    }
+    match /accountsReceivable/{recId} {
+      allow get, list, write: if isFinanceiro(request.resource.data.institutionId);
+    }
+    match /accountsPayable/{payId} {
+      allow get, list, write: if isFinanceiro(request.resource.data.institutionId);
+    }
+    match /cashRegisters/{regId} {
+      allow get, list, write: if isFinanceiro(request.resource.data.institutionId);
+    }
+    match /cashMovements/{movId} {
+      allow get, list, write: if isFinanceiro(request.resource.data.institutionId);
+    }
+
+    // Tarefas, Comunicação & Materiais
+    match /tasks/{taskId} {
+      allow get, list, write: if isSignedIn();
+    }
+    match /announcements/{annId} {
+      allow get, list: if true;
+      allow write: if isSecretaria(request.resource.data.institutionId);
+    }
+    match /notifications/{notifId} {
+      allow get, list, write: if isSignedIn();
+    }
+    match /onlineClasses/{classId} {
+      allow get, list, write: if isDocente(request.resource.data.institutionId);
+    }
+    match /onlineClassParticipants/{partId} {
+      allow get, list, write: if isSignedIn();
+    }
+    match /materials/{matId} {
+      allow get, list: if isTenantUser(resource.data.institutionId);
+      allow write: if isDocente(request.resource.data.institutionId);
+    }
+    match /whatsappConnections/{connId} {
+      allow get, list, write: if isInstAdmin(request.resource.data.institutionId);
+    }
+    match /messageTemplates/{tplId} {
+      allow get, list, write: if isSecretaria(request.resource.data.institutionId);
+    }
+    match /messages/{msgId} {
+      allow get, list, write: if isSecretaria(request.resource.data.institutionId);
+    }
+
+    // SIVEC & Validação Nacional
+    match /sivecIssuers/{issuerId} {
+      allow get, list: if true;
+      allow write: if isSuperAdmin();
+    }
+    match /sivecCertificates/{certId} {
+      allow get, list: if true;
+      allow write: if isInstAdmin(request.resource.data.institutionId);
+    }
+    match /sivecVerifications/{verId} {
+      allow get, list, create: if true;
+      allow update, delete: if isSuperAdmin();
+    }
+    match /sivecApiKeys/{keyId} {
+      allow get, list, write: if isSuperAdmin();
+    }
+    match /settings/{settingId} {
+      allow get, list: if isTenantUser(resource.data.institutionId);
+      allow write: if isInstAdmin(request.resource.data.institutionId);
+    }
+    match /roles/{roleId} {
+      allow get, list: if true;
+      allow write: if isSuperAdmin();
+    }
+    match /permissions/{permId} {
+      allow get, list: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    // 57. BACKUP, AUDITORIA & PRESERVAÇÃO HISTÓRICA
+    // Mandato Crítico: "Não apagar dados históricos por operações comuns."
+    match /auditLogs/{logId} {
+      allow get, list: if isInstAdmin(resource.data.institutionId);
+      allow create: if isSignedIn();
+      // Immutable: Physical deletion forbidden even for ordinary operations
+      allow update, delete: if false;
+    }
+    match /historicalRecords/{histId} {
+      allow get, list: if isInstAdmin(resource.data.institutionId);
+      allow create: if isSignedIn();
+      // Immutable historical trail
+      allow update, delete: if false;
+    }
+    match /backups/{backupId} {
+      allow get, list: if isInstAdmin(resource.data.institutionId);
+      allow create: if isInstAdmin(request.resource.data.institutionId);
+      allow update: if isInstAdmin(request.resource.data.institutionId);
+      // Deletions locked by default to preserve restore points
+      allow delete: if isSuperAdmin();
+    }
+
+    // ==========================================================
+    // 86. MOZCOIN — ECONOMIA INTERNA E SEGURANÇA FINANCEIRA (86.6)
+    // ==========================================================
+    match /mozcoin_wallets/{walletId} {
+      allow get, list: if isSignedIn() && (
+        isSuperAdmin() || 
+        (resource.data.ownerId == request.auth.uid) ||
+        (resource.data.institutionId != null && isTenantUser(resource.data.institutionId))
+      );
+      allow write: if isSuperAdmin();
+    }
+
+    // Extrato de Transações Mozcoin (Imutável)
+    match /mozcoin_transactions/{txId} {
+      allow get, list: if isSignedIn() && (
+        isSuperAdmin() || 
+        (resource.data.ownerId == request.auth.uid) ||
+        (resource.data.destination == request.auth.uid) ||
+        (resource.data.walletId != null && exists(/databases/$(database)/documents/mozcoin_wallets/$(resource.data.walletId)))
+      );
+      allow create: if isSuperAdmin();
+      allow update, delete: if false;
+    }
+
+    // Pedidos de Compra de Mozcoin (86.1 & 86.2)
+    match /mozcoin_purchases/{purchaseId} {
+      allow get, list: if isSignedIn() && (
+        isSuperAdmin() || 
+        resource.data.userId == request.auth.uid ||
+        (resource.data.institutionId != null && isInstAdmin(resource.data.institutionId))
+      );
+      allow create: if isSignedIn() && 
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.status == 'pendente' &&
+        request.resource.data.mozcoinAmount > 0;
+      allow update: if isSuperAdmin() || (
+        isSignedIn() && 
+        resource.data.userId == request.auth.uid && 
+        resource.data.status == 'correcao_solicitada' &&
+        request.resource.data.status == 'pendente'
+      );
+      allow delete: if isSuperAdmin();
+    }
+
+    // Regras de Desconto para Planos Antecipados (86.5)
+    match /mozcoin_discount_rules/{ruleId} {
+      allow get, list: if isSignedIn();
+      allow write: if isSuperAdmin();
+    }
+
+    // 88. PREFERÊNCIAS VISUAIS DE TEMA DO UTILIZADOR (Requisito 8)
+    function isValidHexColor(c) {
+      return c is string && c.matches('^#[0-9A-Fa-f]{6}$');
+    }
+
+    function isValidUserPreference() {
+      let data = request.resource.data;
+      let allowedKeys = ['theme', 'background', 'accent', 'updatedAt'];
+      return data.keys().hasOnly(allowedKeys) &&
+        ('theme' in data) &&
+        data.theme in ['claro', 'escuro-suave', 'escuro', 'personalizado'] &&
+        (!('background' in data) || isValidHexColor(data.background)) &&
+        (!('accent' in data) || isValidHexColor(data.accent)) &&
+        (data.theme != 'personalizado' || (
+          ('background' in data) && isValidHexColor(data.background) &&
+          ('accent' in data) && isValidHexColor(data.accent)
+        ));
+    }
+
+    match /userPreferences/{userId} {
+      allow get: if isSelf(userId);
+      allow list: if false;
+      allow create, update: if isSelf(userId) && isValidUserPreference();
+      allow delete: if isSelf(userId);
+    }
+  }
+}

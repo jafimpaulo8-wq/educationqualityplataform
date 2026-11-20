@@ -207,6 +207,11 @@ export const GateQrCameraScanner: React.FC<GateQrCameraScannerProps> = ({
     e.target.value = '';
     if (!file) return;
 
+    if (pauseDetectionRef.current) {
+      setCameraError('Conclua ou limpe o cartão do aluno atual antes de ler outro QR Code.');
+      return;
+    }
+
     setCameraError(null);
     const reader = new FileReader();
     reader.onload = ev => {
@@ -223,9 +228,18 @@ export const GateQrCameraScanner: React.FC<GateQrCameraScannerProps> = ({
           inversionAttempts: 'attemptBoth'
         });
         if (decoded && decoded.data) {
+          if (pauseDetectionRef.current) return;
+          const now = Date.now();
+          const isDuplicateBurst =
+            lastScanRef.current.value === decoded.data && now - lastScanRef.current.at < 2000;
+          if (isDuplicateBurst) return;
+
+          lastScanRef.current = { value: decoded.data, at: now };
           setLastDetectedPreview(decoded.data);
           onCodeDetectedRef.current(decoded.data);
-          setTimeout(() => setLastDetectedPreview(null), 2000);
+          setTimeout(() => {
+            setLastDetectedPreview(prev => (prev === decoded.data ? null : prev));
+          }, 2000);
         } else {
           setCameraError('Nenhum QR Code válido foi encontrado nesta imagem.');
         }

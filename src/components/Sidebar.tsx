@@ -31,7 +31,10 @@ import {
   Coins,
   DoorOpen,
   RefreshCw,
-  LogOut
+  LogOut,
+  Home,
+  HelpCircle,
+  MessageSquare
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { AppRoute, UserRole } from '../types';
@@ -53,6 +56,7 @@ interface SidebarProps {
 interface NavItem {
   label: string;
   route: AppRoute;
+  params?: Record<string, any>;
   icon: React.ReactNode;
   badge?: string;
 }
@@ -61,6 +65,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
   const { 
     currentRoute, 
     navigate, 
+    activeStudentPortalTab,
     activeInstitution, 
     allInstitutions,
     setActiveInstitution,
@@ -104,14 +109,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
       case 'ALUNO':
       case 'RESPONSAVEL':
         return [
-          { label: 'Dashboard Aluno', route: 'portal_aluno', icon: <GraduationCap className="w-4 h-4 text-emerald-400" /> },
-          { label: 'Cursos / Turmas', route: 'cursos_gestao', icon: <BookOpen className="w-4 h-4 text-sky-400" /> },
-          { label: 'Horários', route: 'horarios_calendario', icon: <Calendar className="w-4 h-4 text-amber-400" /> },
-          { label: 'Notas / Pautas', route: 'boletim', icon: <FileSpreadsheet className="w-4 h-4 text-indigo-400" /> },
-          { label: 'Presenças', route: 'aulas_frequencia', icon: <ClipboardList className="w-4 h-4 text-teal-400" /> },
-          { label: 'Pagamentos', route: 'pagamentos', icon: <CreditCard className="w-4 h-4 text-rose-400" /> },
-          { label: 'Certificados', route: 'studio', icon: <Award className="w-4 h-4 text-amber-400" />, badge: 'SIVEC' },
-          { label: 'Definições do Perfil', route: 'moztechwave_id', icon: <UserCheck className="w-4 h-4 text-blue-400" /> }
+          { label: 'Início', route: 'portal_aluno', params: { tab: 'inicio' }, icon: <Home className="w-4 h-4 text-emerald-400" /> },
+          { label: 'Meu Perfil', route: 'portal_aluno', params: { tab: 'perfil' }, icon: <UserCheck className="w-4 h-4 text-blue-400" /> },
+          { label: 'Minhas Disciplinas', route: 'portal_aluno', params: { tab: 'disciplinas' }, icon: <BookOpen className="w-4 h-4 text-sky-400" /> },
+          { label: 'Horário de Aulas', route: 'portal_aluno', params: { tab: 'horario' }, icon: <Calendar className="w-4 h-4 text-amber-400" /> },
+          { label: 'Minhas Notas (Pauta)', route: 'portal_aluno', params: { tab: 'notas' }, icon: <FileSpreadsheet className="w-4 h-4 text-indigo-400" /> },
+          { label: 'Frequência', route: 'portal_aluno', params: { tab: 'frequencia' }, icon: <CheckSquare className="w-4 h-4 text-teal-400" /> },
+          { label: 'Pagamentos', route: 'portal_aluno', params: { tab: 'pagamentos' }, icon: <CreditCard className="w-4 h-4 text-rose-400" /> },
+          { label: 'Certificados', route: 'portal_aluno', params: { tab: 'certificados' }, icon: <Award className="w-4 h-4 text-amber-400" />, badge: 'SIVEC' },
+          { label: 'Carteirinha Digital', route: 'portal_aluno', params: { tab: 'carteirinha' }, icon: <QrCode className="w-4 h-4 text-cyan-400" /> },
+          { label: 'Documentos', route: 'portal_aluno', params: { tab: 'documentos' }, icon: <FileText className="w-4 h-4 text-violet-400" /> },
+          { label: 'Mensagens', route: 'portal_aluno', params: { tab: 'mensagens' }, icon: <MessageSquare className="w-4 h-4 text-emerald-300" /> },
+          { label: 'Suporte', route: 'portal_aluno', params: { tab: 'suporte' }, icon: <HelpCircle className="w-4 h-4 text-slate-300" /> }
         ];
 
       case 'PROFESSOR':
@@ -276,18 +285,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
         }`}
       >
         {/* Brand & Institution Header */}
-        <div className={`p-4 border-b flex items-center justify-between transition-colors ${headerBg}`}>
+        <div className={`p-4 border-b flex items-center justify-between gap-2 transition-colors ${headerBg}`}>
           <div className="flex items-center gap-3 min-w-0">
             <InstitutionLogoBadge institution={activeInstitution} size="sm" rounded="xl" />
             <div className="min-w-0">
-              <div className="flex items-center gap-1.5">
-                <span className={`font-black text-sm tracking-wider ${isLight ? 'text-slate-900' : 'text-white'}`}>SIGAR PRO</span>
-              </div>
-              <p
-                title={identity.hasInstitution ? identity.officialName : 'Nenhuma instituição selecionada'}
-                className={`text-[10px] truncate max-w-[165px] font-semibold ${brandSubtext}`}
+              <div
+                title={identity.hasInstitution ? identity.officialName : 'SIGAR PRO'}
+                className={`font-black text-xs sm:text-[13px] leading-snug line-clamp-2 ${isLight ? 'text-slate-900' : 'text-white'}`}
               >
-                {identity.hasInstitution ? identity.shortName : 'Nenhuma instituição ativa'}
+                {identity.hasInstitution ? identity.officialName : 'SIGAR PRO'}
+              </div>
+              <p className={`text-[10px] truncate max-w-[165px] font-semibold mt-0.5 ${brandSubtext}`}>
+                {identity.hasInstitution ? (identity.code ? `${identity.code} • SIGAR PRO` : 'SIGAR PRO') : 'Administração Central'}
               </p>
             </div>
           </div>
@@ -430,12 +439,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
         {/* Navigation Menu strictly scoped to this profile */}
         <div className="flex-1 overflow-y-auto px-3 py-3 space-y-1 custom-scrollbar">
           {navItems.map((item) => {
-            const isActive = currentRoute === item.route;
+            const isTabScoped = Boolean(item.params?.tab);
+            const isActive =
+              currentRoute === item.route &&
+              (!isTabScoped || activeStudentPortalTab === item.params?.tab);
+            const itemKey = item.params?.tab ? `${item.route}-${item.params.tab}` : `${item.route}-${item.label}`;
             return (
               <button
-                key={item.route}
+                key={itemKey}
                 type="button"
-                onClick={() => handleNav(item.route)}
+                onClick={() => handleNav(item.route, item.params)}
                 className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer text-left ${
                   isActive ? activeItemStyle : inactiveItemStyle
                 }`}

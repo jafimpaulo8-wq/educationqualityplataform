@@ -36,9 +36,14 @@ import {
   FileCheck,
   Tag,
   ShieldAlert,
-  Edit3
+  Edit3,
+  ExternalLink
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { useToast } from '../../context/ToastContext';
+import { getPublicPaymentPortalUrl } from '../../services/publicInstitutionService';
+import { hasFinancialPermission } from '../../services/paymentPortalService';
+import { toCanonicalRole } from '../../types/rbac';
 import { 
   PaymentRecord, 
   PaymentServiceItem, 
@@ -61,8 +66,13 @@ export const PaymentPortalView: React.FC = () => {
     resubmitPayment,
     deletePaymentRecord,
     activeRole,
-    firebaseUser
+    firebaseUser,
+    userProfile
   } = useApp();
+  const toast = useToast();
+
+  const canonicalRole = toCanonicalRole(activeRole);
+  const canManageFinance = hasFinancialPermission(canonicalRole, canonicalRole === 'SUPER_ADMIN');
 
   // Mode: 'student_portal' (Efetuar Pagamento) vs 'admin_management' (Homologação Tesouraria)
   const [activeTab, setActiveTab] = useState<'student_portal' | 'admin_management'>('student_portal');
@@ -73,8 +83,14 @@ export const PaymentPortalView: React.FC = () => {
   });
 
   const selectedStudent = useMemo(() => {
+    if (!canManageFinance && firebaseUser) {
+      return (
+        allStudents.find(s => s.userId === firebaseUser.uid || (userProfile as any)?.studentId === s.id) ||
+        allStudents[0]
+      );
+    }
     return allStudents.find(s => s.id === selectedStudentId) || allStudents[0];
-  }, [allStudents, selectedStudentId]);
+  }, [allStudents, selectedStudentId, canManageFinance, firebaseUser, userProfile]);
 
   // Form State for Efetuar Pagamento
   const [selectedService, setSelectedService] = useState<PaymentServiceItem>('mensalidade');
@@ -120,12 +136,12 @@ export const PaymentPortalView: React.FC = () => {
   const [serviceFilter, setServiceFilter] = useState<'todos' | PaymentServiceItem>('todos');
   const [networkFilter, setNetworkFilter] = useState<'todos' | PaymentNetwork>('todos');
 
-  // Institution Financial Coordinates
+  // Institution Financial Coordinates (sem fallbacks fictícios)
   const financialInfo = {
-    emolaNumber: activeInstitution.financialSettings?.emolaNumber || '87 987 6543',
-    emolaAccountName: (activeInstitution.financialSettings as any)?.emolaAccountName || activeInstitution.name,
-    mpesaNumber: activeInstitution.financialSettings?.mpesaNumber || '84 123 4567',
-    mpesaAccountName: (activeInstitution.financialSettings as any)?.mpesaAccountName || activeInstitution.name,
+    emolaNumber: activeInstitution.financialSettings?.emolaNumber || 'Consultar Tesouraria',
+    emolaAccountName: activeInstitution.financialSettings?.emolaHolderName || (activeInstitution.financialSettings as any)?.emolaAccountName || activeInstitution.name,
+    mpesaNumber: activeInstitution.financialSettings?.mpesaNumber || 'Consultar Tesouraria',
+    mpesaAccountName: activeInstitution.financialSettings?.mpesaHolderName || (activeInstitution.financialSettings as any)?.mpesaAccountName || activeInstitution.name,
     beneficiaryName: activeInstitution.name
   };
 
@@ -141,7 +157,7 @@ export const PaymentPortalView: React.FC = () => {
     setAmount(PAYMENT_SERVICE_CATALOG[service].defaultAmount);
   };
 
-  // Mock upload / Image drop
+  // Upload comprovativo real
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -154,31 +170,32 @@ export const PaymentPortalView: React.FC = () => {
     }
   };
 
-  const handleUseSampleProof = () => {
-    // High-resolution realistic M-Pesa / e-Mola receipt banner
-    setProofUrl('https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?auto=format&fit=crop&w=800&q=80');
-    setProofFileName('comprovativo_mpesa_transferencia.jpg');
-  };
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!transactionCode.trim()) {
-      alert('Por favor, informe o código da transação.');
+      toast.error('Por favor, informe o código da transação.');
       return;
     }
     if (amount <= 0) {
-      alert('Por favor, informe um valor válido.');
+      toast.error('Por favor, informe um valor válido.');
+      return;
+    }
+    if (!selectedStudent) {
+      toast.error('Nenhum estudante associado ao pagamento.');
       return;
     }
 
     setIsSubmitting(true);
     setTimeout(() => {
       submitPayment({
-        studentId: selectedStudent?.id || 'stu-demo',
-        studentCode: selectedStudent?.code || 'MTW-2026-001',
-        studentName: selectedStudent?.fullName || 'Formando em Formação',
-        studentPhone: selectedStudent?.phone || financialInfo.mpesaNumber,
-        courseName: selectedStudent?.courseName || 'Curso Técnico',
+        studentId: selectedStudent.id,
+        studentCode: selectedStudent.code,
+        studentName: selectedStudent.fullName,
+        studentUserId: selectedStudent.userId,
+        guardianUserId: (selectedStudent as any).guardianUserId,
+        submittedByUid: firebaseUser?.uid,
+        studentPhone: selectedStudent.phone,
+        courseName: selectedStudent.courseName || 'Curso Técnico',
         serviceItem: selectedService,
         serviceDescription: PAYMENT_SERVICE_CATALOG[selectedService].description,
         amount,
@@ -198,7 +215,7 @@ export const PaymentPortalView: React.FC = () => {
       setProofUrl('');
       setProofFileName('');
       setStudentNotes('');
-    }, 400);
+    }, 300);
   };
 
   // Open correction modal for a student record
@@ -342,35 +359,50 @@ export const PaymentPortalView: React.FC = () => {
               </p>
             </div>
 
-            {/* Navigation Selector */}
-            <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-inner">
-              <button
-                onClick={() => setActiveTab('student_portal')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                  activeTab === 'student_portal'
-                    ? 'bg-white text-emerald-700 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Smartphone className="w-4 h-4" />
-                Efetuar Pagamento (Aluno)
-              </button>
-              <button
-                onClick={() => setActiveTab('admin_management')}
-                className={`relative flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                  activeTab === 'admin_management'
-                    ? 'bg-white text-slate-900 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <ShieldCheck className="w-4 h-4" />
-                Homologação (Administrador)
-                {stats.pendingCount > 0 && (
-                  <span className="ml-1 px-1.5 py-0.2 bg-amber-500 text-white rounded-full text-[10px] font-black animate-pulse">
-                    {stats.pendingCount}
-                  </span>
+            {/* Navigation Selector & External Independent Portal Link */}
+            <div className="flex flex-wrap items-center gap-2">
+              {activeInstitution?.id && (
+                <a
+                  href={getPublicPaymentPortalUrl(activeInstitution)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-xs transition-all"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  <span>Abrir Portal de Pagamentos</span>
+                </a>
+              )}
+              <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-inner">
+                <button
+                  onClick={() => setActiveTab('student_portal')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    activeTab === 'student_portal'
+                      ? 'bg-white text-emerald-700 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Smartphone className="w-4 h-4" />
+                  Efetuar Pagamento (Aluno)
+                </button>
+                {canManageFinance && (
+                  <button
+                    onClick={() => setActiveTab('admin_management')}
+                    className={`relative flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      activeTab === 'admin_management'
+                        ? 'bg-white text-slate-900 shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <ShieldCheck className="w-4 h-4" />
+                    Homologação (Administrador)
+                    {stats.pendingCount > 0 && (
+                      <span className="ml-1 px-1.5 py-0.2 bg-amber-500 text-white rounded-full text-[10px] font-black animate-pulse">
+                        {stats.pendingCount}
+                      </span>
+                    )}
+                  </button>
                 )}
-              </button>
+              </div>
             </div>
           </div>
         </div>
@@ -440,20 +472,22 @@ export const PaymentPortalView: React.FC = () => {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <label className="text-xs font-semibold text-slate-600 whitespace-nowrap">Simular outro aluno:</label>
-                <select
-                  value={selectedStudentId}
-                  onChange={(e) => setSelectedStudentId(e.target.value)}
-                  className="text-xs bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 font-medium text-slate-800 focus:outline-emerald-500 cursor-pointer"
-                >
-                  {allStudents.map(s => (
-                    <option key={s.id} value={s.id}>
-                      {s.fullName} ({s.code}) - Saldo: {s.balanceOwing || 0} MT
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {canManageFinance && allStudents.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-semibold text-slate-600 whitespace-nowrap">Selecionar formando:</label>
+                  <select
+                    value={selectedStudentId}
+                    onChange={(e) => setSelectedStudentId(e.target.value)}
+                    className="text-xs bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 font-medium text-slate-800 focus:outline-emerald-500 cursor-pointer"
+                  >
+                    {allStudents.map(s => (
+                      <option key={s.id} value={s.id}>
+                        {s.fullName} ({s.code}) - Saldo: {s.balanceOwing || 0} MT
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
@@ -712,13 +746,6 @@ export const PaymentPortalView: React.FC = () => {
                         <label className="text-xs font-bold text-slate-700 uppercase">
                           Comprovativo / Captura de Ecrã (Opcional ou SMS)
                         </label>
-                        <button
-                          type="button"
-                          onClick={handleUseSampleProof}
-                          className="text-[11px] text-emerald-600 hover:text-emerald-700 font-semibold underline cursor-pointer"
-                        >
-                          Usar Comprovativo de Exemplo
-                        </button>
                       </div>
 
                       <div className="border-2 border-dashed border-slate-300 hover:border-emerald-500 rounded-2xl p-4 text-center bg-slate-50/50 hover:bg-emerald-50/20 transition-all">
@@ -917,7 +944,7 @@ export const PaymentPortalView: React.FC = () => {
         {/* ========================================================= */}
         {/* 2. VISÃO DO ADMINISTRADOR: HOMOLOGAÇÃO DE PAGAMENTOS     */}
         {/* ========================================================= */}
-        {activeTab === 'admin_management' && (
+        {activeTab === 'admin_management' && canManageFinance && (
           <div className="space-y-6">
             {/* Filters Bar */}
             <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">

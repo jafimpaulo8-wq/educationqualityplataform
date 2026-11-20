@@ -22,7 +22,7 @@ export const PaymentProofModal: React.FC<PaymentProofModalProps> = ({ payment, o
           <div>
             <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
               <FileText className="w-4 h-4 text-emerald-400" />
-              Comprovativo Anexado: {payment.serviceItem.toUpperCase()}
+              Comprovativo Anexado: {(payment.serviceItem || payment.serviceDescription || 'PAGAMENTO').toUpperCase()}
             </h3>
             <p className="text-xs text-slate-400 font-mono mt-0.5">
               Aluno: {payment.studentName} • Rede: {payment.network} • Tx: {payment.transactionCode}
@@ -100,7 +100,7 @@ export const PaymentProofModal: React.FC<PaymentProofModalProps> = ({ payment, o
               <div className="mt-4 p-3 bg-slate-950 rounded-lg text-left text-xs font-mono text-slate-300 border border-slate-800">
                 <p className="text-[10px] text-slate-500 uppercase">Mensagem Declarada:</p>
                 <p className="mt-1 text-emerald-300">
-                  {payment.network}: Confirmado. {payment.amount.toFixed(2)} MT transferidos para {payment.network === 'M-Pesa' ? '84 123 4567' : '87 987 6543'}. Ref: {payment.transactionCode} às {payment.time} de {payment.date}.
+                  {payment.network}: Confirmado. {payment.amount.toFixed(2)} MT transferidos para a conta oficial da instituição. Ref: {payment.transactionCode} às {payment.time} de {payment.date}.
                 </p>
               </div>
             </div>

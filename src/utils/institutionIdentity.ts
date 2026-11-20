@@ -21,6 +21,7 @@ export interface ResolvedInstitutionIdentity {
   sigla: string;
   logoUrl: string;
   emblemUrl: string;
+  faviconUrl: string;
   initials: string;
   colors: InstitutionalColors;
   phone: string;
@@ -123,6 +124,7 @@ export function resolveInstitutionIdentity(inst?: Partial<Institution> | null): 
 
   const logoUrl = hasInstitution ? sanitizeImageUrl(inst?.logoUrl || inst?.logo) : '';
   const emblemUrl = hasInstitution ? sanitizeImageUrl(inst?.emblemUrl || logoUrl) : '';
+  const faviconUrl = hasInstitution ? sanitizeImageUrl(inst?.faviconUrl || logoUrl || emblemUrl) : '';
 
   const anyInst = inst as any;
   const colors: InstitutionalColors = {
@@ -185,6 +187,7 @@ export function resolveInstitutionIdentity(inst?: Partial<Institution> | null): 
     sigla,
     logoUrl,
     emblemUrl,
+    faviconUrl,
     initials: hasInstitution ? computeInstitutionInitials(officialName, sigla, code) : '--',
     colors,
     phone,

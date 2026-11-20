@@ -36,8 +36,10 @@ import {
   GraduationCap,
   Shirt,
   AlertTriangle,
-  ChevronDown
+  ChevronDown,
+  ExternalLink
 } from 'lucide-react';
+import { getPublicPaymentPortalUrl } from '../../services/publicInstitutionService';
 import { 
   ContaReceber, 
   ContaPagar, 
@@ -429,6 +431,17 @@ export const FinanceModuleView: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2 self-end md:self-auto">
+            {activeInstitution?.id && (
+              <a
+                href={getPublicPaymentPortalUrl(activeInstitution)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 px-3.5 py-2.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded-xl text-sm font-semibold transition-colors"
+              >
+                <ExternalLink className="w-4 h-4" />
+                <span>Abrir Portal de Pagamentos</span>
+              </a>
+            )}
             <button
               onClick={() => setCurrentRoute('relatorios_financeiros')}
               className="flex items-center gap-2 px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-sm font-semibold transition-colors cursor-pointer"

@@ -39,7 +39,7 @@ import { COURSES_DATA } from '../../data/mockData';
 import { Course, Institution } from '../../types';
 
 interface PublicPortalLandingProps {
-  onOpenAuthModal: (mode?: 'google' | 'credentials' | 'code') => void;
+  onOpenAuthModal: (mode?: 'google' | 'credentials') => void;
   onOpenPublicVerify: () => void;
   onOpenOnlineRegistration?: (courseName?: string) => void;
   onOpenRegisterInstitution: () => void;

@@ -42,6 +42,12 @@ export const ROUTE_POLICIES: Partial<Record<AppRoute, RouteSecurityPolicy>> = {
     category: 'Public',
     isPublic: true
   },
+  portal_pagamentos: {
+    allowedRoles: ['VISITANTE', 'ALUNO', 'PROFESSOR', 'FORMADOR', 'SECRETARIA', 'FINANCEIRO', 'DIRETOR', 'ADMIN_INSTITUICAO', 'SUPER_ADMIN', 'PORTEIRO', 'RESPONSAVEL', 'EMPRESA'],
+    title: 'Portal de Pagamentos Institucional',
+    category: 'Public',
+    isPublic: true
+  },
   inscricao_privada: {
     allowedRoles: ['SECRETARIA', 'DIRETOR', 'ADMIN_INSTITUICAO', 'SUPER_ADMIN', 'VISITANTE'],
     title: 'Inscrição Privada & Balcão',

@@ -127,8 +127,7 @@ import {
   CEU_AZUL_INSTITUTION, 
   CEU_AZUL_INSTITUTION_ID,
   CEU_AZUL_STUDENTS, 
-  CEU_AZUL_DIRECTOR, 
-  CEU_AZUL_CEO 
+  CEU_AZUL_DIRECTOR
 } from '../data/ceuAzulData';
 import { bootstrapCeuAzul } from '../services/ceuAzulBootstrap';
 import { generateDigitalSeal, generateVerificationHash, checkUserSignatureAuthorization } from '../utils/signatureSecurity';
@@ -213,10 +212,30 @@ import {
   saveUserPreferences,
   checkIsSuperAdmin
 } from '../services/firestoreService';
+import { syncPublicInstitutionMetadata } from '../services/publicInstitutionService';
+import {
+  hasFinancialPermission,
+  fetchOwnStudentRecordsForPortal,
+  fetchPortalAccountsReceivable,
+  fetchPortalPayments,
+  createPortalPaymentSubmission,
+  approvePortalPaymentIdempotent,
+  rejectPortalPayment,
+  requestCorrectionPortalPayment,
+  resubmitPortalPayment,
+  incrementReceiptReprint,
+  createContaReceberInFirestore,
+  settleContaReceberInFirestore
+} from '../services/paymentPortalService';
 import { authService } from '../auth/authService';
 import { tenantManager } from '../auth/tenantContext';
 import { toCanonicalRole } from '../types/rbac';
 import { getDefaultRouteForRole, getRoleDisplayName } from '../security/routeSecurity';
+import {
+  getMaputoDateTimeInfo,
+  getStudentGuardianContact,
+  buildGateWhatsAppNotification
+} from '../utils/gateAccessUtils';
 import {
   ThemePreset,
   UserThemePreference,
@@ -247,6 +266,24 @@ interface AppContextType {
   currentRoute: AppRoute;
   routeParams: Record<string, any>;
   navigate: (route: AppRoute, params?: Record<string, any>) => void;
+  activeStudentPortalTab: string;
+  setActiveStudentPortalTab: (tab: string) => void;
+  publicPortalIdentity: {
+    officialName?: string;
+    logoUrl?: string;
+    emblemUrl?: string;
+    faviconUrl?: string;
+    institutionId?: string;
+    slug?: string;
+  } | null;
+  setPublicPortalIdentity: (identity: {
+    officialName?: string;
+    logoUrl?: string;
+    emblemUrl?: string;
+    faviconUrl?: string;
+    institutionId?: string;
+    slug?: string;
+  } | null) => void;
   activeRole: UserRole;
   setActiveRole: (role: UserRole) => void;
   authorizedRoles: UserRole[];
@@ -450,6 +487,7 @@ interface AppContextType {
     customMessage?: string,
     blockReason?: string
   ) => GateAccessLog | null;
+  markGateWhatsAppLinkOpened: (logId: string) => void;
   confirmStudentEntry: (studentId: string) => GateAccessLog | null;
 
   // WhatsApp (Isolated per Institution - Enterprise Integration Layer)
@@ -677,9 +715,8 @@ interface AppContextType {
     studentPerms?: Partial<StudentPortalPermissions>
   ) => void;
 
-  // Student Authentication via Registration Code
+  // Student session cleanup (Firebase Auth required)
   authenticatedStudent: Student | null;
-  loginStudentByCode: (code: string) => { success: boolean; student?: Student; error?: string };
   logoutStudent: () => void;
 
   // ==========================================
@@ -747,12 +784,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const urlRoute = searchParams.get('route');
       if (urlRoute) return urlRoute as AppRoute;
       const path = window.location.pathname;
-      if (path.includes('/inscricao') || path.includes('/candidatura')) return 'inscricao_publica';
+      const hash = window.location.hash;
+      if (path.includes('/pagamentos') || hash.includes('/pagamentos')) return 'portal_pagamentos';
+      if (path.includes('/inscricao') || path.includes('/candidatura') || hash.includes('/inscricoes')) return 'inscricao_publica';
       if (path.includes('/verify')) return 'public_verify';
     }
     return 'public_portal';
   });
   const [routeParams, setRouteParams] = useState<Record<string, any>>({});
+  const [activeStudentPortalTab, setActiveStudentPortalTab] = useState<string>('inicio');
+  const [publicPortalIdentity, setPublicPortalIdentity] = useState<{
+    officialName?: string;
+    logoUrl?: string;
+    emblemUrl?: string;
+    faviconUrl?: string;
+    institutionId?: string;
+    slug?: string;
+  } | null>(null);
   const [activeRole, setActiveRoleState] = useState<UserRole>('visitante');
   const [authorizedRoles, setAuthorizedRoles] = useState<UserRole[]>(['VISITANTE']);
   const [hasSigarProfile, setHasSigarProfile] = useState<boolean>(true);
@@ -1393,20 +1441,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAllApplications([]);
     setAllInternships([]);
     setAllAuditLogs([]);
+    setAllContasReceber([]);
     setAuthenticatedStudent(null);
     setActiveTeacherId(null);
-    try {
-      localStorage.removeItem('mtw_auth_student_code');
-    } catch {
-      // ignore storage errors
-    }
   };
 
   const loadInstitutionTenantData = async (
     instId: string,
     branchId: string,
     role: UserRole,
-    fbUserObj?: User | null
+    fbUserObj?: User | null,
+    linkedStudentIds?: string[]
   ) => {
     const requestId = ++latestTenantLoadRef.current;
     clearTenantData();
@@ -1420,26 +1465,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsSyncing(true);
     try {
       const canonical = toCanonicalRole(role);
-      const isStudent = canonical === 'ALUNO';
+      const isStudentOrGuardian = canonical === 'ALUNO' || canonical === 'RESPONSAVEL';
       const isPorteiro = canonical === 'PORTEIRO';
+      const canReadFinance = hasFinancialPermission(canonical, canonical === 'SUPER_ADMIN');
 
-      if (isStudent) {
-        const [cloudStudents, cloudCourses, cloudClasses, cloudCertificates, cloudLessons, cloudSchedules] = await Promise.all([
-          getStudentsByInstitution(instId, branchId),
+      if (isStudentOrGuardian) {
+        const uid = fbUserObj?.uid || '';
+        const email = fbUserObj?.email || undefined;
+        const [
+          ownStudents,
+          ownPayments,
+          ownReceivables,
+          cloudCourses,
+          cloudClasses,
+          cloudLessons,
+          cloudSchedules
+        ] = await Promise.all([
+          uid
+            ? fetchOwnStudentRecordsForPortal(instId, uid, email, linkedStudentIds)
+            : Promise.resolve([]),
+          uid
+            ? fetchPortalPayments(instId, { isFinancialStaff: false, uid, email, linkedStudentIds })
+            : Promise.resolve([]),
+          uid
+            ? fetchPortalAccountsReceivable(instId, { isFinancialStaff: false, uid, email, linkedStudentIds })
+            : Promise.resolve([]),
           getCoursesByInstitution(instId),
           getClassesByInstitution(instId, branchId),
-          getCertificatesByInstitution(instId),
           getLessonsByInstitution(instId),
           getSchedulesByInstitution(instId)
         ]);
         if (latestTenantLoadRef.current !== requestId) return;
-        const ownStudents = fbUserObj
-          ? cloudStudents.filter(s => s.userId === fbUserObj.uid || (fbUserObj.email && s.email === fbUserObj.email))
-          : cloudStudents;
-        setAllStudents(ownStudents);
+        setAllStudents(ownStudents || []);
+        setAllPaymentRecords(ownPayments || []);
+        setAllContasReceber(ownReceivables || []);
         setAllCourses(cloudCourses || []);
         setAllClasses(cloudClasses || []);
-        setAllCertificates(cloudCertificates.filter(c => ownStudents.some(s => ((s as any).name === c.studentName || s.fullName === c.studentName))));
+        setAllCertificates([]);
         setAllLessons(cloudLessons || []);
         setAllSchedules(cloudSchedules || []);
       } else if (isPorteiro) {
@@ -1458,6 +1520,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           cloudTeachers,
           cloudCertificates,
           cloudPayments,
+          cloudReceivables,
           cloudLessons,
           cloudSchedules,
           cloudTransfers,
@@ -1471,6 +1534,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           getTeachersByInstitution(instId),
           getCertificatesByInstitution(instId),
           getPaymentsByInstitution(instId),
+          canReadFinance
+            ? fetchPortalAccountsReceivable(instId, { isFinancialStaff: true })
+            : Promise.resolve([]),
           getLessonsByInstitution(instId),
           getSchedulesByInstitution(instId),
           getTransfersByInstitution(instId),
@@ -1485,6 +1551,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setAllTeachers(cloudTeachers || []);
         setAllCertificates(cloudCertificates || []);
         setAllPaymentRecords(cloudPayments || []);
+        setAllContasReceber(cloudReceivables || []);
         setAllLessons(cloudLessons || []);
         setAllSchedules(cloudSchedules || []);
         setAllClassTransfers(cloudTransfers || []);
@@ -1539,7 +1606,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           let effectiveBranchId = 'todas';
           let allowedInstIds: string[] = [];
 
-          if (user.email === 'moztechwavenacala8@gmail.com') {
+          if (user.email === 'moztechwavenacala8@gmail.com' && user.emailVerified === true) {
             // Super Administrador Master Global SIGAR PRO (sem fallback automático de Céu Azul)
             effectiveRole = 'SUPER_ADMIN';
             userAuthRoles = ['SUPER_ADMIN', 'ADMIN_INSTITUICAO', 'DIRETOR', 'SECRETARIA', 'FINANCEIRO', 'PROFESSOR', 'PORTEIRO', 'ALUNO'];
@@ -1557,77 +1624,42 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             });
             setHasSigarProfile(true);
           } else if (user.email === 'jafimpaulo8@gmail.com') {
-            // Mandato: Jafim Paulo é DIRETOR do Centro Infantil Céu Azul e SUPER ADMIN soberano
+            // Fase A: Jafim Paulo é exclusivamente DIRETOR de ceu-azul-nacala (sem SUPER_ADMIN)
             effectiveRole = 'DIRETOR';
-            userAuthRoles = ['DIRETOR', 'SUPER_ADMIN'];
-            effectiveInstId = existing?.institutionId || CEU_AZUL_INSTITUTION_ID;
+            userAuthRoles = ['DIRETOR'];
+            effectiveInstId = CEU_AZUL_INSTITUTION_ID;
             effectiveBranchId = existing?.branchId || 'branch-ceu-azul-main';
-            allowedInstIds = [effectiveInstId];
+            allowedInstIds = [CEU_AZUL_INSTITUTION_ID];
             setUserProfile({
               id: user.uid,
-              name: 'Jafim Paulo Rupia',
+              name: existing?.name || 'Jafim Paulo Rupia',
               email: 'jafimpaulo8@gmail.com',
               role: 'DIRETOR',
-              roles: ['DIRETOR', 'SUPER_ADMIN'],
-              institutionId: effectiveInstId,
-              institutionIds: [effectiveInstId],
+              roles: ['DIRETOR'],
+              institutionId: CEU_AZUL_INSTITUTION_ID,
+              institutionIds: [CEU_AZUL_INSTITUTION_ID],
               branchId: effectiveBranchId,
               status: 'Ativo'
             });
             setHasSigarProfile(true);
             bootstrapCeuAzul(user.uid).catch(err => console.warn('Ceu Azul bootstrap error:', err));
-          } else if (user.email === 'andradaalfred02308@gmail.com') {
-            // Mandato: Alfredo Andrade é CEO do Centro Infantil Céu Azul (NÃO Super Admin)
-            effectiveRole = 'CEO';
-            userAuthRoles = ['CEO'];
-            effectiveInstId = existing?.institutionId || CEU_AZUL_INSTITUTION_ID;
-            effectiveBranchId = existing?.branchId || 'branch-ceu-azul-main';
-            allowedInstIds = [effectiveInstId];
-            setUserProfile({
-              id: user.uid,
-              name: 'Alfredo Andrade',
-              email: 'andradaalfred02308@gmail.com',
-              role: 'CEO',
-              roles: ['CEO'],
-              institutionId: effectiveInstId,
-              institutionIds: [effectiveInstId],
-              branchId: effectiveBranchId,
-              status: 'Ativo'
-            });
-            setHasSigarProfile(true);
-            bootstrapCeuAzul(user.uid).catch(err => console.warn('Ceu Azul bootstrap error:', err));
-          } else if (user.email === 'centromoz8@gmail.com') {
-            // Secretaria Académica CFTPM Moztechwave: Egas Paulo
-            effectiveRole = 'SECRETARIA';
-            userAuthRoles = ['SECRETARIA'];
-            effectiveInstId = existing?.institutionId || 'inst-1';
-            effectiveBranchId = existing?.branchId || 'branch-1-maputo';
-            allowedInstIds = ['inst-1', 'moztechwave'];
-            const secProfile = {
-              id: user.uid,
-              name: 'Egas Paulo',
-              email: 'centromoz8@gmail.com',
-              role: 'SECRETARIA' as UserRole,
-              roles: ['SECRETARIA' as UserRole],
-              institutionId: effectiveInstId,
-              institutionIds: ['inst-1', 'moztechwave'],
-              branchId: effectiveBranchId,
-              status: 'Ativo',
-              codigoAcesso: 'MTW-SEC-001'
-            };
-            setUserProfile(secProfile);
-            setHasSigarProfile(true);
-            saveUserProfile(secProfile).catch(err => console.warn('Secretaria sync error:', err));
           } else if (existing) {
             setUserProfile(existing);
             setHasSigarProfile(true);
 
-            if (Array.isArray(existing.roles) && existing.roles.length > 0) {
-              userAuthRoles = existing.roles;
-            } else if (existing.role) {
-              userAuthRoles = [existing.role];
-            } else {
-              userAuthRoles = ['aluno'];
+            const rawRoles = Array.isArray(existing.roles) && existing.roles.length > 0
+              ? existing.roles
+              : (existing.role ? [existing.role] : ['aluno' as UserRole]);
+
+            userAuthRoles = isSuper
+              ? rawRoles
+              : rawRoles.filter(r => {
+                  const upper = String(r).toUpperCase();
+                  return upper !== 'SUPER_ADMIN' && upper !== 'SUPERADMIN';
+                });
+
+            if (userAuthRoles.length === 0) {
+              userAuthRoles = ['visitante'];
             }
 
             if (isSuper && !userAuthRoles.includes('SUPER_ADMIN')) {
@@ -1710,7 +1742,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
 
           setAuthLoadingPhase('carregando_dados');
-          await loadInstitutionTenantData(finalActiveInstId, effectiveBranchId, effectiveRole, user);
+          const linkedStudentIds = Array.from(new Set([
+            ...((existing as any)?.studentId ? [(existing as any).studentId] : []),
+            ...(Array.isArray((existing as any)?.studentIds) ? (existing as any).studentIds : [])
+          ].filter(Boolean)));
+          await loadInstitutionTenantData(finalActiveInstId, effectiveBranchId, effectiveRole, user, linkedStudentIds);
         } catch (e) {
           console.warn('Profile sync info:', e);
         } finally {
@@ -1807,6 +1843,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setFirebaseUser(null);
       setActiveInstitutionId('');
       setActiveBranchId('todas');
+      setPublicPortalIdentity(null);
+      setActiveStudentPortalTab('inicio');
       setAllInstitutions([]);
       clearTenantData();
       tenantManager.clear();
@@ -2180,6 +2218,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const navigate = (route: AppRoute, params: Record<string, any> = {}) => {
     setCurrentRoute(route);
     setRouteParams(params);
+    if (route === 'portal_aluno' && typeof params.tab === 'string' && params.tab.trim()) {
+      setActiveStudentPortalTab(params.tab.trim());
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
     try {
       if (typeof window !== 'undefined' && window.history) {
@@ -2303,6 +2344,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     if (updatedObj) {
       saveInstitutionToFirestore(updatedObj).catch(err => console.warn('Firestore sync institution update:', err));
+      syncPublicInstitutionMetadata(updatedObj).catch(err => console.warn('Public institution sync note:', err));
     }
 
     addNotification({
@@ -2465,106 +2507,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   };
 
-  const loginStudentByCode = (code: string): { success: boolean; student?: Student; error?: string } => {
-    const trimmed = code.trim().toLowerCase();
-    if (!trimmed) {
-      return { success: false, error: 'Por favor, insira o seu código de formando ou número de BI.' };
-    }
-
-    const found = allStudents.find(s => 
-      s.code?.toLowerCase() === trimmed || 
-      (s as any).codigoAcesso?.toLowerCase() === trimmed ||
-      (s as any).numAluno?.toLowerCase() === trimmed ||
-      (s.documentNumber && s.documentNumber.toLowerCase() === trimmed)
-    );
-
-    if (found) {
-      setAuthenticatedStudent(found);
-      try {
-        localStorage.setItem('mtw_auth_student_code', found.code);
-      } catch (e) {
-        console.warn(e);
-      }
-
-      logCriticalAction({
-        action: 'login',
-        entity: 'Aluno',
-        entityId: found.code,
-        userName: found.fullName,
-        userRole: 'ALUNO',
-        relevantValues: {
-          summary: `Autenticação do formando ${found.fullName} (${found.code}) no Portal do Aluno via código único.`,
-          metadata: { course: found.courseName, class: found.className }
-        },
-        severity: 'info'
-      });
-
-      return { success: true, student: found };
-    }
-
-    const foundApp = allApplications.find(a => 
-      a.code.toLowerCase() === trimmed || 
-      (a.documentNumber && a.documentNumber.toLowerCase() === trimmed)
-    );
-
-    if (foundApp) {
-      const candidateStudent: Student = {
-        id: foundApp.id,
-        code: foundApp.code,
-        fullName: foundApp.fullName,
-        gender: foundApp.gender || 'Masculino',
-        birthDate: foundApp.birthDate || '2004-01-01',
-        documentType: foundApp.documentType || 'BI',
-        documentNumber: foundApp.documentNumber,
-        email: foundApp.email,
-        phone: foundApp.phone,
-        address: foundApp.address || 'Maputo',
-        city: foundApp.city || 'Maputo',
-        province: foundApp.province || 'Maputo Cidade',
-        courseId: foundApp.courseId,
-        courseName: foundApp.courseName,
-        classGroupId: 'cand',
-        classGroupName: 'Candidatura em Análise',
-        regime: foundApp.regime || 'Regular',
-        status: 'Pré-inscrito',
-        institutionId: foundApp.institutionId || activeInstitutionId,
-        enrollmentDate: foundApp.createdAt || new Date().toISOString().split('T')[0],
-        photoUrl: '',
-        paymentStatus: 'Pendente',
-        balanceOwing: foundApp.paymentAmount || 1500,
-        attendancePercentage: 100,
-        averageGrade: 0,
-        emergencyContact: foundApp.phone,
-        assessments: []
-      };
-
-      setAuthenticatedStudent(candidateStudent);
-      try {
-        localStorage.setItem('mtw_auth_student_code', foundApp.code);
-      } catch (e) {}
-
-      logCriticalAction({
-        action: 'login',
-        entity: 'Candidato',
-        entityId: foundApp.code,
-        userName: foundApp.fullName,
-        userRole: 'ALUNO',
-        relevantValues: {
-          summary: `Autenticação do candidato ${foundApp.fullName} (${foundApp.code}) no Portal do Aluno.`,
-          metadata: { applicationStatus: foundApp.status }
-        },
-        severity: 'info'
-      });
-
-      return { success: true, student: candidateStudent };
-    }
-
-    return { 
-      success: false, 
-      error: `Código "${code}" não encontrado no sistema. Verifique o seu recibo de inscrição ou cartão de formando.` 
-    };
-  };
-
   const logoutStudent = () => {
     if (authenticatedStudent) {
       logCriticalAction({
@@ -2580,9 +2522,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
     }
     setAuthenticatedStudent(null);
-    try {
-      localStorage.removeItem('mtw_auth_student_code');
-    } catch (e) {}
   };
 
   const addBranch = (branchData: Omit<Branch, 'id' | 'institutionId' | 'createdAt'>): Branch => {
@@ -5188,6 +5127,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createdAt: new Date().toISOString()
     };
     setAllContasReceber(prev => [newConta, ...prev]);
+    createContaReceberInFirestore(newConta).catch(err => console.warn('Firestore sync contaReceber note:', err));
     addNotification({
       title: 'Conta a Receber Criada',
       message: `${newConta.description} no valor de ${newConta.totalAmount.toLocaleString('pt-MZ')} MTn registrado.`,
@@ -5294,6 +5234,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         studentName: target.studentName || target.debtorName,
         documentRef: receipt
       });
+    }
+
+    if (target.institutionId) {
+      const receiptId = target.receiptId || `rcp-${target.id}`;
+      settleContaReceberInFirestore(
+        target,
+        {
+          id: receiptId,
+          institutionId: target.institutionId,
+          contaReceberId: target.id,
+          paymentId: target.paymentRecordId || target.id,
+          receiptNumber: receipt,
+          studentId: target.studentId || 'avulso',
+          studentName: target.studentName || target.debtorName || 'Utente',
+          studentCode: target.studentCode || 'AVULSO',
+          ...(target.studentUserId ? { studentUserId: target.studentUserId } : {}),
+          ...(target.guardianUserId ? { guardianUserId: target.guardianUserId } : {}),
+          ...(target.guardianUids ? { guardianUids: target.guardianUids } : {}),
+          ...(target.guardianEmail ? { guardianEmail: target.guardianEmail } : {}),
+          serviceItem: target.category,
+          serviceDescription: target.description || target.title,
+          amount: paymentData.paidAmount,
+          network: paymentData.paymentMethod,
+          transactionCode: receipt,
+          issuedAt: new Date().toISOString(),
+          issuedBy: paymentData.operator || firebaseUser?.displayName || 'Tesouraria',
+          issuedByUid: firebaseUser?.uid,
+          qrVerificationCode: `SIVERC-REC-${target.id.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 12)}`,
+          reprintCount: 0,
+          status: 'Emitido'
+        },
+        {
+          paidAmount: paymentData.paidAmount,
+          paymentMethod: paymentData.paymentMethod,
+          notes: paymentData.notes
+        }
+      ).catch(err => console.warn('Firestore sync settleContaReceber note:', err));
     }
 
     addNotification({
@@ -5409,11 +5386,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const submitPayment = (data: Omit<PaymentRecord, 'id' | 'createdAt' | 'status' | 'serviceReleased' | 'auditTrail'>): string => {
     const id = `pay-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
     const now = new Date().toISOString();
+    const resolvedStudent = allStudents.find(s => s.id === data.studentId || s.code === data.studentCode);
     const newRecord: PaymentRecord = {
       ...data,
       id,
       institutionId: data.institutionId || activeInstitution.id,
       branchId: data.branchId || (activeBranchId !== 'todas' ? activeBranchId : undefined),
+      studentUserId: data.studentUserId || resolvedStudent?.userId || (toCanonicalRole(activeRole) === 'ALUNO' ? firebaseUser?.uid : undefined),
+      guardianUserId: data.guardianUserId || (resolvedStudent as any)?.guardianUserId || (toCanonicalRole(activeRole) === 'RESPONSAVEL' ? firebaseUser?.uid : undefined),
+      guardianUids: data.guardianUids || (resolvedStudent as any)?.guardianUids,
+      guardianEmail: data.guardianEmail || (resolvedStudent as any)?.guardianEmail,
+      submittedByUid: data.submittedByUid || firebaseUser?.uid,
       status: 'PENDENTE DE CONFIRMAÇÃO',
       createdAt: now,
       serviceReleased: false,
@@ -5422,18 +5405,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           id: `aud-${Date.now()}-1`,
           timestamp: now,
           actorName: data.studentName,
-          actorRole: 'Aluno / Formando',
+          actorRole: toCanonicalRole(activeRole) === 'RESPONSAVEL' ? 'Encarregado de Educação' : 'Aluno / Formando',
           action: 'Submissão de Pagamento',
-          details: `Pagamento submetido via portal: ${data.serviceItem} (${data.amount.toLocaleString('pt-MZ')} MT via ${data.network}). Código da transação: ${data.transactionCode}. Data: ${data.date} às ${data.time}. Comprovativo anexado.`
+          details: `Pagamento submetido via portal: ${data.serviceItem || 'taxa'} (${data.amount.toLocaleString('pt-MZ')} MT via ${data.network}). Código da transação: ${data.transactionCode}. Data: ${data.date} às ${data.time}.`
         }
       ]
     };
 
     setAllPaymentRecords(prev => [newRecord, ...prev]);
 
+    createPortalPaymentSubmission(newRecord).catch(err =>
+      console.warn('Firestore sync submitPayment note:', err)
+    );
+
     addNotification({
       title: 'Pagamento Submetido com Sucesso',
-      message: `Comprovativo de ${data.serviceItem} (${data.amount.toLocaleString('pt-MZ')} MT via ${data.network}) submetido. Estado: PENDENTE DE CONFIRMAÇÃO.`,
+      message: `Comprovativo de ${data.serviceItem || 'pagamento'} (${data.amount.toLocaleString('pt-MZ')} MT via ${data.network}) submetido. Estado: PENDENTE DE CONFIRMAÇÃO.`,
       type: 'payment'
     });
     soundManager.playSuccess();
@@ -5443,18 +5430,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const approvePayment = (id: string, notes?: string, actorName?: string) => {
     const target = allPaymentRecords.find(p => p.id === id);
     if (!target) return;
+    // Garantia idempotente: nunca duplicar recibo nem lançamento para pagamento já aprovado
+    if (target.status === 'PAGO' && target.receiptNumber) {
+      return;
+    }
 
     const operator = actorName || firebaseUser?.displayName || 'Administrador Financeiro';
     const now = new Date().toISOString();
     const today = now.split('T')[0];
-    const receiptNum = target.receiptNumber || `REC-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    const receiptNum = target.receiptNumber || `REC-${new Date().getFullYear()}-${String(Math.floor(1000 + Math.random() * 9000))}`;
+    const receiptId = target.receiptId || `rcp-${target.id}`;
 
     // 1. Encontrar o aluno para atualizar saldo, adicionar recibo e auditoria
     const student = allStudents.find(s => s.id === target.studentId || s.code === target.studentCode);
     const balanceBefore = student?.balanceOwing ?? 0;
     const balanceAfter = Math.max(0, balanceBefore - target.amount);
 
-    const serviceMessage = target.serviceDescription || PAYMENT_SERVICE_CATALOG[target.serviceItem]?.serviceReleaseDetail || `Serviço "${target.serviceItem}" liberado com sucesso.`;
+    const serviceMessage = target.serviceDescription || (target.serviceItem ? PAYMENT_SERVICE_CATALOG[target.serviceItem]?.serviceReleaseDetail : undefined) || `Serviço "${target.serviceItem || 'pagamento'}" liberado com sucesso.`;
 
     const approvalAuditEntry: PaymentAuditEntry = {
       id: `aud-${Date.now()}-app`,
@@ -5462,8 +5454,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       actorName: operator,
       actorRole: 'Administrador Financeiro',
       action: 'Aprovação de Pagamento & Liberação de Serviço',
-      details: `Pagamento homologado: ${target.serviceItem} no valor de ${target.amount.toLocaleString('pt-MZ')} MT (${target.network} - Tx: ${target.transactionCode}). Recibo ${receiptNum} gerado. Saldo discente atualizado de ${balanceBefore} MT para ${balanceAfter} MT. Serviço liberado: ${serviceMessage}. ${notes ? 'Obs: ' + notes : ''}`
+      details: `Pagamento homologado: ${target.serviceItem || 'serviço'} no valor de ${target.amount.toLocaleString('pt-MZ')} MT (${target.network} - Tx: ${target.transactionCode}). Recibo ${receiptNum} gerado. Saldo discente atualizado de ${balanceBefore} MT para ${balanceAfter} MT. Serviço liberado: ${serviceMessage}. ${notes ? 'Obs: ' + notes : ''}`
     };
+    const nextAuditTrail = [approvalAuditEntry, ...(target.auditTrail || [])];
 
     // 2. Atualizar o registro do pagamento
     setAllPaymentRecords(prev => prev.map(p => {
@@ -5474,13 +5467,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           reviewedBy: operator,
           reviewedAt: now,
           receiptNumber: receiptNum,
+          receiptId,
           serviceReleased: true,
           serviceReleasedAt: now,
           serviceReleaseMessage: serviceMessage,
           balanceBefore,
           balanceAfter,
-          adminNotes: notes,
-          auditTrail: [approvalAuditEntry, ...(p.auditTrail || [])]
+          ...(notes ? { adminNotes: notes } : {}),
+          auditTrail: nextAuditTrail
         };
       }
       return p;
@@ -5489,14 +5483,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // 3. Atualizar aluno (saldo, recibos, auditoria)
     if (student) {
       const studentReceipt: StudentReceiptRecord = {
-        id: `rec-${Date.now()}`,
+        id: receiptId,
         receiptNumber: receiptNum,
         date: target.date || today,
         amount: target.amount,
-        description: `Pagamento de ${target.serviceItem} via ${target.network} (Tx: ${target.transactionCode})`,
-        paymentMethod: target.network === 'M-Pesa' ? 'M-Pesa' : 'e-Mola',
+        description: `Pagamento de ${target.serviceItem || 'serviço'} via ${target.network} (Tx: ${target.transactionCode})`,
+        paymentMethod: target.network === 'M-Pesa' ? 'M-Pesa' : target.network === 'e-Mola' ? 'e-Mola' : (target.network as any),
         status: 'Emitido',
-        qrVerificationCode: `SIVERC-REC-${Date.now().toString(36).toUpperCase()}`
+        qrVerificationCode: `SIVERC-REC-${target.id.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 12)}`
       };
 
       const studentAudit: StudentAuditEntry = {
@@ -5505,17 +5499,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         actorName: operator,
         actorRole: 'Administrador Financeiro',
         action: 'Homologação de Pagamento e Liberação de Serviço',
-        details: `Pagamento de ${target.serviceItem} no valor de ${target.amount.toLocaleString('pt-MZ')} MT (Rede: ${target.network}, Tx: ${target.transactionCode}) APROVADO. Recibo ${receiptNum} emitido. Saldo atualizado de ${balanceBefore} MT para ${balanceAfter} MT. Serviço liberado com sucesso.`
+        details: `Pagamento de ${target.serviceItem || 'serviço'} no valor de ${target.amount.toLocaleString('pt-MZ')} MT (Rede: ${target.network}, Tx: ${target.transactionCode}) APROVADO. Recibo ${receiptNum} emitido. Saldo atualizado de ${balanceBefore} MT para ${balanceAfter} MT.`
       };
 
       setAllStudents(prev => prev.map(s => {
         if (s.id === student.id) {
           const newBalance = Math.max(0, (s.balanceOwing || 0) - target.amount);
+          const alreadyHasReceipt = (s.receipts || []).some(r => r.id === receiptId || r.receiptNumber === receiptNum);
           return {
             ...s,
             balanceOwing: newBalance,
             paymentStatus: newBalance === 0 ? 'Pago' : (s.paymentStatus === 'Atrasado' ? 'Pendente' : s.paymentStatus),
-            receipts: [studentReceipt, ...(s.receipts || [])],
+            receipts: alreadyHasReceipt ? (s.receipts || []) : [studentReceipt, ...(s.receipts || [])],
             auditTrail: [studentAudit, ...(s.auditTrail || [])]
           };
         }
@@ -5523,7 +5518,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }));
     }
 
-    // 4. Registrar no Caixa Escolar do Dia
+    // 4. Registrar no Caixa Escolar do Dia apenas se não existir movimento para este recibo
     const categoryMap: Record<string, string> = {
       mensalidade: 'Propinas',
       inscrição: 'Inscrições',
@@ -5537,39 +5532,61 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       outros: 'Outras Receitas'
     };
 
-    addCashTransaction({
-      institutionId: target.institutionId,
-      branchId: target.branchId,
-      type: 'entrada',
-      amount: target.amount,
-      description: `Pagamento Homologado: ${target.serviceItem} - ${target.studentName} (${target.network} Tx: ${target.transactionCode})`,
-      category: categoryMap[target.serviceItem] || 'Outros',
-      operator,
-      paymentMethod: target.network === 'M-Pesa' ? 'M-Pesa' : 'e-Mola',
-      studentName: target.studentName,
-      documentRef: receiptNum
-    });
+    const existingCashTx = (allCashSessions || []).some(sess =>
+      (sess.transactions || []).some(tx => tx.documentRef === receiptNum)
+    );
+    if (!existingCashTx) {
+      addCashTransaction({
+        institutionId: target.institutionId,
+        branchId: target.branchId,
+        type: 'entrada',
+        amount: target.amount,
+        description: `Pagamento Homologado: ${target.serviceItem || 'serviço'} - ${target.studentName} (${target.network} Tx: ${target.transactionCode})`,
+        category: (target.serviceItem && categoryMap[target.serviceItem]) || 'Outros',
+        operator,
+        paymentMethod: target.network === 'M-Pesa' ? 'M-Pesa' : target.network === 'e-Mola' ? 'e-Mola' : (target.network as any),
+        studentName: target.studentName,
+        documentRef: receiptNum
+      });
+    }
 
-    // 5. Se houver Conta a Receber pendente correspondente, dar baixa
+    // 5. Se houver Conta a Receber pendente correspondente (por contaReceberId ou studentId+category), dar baixa
+    let matchedContaId = target.contaReceberId;
     setAllContasReceber(prev => prev.map(c => {
-      if (c.studentId === target.studentId && c.status === 'pendente' && c.category === target.serviceItem) {
+      const isDirectMatch = matchedContaId ? c.id === matchedContaId : (c.studentId === target.studentId && c.status === 'pendente' && c.category === target.serviceItem);
+      if (isDirectMatch && c.status !== 'pago') {
+        matchedContaId = c.id;
         return {
           ...c,
           status: 'pago',
           paidAmount: target.amount,
           paymentDate: today,
-          paymentMethod: target.network === 'M-Pesa' ? 'M-Pesa' : 'e-Mola',
+          paymentMethod: target.network,
           receiptNumber: receiptNum,
-          notes: `${c.notes || ''} | Baixa automática via aprovação de comprovativo (${target.transactionCode})`,
+          receiptId,
+          paymentRecordId: target.id,
+          notes: `${c.notes || ''} | Baixa automática via aprovação (${target.transactionCode})`,
           updatedAt: now
         };
       }
       return c;
     }));
 
+    approvePortalPaymentIdempotent({
+      payment: { ...target, ...(matchedContaId ? { contaReceberId: matchedContaId } : {}) },
+      operatorName: operator,
+      operatorUid: firebaseUser?.uid,
+      receiptNumber: receiptNum,
+      serviceReleaseMessage: serviceMessage,
+      balanceBefore,
+      balanceAfter,
+      auditTrail: nextAuditTrail,
+      notes
+    }).catch(err => console.warn('Firestore sync approvePayment note:', err));
+
     addNotification({
       title: 'Pagamento Aprovado e Serviço Liberado',
-      message: `Recibo ${receiptNum} emitido com sucesso para ${target.studentName}. Saldo atualizado e serviço "${target.serviceItem}" liberado.`,
+      message: `Recibo ${receiptNum} emitido com sucesso para ${target.studentName}. Saldo atualizado e serviço "${target.serviceItem || 'pagamento'}" liberado.`,
       type: 'payment'
     });
     soundManager.playSuccess();
@@ -5588,8 +5605,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       actorName: operator,
       actorRole: 'Administrador Financeiro',
       action: 'Rejeição de Pagamento',
-      details: `Pagamento de ${target.serviceItem} (${target.amount.toLocaleString('pt-MZ')} MT) foi REJEITADO. Motivo formal: "${rejectionReason}".`
+      details: `Pagamento de ${target.serviceItem || 'serviço'} (${target.amount.toLocaleString('pt-MZ')} MT) foi REJEITADO. Motivo formal: "${rejectionReason}".`
     };
+    const nextAuditTrail = [rejectAuditEntry, ...(target.auditTrail || [])];
 
     setAllPaymentRecords(prev => prev.map(p => {
       if (p.id === id) {
@@ -5599,11 +5617,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           reviewedBy: operator,
           reviewedAt: now,
           rejectionReason,
-          auditTrail: [rejectAuditEntry, ...(p.auditTrail || [])]
+          auditTrail: nextAuditTrail
         };
       }
       return p;
     }));
+
+    rejectPortalPayment(target, rejectionReason, operator, nextAuditTrail).catch(err =>
+      console.warn('Firestore sync rejectPayment note:', err)
+    );
 
     // Auditoria no aluno
     const student = allStudents.find(s => s.id === target.studentId);
@@ -5614,14 +5636,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         actorName: operator,
         actorRole: 'Administrador Financeiro',
         action: 'Rejeição de Comprovativo de Pagamento',
-        details: `Submissão de pagamento (${target.serviceItem}, ${target.amount.toLocaleString('pt-MZ')} MT) rejeitada por inconsistência. Motivo: ${rejectionReason}`
+        details: `Submissão de pagamento (${target.serviceItem || 'serviço'}, ${target.amount.toLocaleString('pt-MZ')} MT) rejeitada por inconsistência. Motivo: ${rejectionReason}`
       };
       setAllStudents(prev => prev.map(s => s.id === student.id ? { ...s, auditTrail: [studentAudit, ...(s.auditTrail || [])] } : s));
     }
 
     addNotification({
       title: 'Pagamento Rejeitado',
-      message: `A submissão de ${target.studentName} (${target.serviceItem}) foi marcada como REJEITADA. Motivo: ${rejectionReason}`,
+      message: `A submissão de ${target.studentName} (${target.serviceItem || 'pagamento'}) foi marcada como REJEITADA. Motivo: ${rejectionReason}`,
       type: 'payment'
     });
     soundManager.playError();
@@ -5640,8 +5662,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       actorName: operator,
       actorRole: 'Administrador Financeiro',
       action: 'Solicitação de Correção de Pagamento',
-      details: `Solicitada correção ao formando para ${target.serviceItem} (${target.amount.toLocaleString('pt-MZ')} MT). Instruções: "${correctionNotes}".`
+      details: `Solicitada correção ao formando para ${target.serviceItem || 'serviço'} (${target.amount.toLocaleString('pt-MZ')} MT). Instruções: "${correctionNotes}".`
     };
+    const nextAuditTrail = [correctionAuditEntry, ...(target.auditTrail || [])];
 
     setAllPaymentRecords(prev => prev.map(p => {
       if (p.id === id) {
@@ -5651,11 +5674,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           reviewedBy: operator,
           reviewedAt: now,
           correctionNotes,
-          auditTrail: [correctionAuditEntry, ...(p.auditTrail || [])]
+          auditTrail: nextAuditTrail
         };
       }
       return p;
     }));
+
+    requestCorrectionPortalPayment(target, correctionNotes, operator, nextAuditTrail).catch(err =>
+      console.warn('Firestore sync requestCorrection note:', err)
+    );
 
     // Auditoria no aluno
     const student = allStudents.find(s => s.id === target.studentId);
@@ -5666,7 +5693,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         actorName: operator,
         actorRole: 'Administrador Financeiro',
         action: 'Solicitação de Correção em Comprovativo',
-        details: `Solicitada retificação do comprovativo de ${target.serviceItem}. Instruções da tesouraria: ${correctionNotes}`
+        details: `Solicitada retificação do comprovativo de ${target.serviceItem || 'serviço'}. Instruções da tesouraria: ${correctionNotes}`
       };
       setAllStudents(prev => prev.map(s => s.id === student.id ? { ...s, auditTrail: [studentAudit, ...(s.auditTrail || [])] } : s));
     }
@@ -5680,27 +5707,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const resubmitPayment = (id: string, updates: { transactionCode: string; amount: number; date: string; time: string; network: PaymentNetwork; proofUrl?: string; proofFileName?: string }) => {
+    const target = allPaymentRecords.find(p => p.id === id);
     const now = new Date().toISOString();
+    let nextAuditTrail: PaymentAuditEntry[] | undefined;
+
     setAllPaymentRecords(prev => prev.map(p => {
       if (p.id === id) {
         const audit: PaymentAuditEntry = {
           id: `aud-${Date.now()}-resub`,
           timestamp: now,
           actorName: p.studentName,
-          actorRole: 'Aluno / Formando',
+          actorRole: toCanonicalRole(activeRole) === 'RESPONSAVEL' ? 'Encarregado de Educação' : 'Aluno / Formando',
           action: 'Reenvio de Pagamento com Correção',
           details: `Pagamento retificado pelo formando. Novo código: ${updates.transactionCode}, Valor: ${updates.amount} MT, Rede: ${updates.network}. Estado retornado para PENDENTE DE CONFIRMAÇÃO.`
         };
+        nextAuditTrail = [audit, ...(p.auditTrail || [])];
         return {
           ...p,
           ...updates,
           status: 'PENDENTE DE CONFIRMAÇÃO',
           correctionNotes: undefined,
-          auditTrail: [audit, ...(p.auditTrail || [])]
+          reviewedBy: undefined,
+          reviewedAt: undefined,
+          auditTrail: nextAuditTrail
         };
       }
       return p;
     }));
+
+    if (target?.institutionId) {
+      resubmitPortalPayment(id, {
+        institutionId: target.institutionId,
+        studentId: target.studentId,
+        studentUserId: target.studentUserId,
+        guardianUserId: target.guardianUserId,
+        ...updates,
+        auditTrail: nextAuditTrail
+      }).catch(err => console.warn('Firestore sync resubmitPayment note:', err));
+    }
 
     addNotification({
       title: 'Pagamento Retificado e Reenviado',
@@ -5720,11 +5764,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const recordReceiptReprint = (id: string, operatorName?: string) => {
+    const target = allPaymentRecords.find(p => p.id === id);
     const now = new Date().toISOString();
     const operator = operatorName || firebaseUser?.displayName || 'Operador da Tesouraria';
+    let nextCountResolved = (target?.reprintCount || 0) + 1;
+    let nextAuditTrail: PaymentAuditEntry[] = target?.auditTrail || [];
+
     setAllPaymentRecords(prev => prev.map(p => {
       if (p.id === id) {
         const nextCount = (p.reprintCount || 0) + 1;
+        nextCountResolved = nextCount;
         const audit: PaymentAuditEntry = {
           id: `aud-${Date.now()}-reprint`,
           timestamp: now,
@@ -5733,54 +5782,64 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           action: 'Reimpressão de Recibo Oficial (2ª Via)',
           details: `Emissão de 2ª via do recibo oficial por ${operator}. Reimpressão #${nextCount} autorizada sem alteração de valores ou duplicação de pagamento.`
         };
+        nextAuditTrail = [audit, ...(p.auditTrail || [])];
         return {
           ...p,
           reprintCount: nextCount,
           lastReprintedAt: now,
           lastReprintedBy: operator,
-          auditTrail: [audit, ...(p.auditTrail || [])]
+          auditTrail: nextAuditTrail
         };
       }
       return p;
     }));
+
+    if (target?.institutionId) {
+      incrementReceiptReprint(target, operator, nextCountResolved, nextAuditTrail).catch(err =>
+        console.warn('Firestore sync reprint note:', err)
+      );
+    }
   };
 
-  // Portaria & Controlo de Acesso (com Notificação WhatsApp ao Encarregado)
+  // Portaria & Controlo de Acesso (com Fuso Africa/Maputo, WhatsApp honesto e tratamento de falha Firestore)
   const logGateAccess = (
     studentId: string, 
     type: 'entrada' | 'saida' | 'barrado',
     customLocation?: string,
     customOperator?: string,
-    sendNotification: boolean = true,
+    _sendNotification: boolean = true,
     customMessage?: string,
     blockReason?: string
   ): GateAccessLog | null => {
     const student = allStudents.find(s => s.id === studentId && s.institutionId === activeInstitution.id);
     if (!student) return null;
 
-    const now = new Date();
-    const dateStr = now.toLocaleDateString('pt-MZ');
-    const timeStr = now.toLocaleTimeString('pt-MZ');
-    const hourOnly = now.toLocaleTimeString('pt-MZ', { hour: '2-digit', minute: '2-digit' });
+    const maputoNow = getMaputoDateTimeInfo();
+    const dateStr = maputoNow.ddMmYyyy;
+    const timeStr = maputoNow.timeStr;
+    const hourOnly = maputoNow.timeStr.slice(0, 5);
     const fullTimestamp = `${dateStr} ${timeStr}`;
 
     const targetBranch = activeBranchId !== 'todas' ? activeBranchId : (student.branchId || activeInstitution.branches?.[0]?.id || 'branch-default');
     const centerName = resolveInstitutionIdentity(activeInstitution).officialName || activeInstitution.name;
-    const guardianName = student.guardianName || 'Encarregado de Educação';
+    const guardian = getStudentGuardianContact(student);
+    const generatedNotif = buildGateWhatsAppNotification({
+      student,
+      institutionName: centerName,
+      action: type,
+      timeStr: hourOnly,
+      monthLabel: maputoNow.monthLabel,
+      blockReason
+    });
 
-    const notificationMessage = customMessage || (
-      type === 'entrada'
-        ? `Olá ${guardianName}, informamos que o(a) aluno(a) ${student.fullName} do centro ${centerName} entrou às ${hourOnly}.`
-        : type === 'saida'
-        ? `Olá ${guardianName}, informamos que o(a) aluno(a) ${student.fullName} do centro ${centerName} saiu às ${hourOnly}.`
-        : `Olá ${guardianName}, informamos que o(a) aluno(a) ${student.fullName} do centro ${centerName} foi barrado(a) na porta às ${hourOnly}. Motivo: ${blockReason || 'falta de pagamento da mensalidade do mês corrente'}.`
-    );
+    const notificationMessage = customMessage || generatedNotif.message;
 
     const operatorName = customOperator || firebaseUser?.displayName || (activeRole === 'superadmin' ? 'Super Administrador' : 'Portaria / Secretaria');
     const locationName = customLocation || 'Portão Principal';
+    const logId = `acc-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
     const log: GateAccessLog = {
-      id: `acc-${Date.now()}`,
+      id: logId,
       institutionId: activeInstitution.id,
       institutionName: centerName,
       branchId: targetBranch,
@@ -5791,8 +5850,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       courseName: student.courseName,
       classGroupName: student.classGroupName,
       photoUrl: student.photoUrl || '',
-      guardianPhone: student.guardianPhone || student.emergencyContact || student.phone || '',
-      guardianName,
+      guardianPhone: guardian.guardianPhone,
+      guardianName: guardian.guardianName,
       date: dateStr,
       time: timeStr,
       timestamp: fullTimestamp,
@@ -5800,32 +5859,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...(blockReason ? { blockReason } : {}),
       operator: operatorName,
       operatorRole: activeRole,
-      whatsappStatus: sendNotification ? 'enviado' : 'pendente',
-      notificationSent: sendNotification,
+      whatsappStatus: 'pendente',
+      notificationSent: false,
       notificationMessage,
+      persistenceStatus: 'local_only',
       confirmed: type !== 'barrado'
     };
 
     setAllAccessLogs(prev => [log, ...prev]);
 
-    saveAccessLogToFirestore(log).catch(err => console.warn('Firestore sync gate access:', err));
-
-    // Incrementar disparos de WhatsApp na instituição se notificação estiver configurada
-    if (sendNotification) {
-      setAllInstitutions(prev => prev.map(inst => {
-        if (inst.id === activeInstitution.id && inst.whatsAppConfig) {
-          return {
-            ...inst,
-            whatsAppConfig: {
-              ...inst.whatsAppConfig,
-              dailyMessagesSent: inst.whatsAppConfig.dailyMessagesSent + 1,
-              lastSync: 'Agora mesmo'
-            }
-          };
-        }
-        return inst;
-      }));
-    }
+    saveAccessLogToFirestore(log)
+      .then(() => {
+        setAllAccessLogs(prev =>
+          prev.map(item => (item.id === logId ? { ...item, persistenceStatus: 'saved' } : item))
+        );
+      })
+      .catch(err => {
+        const errMsg = err?.message || 'Sem ligação ou permissão Firestore insuficiente ao gravar movimento.';
+        console.warn('Firestore sync gate access failed:', err);
+        setAllAccessLogs(prev =>
+          prev.map(item =>
+            item.id === logId
+              ? { ...item, persistenceStatus: 'error', persistenceError: errMsg }
+              : item
+          )
+        );
+        addNotification({
+          title: 'Falha ao Sincronizar Portaria no Servidor',
+          message: `Movimento de ${student.fullName} guardado apenas localmente (${errMsg}).`,
+          type: 'alert'
+        });
+      });
 
     addNotification({
       title:
@@ -5844,6 +5908,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       soundManager.playSuccess();
     }
     return log;
+  };
+
+  const markGateWhatsAppLinkOpened = (logId: string) => {
+    if (!logId) return;
+    let updatedRecord: GateAccessLog | null = null;
+    setAllAccessLogs(prev =>
+      prev.map(item => {
+        if (item.id !== logId) return item;
+        updatedRecord = {
+          ...item,
+          whatsappStatus: 'link_aberto',
+          notificationSent: true
+        };
+        return updatedRecord;
+      })
+    );
+
+    if (updatedRecord) {
+      saveAccessLogToFirestore(updatedRecord).catch(err =>
+        console.warn('Firestore update WhatsApp link status note:', err)
+      );
+    }
+
+    setAllInstitutions(prev =>
+      prev.map(inst => {
+        if (inst.id === activeInstitution.id && inst.whatsAppConfig) {
+          return {
+            ...inst,
+            whatsAppConfig: {
+              ...inst.whatsAppConfig,
+              dailyMessagesSent: inst.whatsAppConfig.dailyMessagesSent + 1,
+              lastSync: 'Agora mesmo'
+            }
+          };
+        }
+        return inst;
+      })
+    );
   };
 
   const confirmStudentEntry = (studentId: string) => {
@@ -8093,30 +8195,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     branchId: string;
     authMethod: string;
   }) => {
-    // Privilege Escalation Guard: Only authenticated platform owner can assume superadmin
+    if (!firebaseUser) {
+      addNotification({
+        title: 'Autenticação Obrigatória',
+        message: 'É necessário iniciar sessão com Firebase Auth.',
+        type: 'warning'
+      });
+      return;
+    }
+
+    const isVerifiedSuper = firebaseUser.email === 'moztechwavenacala8@gmail.com' && firebaseUser.emailVerified === true;
+    const requestedCanonical = toCanonicalRole(params.role);
+    const allowedCanonicals = (authorizedRoles || []).map(r => toCanonicalRole(r));
+
     let grantedRole = params.role;
-    if (params.role === 'SUPER_ADMIN' || params.role === 'superadmin') {
-      const isOwner = (authorizedRoles || []).map(r => toCanonicalRole(r)).includes('SUPER_ADMIN') || (firebaseUser as any)?.claims?.role === 'superadmin';
-      if (!isOwner) {
-        grantedRole = 'DIRETOR';
-        addNotification({
-          title: 'Proteção Anti-Escalação Ativa',
-          message: 'Apenas a identidade soberana do proprietário pode assumir o papel de Super Admin.',
-          type: 'system'
-        });
-      }
+    if (!isVerifiedSuper && (requestedCanonical === 'SUPER_ADMIN' || !allowedCanonicals.includes(requestedCanonical))) {
+      grantedRole = activeRole;
+      addNotification({
+        title: 'Proteção Anti-Escalação Ativa',
+        message: 'Perfil não autorizado para esta conta.',
+        type: 'system'
+      });
+      return;
     }
 
     setActiveRole(grantedRole);
 
-    const targetInst = allInstitutions.find(i => i.id === params.institutionId);
-    if (targetInst) {
-      setActiveInstitution(targetInst);
+    const targetInst = isVerifiedSuper
+      ? allInstitutions.find(i => i.id === params.institutionId)
+      : activeInstitution;
+
+    if (isVerifiedSuper) {
+      if (targetInst) {
+        setActiveInstitution(targetInst);
+      }
+      setActiveBranchId(params.branchId);
     }
 
-    setActiveBranchId(params.branchId);
-
-    const roleLower = params.role.toLowerCase();
+    const roleLower = grantedRole.toLowerCase();
     let targetRoute: AppRoute = 'admin_dashboard';
 
     if (roleLower === 'super_admin' || roleLower === 'superadmin') {
@@ -8141,7 +8257,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     addNotification({
       title: 'MOZTECHWAVE ID Conectado',
-      message: `Sessão iniciada como ${params.role} em ${targetInst?.name || 'SIGAR'}.`,
+      message: `Sessão iniciada como ${grantedRole} em ${targetInst?.name || 'SIGAR'}.`,
       type: 'system'
     });
     soundManager.playSuccess();
@@ -8172,6 +8288,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         currentRoute,
         routeParams,
         navigate,
+        activeStudentPortalTab,
+        setActiveStudentPortalTab,
+        publicPortalIdentity,
+        setPublicPortalIdentity,
         activeRole,
         setActiveRole,
         authorizedRoles,
@@ -8298,6 +8418,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         },
         accessLogs,
         logGateAccess,
+        markGateWhatsAppLinkOpened,
         confirmStudentEntry,
         whatsappConfig,
         updateWhatsAppConfig,
@@ -8438,7 +8559,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         purgeAuditLogs,
         updateInstitutionModules,
         authenticatedStudent,
-        loginStudentByCode,
         logoutStudent,
         // 86. MOZCOIN — ECONOMIA INTERNA
         mozcoinWallets,

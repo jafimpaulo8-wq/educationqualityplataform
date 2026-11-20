@@ -33,29 +33,20 @@ import {
   createUserWithEmailAndPassword,
   sendPasswordResetEmail
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, collection, getDocs, query, where } from 'firebase/firestore';
-import { auth, db, handleFirestoreError, OperationType } from '../../services/firebase';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { auth, db } from '../../services/firebase';
 import { useApp } from '../../context/AppContext';
 import { UserRole, Institution } from '../../types';
 import { soundManager } from '../../utils/audio';
-import { authService } from '../../auth/authService';
-import { checkIsSuperAdmin, getUserProfile, getUserInstitutions } from '../../services/firestoreService';
+import { checkIsSuperAdmin, getUserInstitutions } from '../../services/firestoreService';
 import { toCanonicalRole } from '../../types/rbac';
-import { getDefaultRouteForRole, getRoleDisplayName } from '../../security/routeSecurity';
-import { 
-  CEU_AZUL_INSTITUTION_ID,
-  CEU_AZUL_INSTITUTION, 
-  CEU_AZUL_ACCESS_CODES, 
-  CEU_AZUL_DIRECTOR, 
-  CEU_AZUL_CEO, 
-  CEU_AZUL_STUDENTS 
-} from '../../data/ceuAzulData';
-import { bootstrapCeuAzul } from '../../services/ceuAzulBootstrap';
+import { getRoleDisplayName } from '../../security/routeSecurity';
+import { CEU_AZUL_INSTITUTION } from '../../data/ceuAzulData';
 
 interface SigarAuthModalProps {
   isOpen: boolean;
   onClose: () => void;
-  defaultMode?: 'google' | 'credentials' | 'code' | 'new_inst';
+  defaultMode?: 'google' | 'credentials' | 'new_inst';
 }
 
 type AuthStep = 1 | 2 | 3;
@@ -68,26 +59,21 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
 }) => {
   const { 
     loginWithGoogle, 
-    firebaseUser, 
     allInstitutions, 
-    activeInstitution,
     setActiveInstitution, 
-    activeBranchId,
     setActiveBranchId,
     setActiveRole, 
     setHasSigarProfile,
     navigate,
     addNotification,
     addInstitution,
-    students,
-    loginStudentByCode,
     themeMode
   } = useApp();
 
   const isLight = themeMode === 'branco';
 
   // Wizard Steps:
-  // Step 1: Login (Google, Email/Senha, Código de Acesso)
+  // Step 1: Login (Google, Email/Senha)
   // Step 2: Tela 2 — "Como pretende aceder ao SIGAR?" (Verificação real RBAC)
   // Step 3: Tela 3 — Seleção de Instituição & Filial real
   const [currentStep, setCurrentStep] = useState<AuthStep>(1);
@@ -95,7 +81,6 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
   const [activeTab, setActiveTab] = useState<AuthLoginTab>(defaultMode === 'credentials' ? 'credentials' : 'google');
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
-  const [accessCodeInput, setAccessCodeInput] = useState('');
   const [keepSessionActive, setKeepSessionActive] = useState(true);
   const [isSignUp, setIsSignUp] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -121,11 +106,6 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
     email: string;
     uid: string;
   } | null>(null);
-
-  // Self-assignment for unassigned account
-  const [unassignedName, setUnassignedName] = useState('');
-  const [unassignedRole, setUnassignedRole] = useState<UserRole>('ALUNO');
-  const [unassignedInstId, setUnassignedInstId] = useState<string>('');
 
   // User-associated institutions list (only real ones from Firestore)
   const [userInstitutions, setUserInstitutions] = useState<Institution[]>([]);
@@ -154,7 +134,6 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
       setCurrentStep(1);
       setEmailInput('');
       setPasswordInput('');
-      setAccessCodeInput('');
       setFeedback(null);
       setRoleAccessDenied(null);
       setShowNewInstModal(false);
@@ -236,10 +215,19 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
       const userDocRef = doc(db, 'users', user.uid);
       const userDocSnap = await getDoc(userDocRef);
 
-      const isSuper = (await checkIsSuperAdmin(user.uid)) || user.email === 'moztechwavenacala8@gmail.com';
+      const isSuper = (user.email === 'moztechwavenacala8@gmail.com' && user.emailVerified === true) || (await checkIsSuperAdmin(user.uid));
 
-      // 0. SUPER ADMIN SOBERANO: moztechwavenacala8@gmail.com
+      // 0. SUPER ADMIN SOBERANO: moztechwavenacala8@gmail.com com e-mail verificado
       if (user.email === 'moztechwavenacala8@gmail.com') {
+        if (!user.emailVerified) {
+          soundManager.playError();
+          setFeedback({
+            success: false,
+            message: 'A conta Super Admin requer e-mail verificado no Firebase Auth.'
+          });
+          setLoading(false);
+          return;
+        }
         const existingData = userDocSnap.exists() ? userDocSnap.data() : {};
         const superInstId = (existingData?.lastInstitutionId || existingData?.institutionId || '').trim();
         const superAdminProfile = {
@@ -284,195 +272,41 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
         return;
       }
 
-      // 1. DIRETOR & SUPER ADMIN: Jafim Paulo Rupia (Centro Infantil Céu Azul)
-      if (user.email === 'jafimpaulo8@gmail.com') {
-        const directorProfile = {
-          id: user.uid,
-          uid: user.uid,
-          name: 'Jafim Paulo Rupia',
-          displayName: 'Jafim Paulo Rupia (Diretor & Super Admin)',
-          email: 'jafimpaulo8@gmail.com',
-          role: 'DIRETOR' as UserRole,
-          roles: ['DIRETOR' as UserRole, 'SUPER_ADMIN' as UserRole],
-          institutionId: 'ceu-azul-nacala',
-          institutionIds: ['ceu-azul-nacala'],
-          status: 'aprovado',
-          codigoAcesso: 'CEU-AZUL-DIR-001',
-          branchId: 'branch-ceu-azul-main',
-          createdAt: new Date().toISOString(),
-          lastLoginAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-        await setDoc(userDocRef, directorProfile, { merge: true });
-        await setDoc(doc(db, 'admins', user.uid), {
-          email: user.email,
-          role: 'SUPER_ADMIN',
-          grantedAt: new Date().toISOString()
-        }, { merge: true });
-        setActiveInstitution(CEU_AZUL_INSTITUTION);
-        setActiveRole('DIRETOR');
-        soundManager.playSuccess();
-        await proceedAfterAuth({
-          uid: user.uid,
-          email: user.email,
-          name: 'Jafim Paulo Rupia',
-          isSuperAdmin: true,
-          authorizedRoles: ['DIRETOR', 'SUPER_ADMIN'],
-          institutionId: 'ceu-azul-nacala',
-          branchId: 'branch-ceu-azul-main'
-        });
-        addNotification({
-          title: 'Acesso do Diretor Confirmado',
-          message: 'Bem-vindo, Diretor Jafim Paulo Rupia (Centro Infantil Céu Azul & Super Admin).',
-          type: 'success'
-        });
-        onClose();
-        navigate('centro_dashboard');
-        return;
-      }
-
-      // 2. CEO: Alfredo Andrade (Centro Infantil Céu Azul)
-      if (user.email === 'andradaalfred02308@gmail.com') {
-        const ceoProfile = {
-          id: user.uid,
-          uid: user.uid,
-          name: 'Alfredo Andrade',
-          displayName: 'Alfredo Andrade (CEO)',
-          email: 'andradaalfred02308@gmail.com',
-          role: 'CEO' as UserRole,
-          roles: ['CEO' as UserRole],
-          institutionId: 'ceu-azul-nacala',
-          institutionIds: ['ceu-azul-nacala'],
-          ownedInstitutions: ['ceu-azul-nacala'],
-          status: 'aprovado',
-          codigoAcesso: 'CEU-AZUL-CEO-001',
-          branchId: 'branch-ceu-azul-main',
-          createdAt: new Date().toISOString(),
-          lastLoginAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-        await setDoc(userDocRef, ceoProfile, { merge: true });
-        setActiveInstitution(CEU_AZUL_INSTITUTION);
-        setActiveRole('CEO');
-        soundManager.playSuccess();
-        await proceedAfterAuth({
-          uid: user.uid,
-          email: user.email,
-          name: 'Alfredo Andrade',
-          isSuperAdmin: false,
-          authorizedRoles: ['CEO'],
-          institutionId: 'ceu-azul-nacala',
-          branchId: 'branch-ceu-azul-main'
-        });
-        addNotification({
-          title: 'Acesso do CEO Confirmado',
-          message: 'Bem-vindo, CEO Alfredo Andrade (Centro Infantil Céu Azul).',
-          type: 'success'
-        });
-        onClose();
-        navigate('centro_dashboard');
-        return;
-      }
-
-      // 3. SECRETARIA: Egas Paulo (CFTPM Moztechwave)
-      if (user.email === 'centromoz8@gmail.com') {
-        const secProfile = {
-          id: user.uid,
-          uid: user.uid,
-          name: 'Egas Paulo',
-          displayName: 'Egas Paulo (Secretaria)',
-          email: 'centromoz8@gmail.com',
-          role: 'SECRETARIA' as UserRole,
-          roles: ['SECRETARIA' as UserRole],
-          institutionId: 'inst-1',
-          institutionIds: ['inst-1', 'moztechwave'],
-          branchId: 'branch-1-maputo',
-          status: 'aprovado',
-          codigoAcesso: 'MTW-SEC-001',
-          createdAt: new Date().toISOString(),
-          lastLoginAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-        await setDoc(userDocRef, secProfile, { merge: true });
-        const cftpmInst = allInstitutions.find(i => i.id === 'inst-1' || i.id === 'moztechwave');
-        if (cftpmInst) setActiveInstitution(cftpmInst);
-        setActiveRole('SECRETARIA');
-        soundManager.playSuccess();
-        await proceedAfterAuth({
-          uid: user.uid,
-          email: user.email,
-          name: 'Egas Paulo',
-          isSuperAdmin: false,
-          authorizedRoles: ['SECRETARIA'],
-          institutionId: 'inst-1',
-          branchId: 'branch-1-maputo'
-        });
-        addNotification({
-          title: 'Acesso da Secretaria Confirmado',
-          message: 'Bem-vindo, Egas Paulo (Secretaria Académica — CFTPM Moztechwave).',
-          type: 'success'
-        });
-        onClose();
-        navigate('secretaria');
-        return;
-      }
-
       if (userDocSnap.exists()) {
         const udata = userDocSnap.data();
+        const isJafim = user.email === 'jafimpaulo8@gmail.com';
         const rawRoles: UserRole[] = Array.isArray(udata.roles) && udata.roles.length > 0
           ? udata.roles
           : (udata.role ? [udata.role as UserRole] : ['aluno']);
-        const authorizedRoles: UserRole[] = isSuper 
-          ? (rawRoles.includes('SUPER_ADMIN') ? rawRoles : ['SUPER_ADMIN', ...rawRoles])
-          : rawRoles;
-        const institutionId = udata.institutionId || '';
-        const branchId = udata.branchId || 'todas';
+        const sanitizedRoles = isSuper
+          ? rawRoles
+          : rawRoles.filter(r => {
+              const upper = String(r).toUpperCase();
+              return upper !== 'SUPER_ADMIN' && upper !== 'SUPERADMIN';
+            });
+        const authorizedRoles: UserRole[] = isSuper
+          ? (sanitizedRoles.includes('SUPER_ADMIN') ? sanitizedRoles : ['SUPER_ADMIN', ...sanitizedRoles])
+          : isJafim
+            ? ['DIRETOR']
+            : (sanitizedRoles.length > 0 ? sanitizedRoles : ['VISITANTE']);
+        const institutionId = isJafim ? 'ceu-azul-nacala' : (udata.institutionId || '');
+        const branchId = isJafim ? (udata.branchId || 'branch-ceu-azul-main') : (udata.branchId || 'todas');
 
-        await setDoc(userDocRef, { lastLoginAt: new Date().toISOString() }, { merge: true });
+        if (isJafim) {
+          setActiveInstitution(CEU_AZUL_INSTITUTION);
+        }
+
+        await setDoc(userDocRef, { lastLoginAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, { merge: true });
 
         soundManager.playSuccess();
         await proceedAfterAuth({
           uid: user.uid,
           email: user.email || '',
-          name: user.displayName || undefined,
+          name: user.displayName || udata.name || undefined,
           isSuperAdmin: isSuper,
           authorizedRoles,
           institutionId,
           branchId
-        });
-      } else if (isSuper) {
-        // Super Admin sovereign bootstrap
-        const rootProfile = {
-          id: user.uid,
-          uid: user.uid,
-          name: user.displayName || 'Super Administrador',
-          displayName: user.displayName || 'Super Administrador',
-          email: user.email || '',
-          role: 'SUPER_ADMIN',
-          roles: ['SUPER_ADMIN'],
-          institutionId: '',
-          branchId: 'todas',
-          estado: 'ativo',
-          codigo: 'MTW-ROOT-001',
-          createdAt: new Date().toISOString(),
-          lastLoginAt: new Date().toISOString()
-        };
-        await setDoc(userDocRef, rootProfile, { merge: true });
-        await setDoc(doc(db, 'admins', user.uid), {
-          email: user.email || '',
-          role: 'SUPER_ADMIN',
-          grantedAt: new Date().toISOString()
-        }, { merge: true });
-
-        soundManager.playSuccess();
-        await proceedAfterAuth({
-          uid: user.uid,
-          email: user.email || '',
-          name: user.displayName || 'Super Administrador',
-          isSuperAdmin: true,
-          authorizedRoles: ['SUPER_ADMIN'],
-          institutionId: '',
-          branchId: 'todas'
         });
       } else {
         // Regular user: No profile found in Firestore
@@ -489,7 +323,7 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
       if (isDomainError) {
         setFeedback({
           success: false,
-          message: 'Domínio educationqualityplataform.vercel.app pendente de autorização no Firebase Auth. Configure em: Firebase Console -> Authentication -> Settings -> Authorized Domains. Pode também usar o login por Código MTW ou Email/Senha.'
+          message: 'Domínio pendente de autorização no Firebase Auth. Configure em: Firebase Console -> Authentication -> Settings -> Authorized Domains, ou utilize Email e Senha.'
         });
       } else {
         setFeedback({
@@ -527,10 +361,19 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
       const userDocRef = doc(db, 'users', user.uid);
       const userDocSnap = await getDoc(userDocRef);
 
-      const isSuper = (await checkIsSuperAdmin(user.uid)) || user.email === 'moztechwavenacala8@gmail.com';
+      const isSuper = (user.email === 'moztechwavenacala8@gmail.com' && user.emailVerified === true) || (await checkIsSuperAdmin(user.uid));
 
-      // 0. SUPER ADMIN SOBERANO: moztechwavenacala8@gmail.com
+      // 0. SUPER ADMIN SOBERANO: moztechwavenacala8@gmail.com com e-mail verificado
       if (user.email === 'moztechwavenacala8@gmail.com') {
+        if (!user.emailVerified) {
+          soundManager.playError();
+          setFeedback({
+            success: false,
+            message: 'A conta Super Admin requer e-mail verificado no Firebase Auth.'
+          });
+          setLoading(false);
+          return;
+        }
         const existingData = userDocSnap.exists() ? userDocSnap.data() : {};
         const superInstId = (existingData?.lastInstitutionId || existingData?.institutionId || '').trim();
         const superAdminProfile = {
@@ -575,194 +418,41 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
         return;
       }
 
-      // 1. DIRETOR & SUPER ADMIN: Jafim Paulo Rupia (Centro Infantil Céu Azul)
-      if (user.email === 'jafimpaulo8@gmail.com') {
-        const directorProfile = {
-          id: user.uid,
-          uid: user.uid,
-          name: 'Jafim Paulo Rupia',
-          displayName: 'Jafim Paulo Rupia (Diretor & Super Admin)',
-          email: 'jafimpaulo8@gmail.com',
-          role: 'DIRETOR' as UserRole,
-          roles: ['DIRETOR' as UserRole, 'SUPER_ADMIN' as UserRole],
-          institutionId: 'ceu-azul-nacala',
-          institutionIds: ['ceu-azul-nacala'],
-          status: 'aprovado',
-          codigoAcesso: 'CEU-AZUL-DIR-001',
-          branchId: 'branch-ceu-azul-main',
-          createdAt: new Date().toISOString(),
-          lastLoginAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-        await setDoc(userDocRef, directorProfile, { merge: true });
-        await setDoc(doc(db, 'admins', user.uid), {
-          email: user.email,
-          role: 'SUPER_ADMIN',
-          grantedAt: new Date().toISOString()
-        }, { merge: true });
-        setActiveInstitution(CEU_AZUL_INSTITUTION);
-        setActiveRole('DIRETOR');
-        soundManager.playSuccess();
-        await proceedAfterAuth({
-          uid: user.uid,
-          email: user.email,
-          name: 'Jafim Paulo Rupia',
-          isSuperAdmin: true,
-          authorizedRoles: ['DIRETOR', 'SUPER_ADMIN'],
-          institutionId: 'ceu-azul-nacala',
-          branchId: 'branch-ceu-azul-main'
-        });
-        addNotification({
-          title: 'Acesso do Diretor Confirmado',
-          message: 'Bem-vindo, Diretor Jafim Paulo Rupia (Centro Infantil Céu Azul & Super Admin).',
-          type: 'success'
-        });
-        onClose();
-        navigate('centro_dashboard');
-        return;
-      }
-
-      // 2. CEO: Alfredo Andrade (Centro Infantil Céu Azul)
-      if (user.email === 'andradaalfred02308@gmail.com') {
-        const ceoProfile = {
-          id: user.uid,
-          uid: user.uid,
-          name: 'Alfredo Andrade',
-          displayName: 'Alfredo Andrade (CEO)',
-          email: 'andradaalfred02308@gmail.com',
-          role: 'CEO' as UserRole,
-          roles: ['CEO' as UserRole],
-          institutionId: 'ceu-azul-nacala',
-          institutionIds: ['ceu-azul-nacala'],
-          ownedInstitutions: ['ceu-azul-nacala'],
-          status: 'aprovado',
-          codigoAcesso: 'CEU-AZUL-CEO-001',
-          branchId: 'branch-ceu-azul-main',
-          createdAt: new Date().toISOString(),
-          lastLoginAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-        await setDoc(userDocRef, ceoProfile, { merge: true });
-        setActiveInstitution(CEU_AZUL_INSTITUTION);
-        setActiveRole('CEO');
-        soundManager.playSuccess();
-        await proceedAfterAuth({
-          uid: user.uid,
-          email: user.email,
-          name: 'Alfredo Andrade',
-          isSuperAdmin: false,
-          authorizedRoles: ['CEO'],
-          institutionId: 'ceu-azul-nacala',
-          branchId: 'branch-ceu-azul-main'
-        });
-        addNotification({
-          title: 'Acesso do CEO Confirmado',
-          message: 'Bem-vindo, CEO Alfredo Andrade (Centro Infantil Céu Azul).',
-          type: 'success'
-        });
-        onClose();
-        navigate('centro_dashboard');
-        return;
-      }
-
-      // 3. SECRETARIA: Egas Paulo (CFTPM Moztechwave)
-      if (user.email === 'centromoz8@gmail.com') {
-        const secProfile = {
-          id: user.uid,
-          uid: user.uid,
-          name: 'Egas Paulo',
-          displayName: 'Egas Paulo (Secretaria)',
-          email: 'centromoz8@gmail.com',
-          role: 'SECRETARIA' as UserRole,
-          roles: ['SECRETARIA' as UserRole],
-          institutionId: 'inst-1',
-          institutionIds: ['inst-1', 'moztechwave'],
-          branchId: 'branch-1-maputo',
-          status: 'aprovado',
-          codigoAcesso: 'MTW-SEC-001',
-          createdAt: new Date().toISOString(),
-          lastLoginAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-        await setDoc(userDocRef, secProfile, { merge: true });
-        const cftpmInst = allInstitutions.find(i => i.id === 'inst-1' || i.id === 'moztechwave');
-        if (cftpmInst) setActiveInstitution(cftpmInst);
-        setActiveRole('SECRETARIA');
-        soundManager.playSuccess();
-        await proceedAfterAuth({
-          uid: user.uid,
-          email: user.email,
-          name: 'Egas Paulo',
-          isSuperAdmin: false,
-          authorizedRoles: ['SECRETARIA'],
-          institutionId: 'inst-1',
-          branchId: 'branch-1-maputo'
-        });
-        addNotification({
-          title: 'Acesso da Secretaria Confirmado',
-          message: 'Bem-vindo, Egas Paulo (Secretaria Académica — CFTPM Moztechwave).',
-          type: 'success'
-        });
-        onClose();
-        navigate('secretaria');
-        return;
-      }
-
       if (userDocSnap.exists()) {
         const udata = userDocSnap.data();
+        const isJafim = user.email === 'jafimpaulo8@gmail.com';
         const rawRoles: UserRole[] = Array.isArray(udata.roles) && udata.roles.length > 0
           ? udata.roles
           : (udata.role ? [udata.role as UserRole] : ['aluno']);
-        const authorizedRoles: UserRole[] = isSuper 
-          ? (rawRoles.includes('SUPER_ADMIN') ? rawRoles : ['SUPER_ADMIN', ...rawRoles])
-          : rawRoles;
-        const institutionId = udata.institutionId || '';
-        const branchId = udata.branchId || 'todas';
+        const sanitizedRoles = isSuper
+          ? rawRoles
+          : rawRoles.filter(r => {
+              const upper = String(r).toUpperCase();
+              return upper !== 'SUPER_ADMIN' && upper !== 'SUPERADMIN';
+            });
+        const authorizedRoles: UserRole[] = isSuper
+          ? (sanitizedRoles.includes('SUPER_ADMIN') ? sanitizedRoles : ['SUPER_ADMIN', ...sanitizedRoles])
+          : isJafim
+            ? ['DIRETOR']
+            : (sanitizedRoles.length > 0 ? sanitizedRoles : ['VISITANTE']);
+        const institutionId = isJafim ? 'ceu-azul-nacala' : (udata.institutionId || '');
+        const branchId = isJafim ? (udata.branchId || 'branch-ceu-azul-main') : (udata.branchId || 'todas');
 
-        await setDoc(userDocRef, { lastLoginAt: new Date().toISOString() }, { merge: true });
+        if (isJafim) {
+          setActiveInstitution(CEU_AZUL_INSTITUTION);
+        }
+
+        await setDoc(userDocRef, { lastLoginAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, { merge: true });
 
         soundManager.playSuccess();
         await proceedAfterAuth({
           uid: user.uid,
           email: user.email || '',
-          name: user.displayName || undefined,
+          name: user.displayName || udata.name || undefined,
           isSuperAdmin: isSuper,
           authorizedRoles,
           institutionId,
           branchId
-        });
-      } else if (isSuper) {
-        const rootProfile = {
-          id: user.uid,
-          uid: user.uid,
-          name: user.displayName || 'Super Administrador',
-          displayName: user.displayName || 'Super Administrador',
-          email: user.email || '',
-          role: 'SUPER_ADMIN',
-          roles: ['SUPER_ADMIN'],
-          institutionId: '',
-          branchId: 'todas',
-          estado: 'ativo',
-          codigo: 'MTW-ROOT-001',
-          createdAt: new Date().toISOString(),
-          lastLoginAt: new Date().toISOString()
-        };
-        await setDoc(userDocRef, rootProfile, { merge: true });
-        await setDoc(doc(db, 'admins', user.uid), {
-          email: user.email || '',
-          role: 'SUPER_ADMIN',
-          grantedAt: new Date().toISOString()
-        }, { merge: true });
-
-        soundManager.playSuccess();
-        await proceedAfterAuth({
-          uid: user.uid,
-          email: user.email || '',
-          name: user.displayName || 'Super Administrador',
-          isSuperAdmin: true,
-          authorizedRoles: ['SUPER_ADMIN'],
-          institutionId: '',
-          branchId: 'todas'
         });
       } else {
         // Regular user: No profile found in Firestore
@@ -782,721 +472,6 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
       if (err.code === 'auth/weak-password') msg = 'A senha deve conter pelo menos 6 caracteres.';
       setFeedback({ success: false, message: msg });
       soundManager.playError();
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Direct CEO sovereign access function
-  const handleDirectCeoLogin = async () => {
-    setLoading(true);
-    setFeedback(null);
-    const ceoUid = 'admin-core-moztechwave';
-    const ceoEmail = 'admin-root@moztechwave.co.mz';
-    const ceoName = 'Administrador Geral Moztechwave Core';
-
-    try {
-      await setDoc(doc(db, 'users', ceoUid), {
-        id: ceoUid,
-        uid: ceoUid,
-        name: ceoName,
-        displayName: ceoName,
-        email: ceoEmail,
-        role: 'SUPER_ADMIN',
-        roles: ['SUPER_ADMIN'],
-        institutionId: activeInstitution?.id || '',
-        branchId: 'todas',
-        estado: 'ativo',
-        codigo: 'MTW-CEO-MASTER-2026',
-        createdAt: new Date().toISOString(),
-        lastLoginAt: new Date().toISOString()
-      }, { merge: true });
-
-      await setDoc(doc(db, 'admins', ceoUid), {
-        email: ceoEmail,
-        role: 'SUPER_ADMIN',
-        grantedAt: new Date().toISOString()
-      }, { merge: true });
-
-      await setDoc(doc(db, 'access_codes', 'MTW-CEO-MASTER-2026'), {
-        code: 'MTW-CEO-MASTER-2026',
-        role: 'SUPER_ADMIN',
-        name: ceoName,
-        email: ceoEmail,
-        status: 'ativo',
-        description: 'Credencial Soberana de Acesso do Administrador Core Moztechwave',
-        updatedAt: new Date().toISOString()
-      }, { merge: true });
-    } catch (e) {
-      console.warn('Firestore CEO bootstrap warning:', e);
-    }
-
-    soundManager.playSuccess();
-    setActiveRole('SUPER_ADMIN');
-    addNotification({
-      title: 'Acesso Soberano Ativado',
-      message: 'Bem-vindo, Administrador Core. Acesso liberado para gestão global da plataforma.',
-      type: 'success'
-    });
-    setLoading(false);
-    onClose();
-    navigate('moztechwave_core');
-  };
-
-  // Self-assignment for authenticated user without prior profile
-  const handleAssignProfileAndEnter = async () => {
-    if (!unassignedAccount) return;
-    const targetInst = allInstitutions.find(i => i.id === unassignedInstId);
-    if (!targetInst) {
-      setFeedback({ success: false, message: 'Selecione uma instituição válida ou solicite associação ao administrador.' });
-      return;
-    }
-    setLoading(true);
-    setFeedback(null);
-    try {
-      const targetRole = unassignedRole;
-      const name = unassignedName.trim() || unassignedAccount.email.split('@')[0] || 'Utilizador SIGAR';
-      const newProfile = {
-        id: unassignedAccount.uid,
-        uid: unassignedAccount.uid,
-        name,
-        displayName: name,
-        email: unassignedAccount.email,
-        role: targetRole,
-        roles: [targetRole],
-        institutionId: targetInst.id,
-        institutionIds: [targetInst.id],
-        branchId: targetInst.branches?.[0]?.id || 'todas',
-        status: 'Ativo',
-        createdAt: new Date().toISOString(),
-        lastLoginAt: new Date().toISOString()
-      };
-      await setDoc(doc(db, 'users', unassignedAccount.uid), newProfile, { merge: true });
-      setActiveInstitution(targetInst as Institution);
-      setActiveRole(targetRole);
-      setHasSigarProfile(true);
-      soundManager.playSuccess();
-      addNotification({
-        title: 'Perfil Configurado com Sucesso',
-        message: `Bem-vindo ao SIGAR, ${name}! Perfil de ${getRoleDisplayName(targetRole)} ativado.`,
-        type: 'success'
-      });
-      onClose();
-      const defaultRoute = getDefaultRouteForRole(targetRole);
-      navigate(defaultRoute);
-    } catch (err: any) {
-      console.error('Error assigning profile:', err);
-      setFeedback({ success: false, message: 'Erro ao salvar perfil. Tente novamente.' });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Quick preset access for evaluation and direct entry
-  const handleQuickRoleLogin = async (preset: 'diretor' | 'ceo' | 'superadmin' | 'secretaria' | 'professor' | 'aluno' | 'porteiro') => {
-    setLoading(true);
-    setFeedback(null);
-    try {
-      if (preset === 'diretor') {
-        const uid = 'usr-jafim-dir-001';
-        const profile = {
-          id: uid,
-          uid,
-          name: 'Jafim Paulo Rupia',
-          displayName: 'Jafim Paulo Rupia (Diretor & Super Admin)',
-          email: 'jafimpaulo8@gmail.com',
-          role: 'DIRETOR' as UserRole,
-          roles: ['DIRETOR' as UserRole, 'SUPER_ADMIN' as UserRole],
-          institutionId: 'ceu-azul-nacala',
-          institutionIds: ['ceu-azul-nacala'],
-          status: 'aprovado',
-          codigoAcesso: 'CEU-AZUL-DIR-001',
-          branchId: 'branch-ceu-azul-main',
-          createdAt: new Date().toISOString(),
-          lastLoginAt: new Date().toISOString()
-        };
-        try {
-          await setDoc(doc(db, 'users', uid), profile, { merge: true });
-          await setDoc(doc(db, 'admins', uid), { email: 'jafimpaulo8@gmail.com', role: 'SUPER_ADMIN' }, { merge: true });
-        } catch (e) {
-          console.warn('Firestore write warning:', e);
-        }
-        setActiveInstitution(CEU_AZUL_INSTITUTION as Institution);
-        setActiveRole('DIRETOR');
-        soundManager.playSuccess();
-        addNotification({
-          title: 'Sessão de Diretor Ativada',
-          message: 'Bem-vindo, Diretor Jafim Paulo Rupia (Centro Infantil Céu Azul).',
-          type: 'success'
-        });
-        onClose();
-        navigate('centro_dashboard');
-        return;
-      }
-      if (preset === 'ceo') {
-        const uid = 'usr-alfredo-ceo-001';
-        const profile = {
-          id: uid,
-          uid,
-          name: 'Alfredo Andrade',
-          displayName: 'Alfredo Andrade (CEO)',
-          email: 'andradaalfred02308@gmail.com',
-          role: 'CEO' as UserRole,
-          roles: ['CEO' as UserRole],
-          institutionId: 'ceu-azul-nacala',
-          institutionIds: ['ceu-azul-nacala'],
-          status: 'aprovado',
-          codigoAcesso: 'CEU-AZUL-CEO-001',
-          branchId: 'branch-ceu-azul-main',
-          createdAt: new Date().toISOString(),
-          lastLoginAt: new Date().toISOString()
-        };
-        try {
-          await setDoc(doc(db, 'users', uid), profile, { merge: true });
-        } catch (e) {
-          console.warn('Firestore write warning:', e);
-        }
-        setActiveInstitution(CEU_AZUL_INSTITUTION as Institution);
-        setActiveRole('CEO');
-        soundManager.playSuccess();
-        addNotification({
-          title: 'Sessão de CEO Ativada',
-          message: 'Bem-vindo, CEO Alfredo Andrade (Centro Infantil Céu Azul).',
-          type: 'success'
-        });
-        onClose();
-        navigate('centro_dashboard');
-        return;
-      }
-      if (preset === 'superadmin') {
-        await handleDirectCeoLogin();
-        return;
-      }
-      if (preset === 'secretaria') {
-        const uid = 'usr-egas-sec-001';
-        const profile = {
-          id: uid,
-          uid,
-          name: 'Egas Paulo',
-          displayName: 'Egas Paulo (Secretaria)',
-          email: 'centromoz8@gmail.com',
-          role: 'SECRETARIA' as UserRole,
-          roles: ['SECRETARIA' as UserRole],
-          institutionId: 'inst-1',
-          branchId: 'branch-1-maputo',
-          status: 'aprovado',
-          codigoAcesso: 'MTW-SEC-001',
-          createdAt: new Date().toISOString(),
-          lastLoginAt: new Date().toISOString()
-        };
-        try {
-          await setDoc(doc(db, 'users', uid), profile, { merge: true });
-        } catch (e) {
-          console.warn('Firestore write warning:', e);
-        }
-        const cftpm = allInstitutions.find(i => i.id === 'inst-1' || i.id === 'moztechwave');
-        if (cftpm) setActiveInstitution(cftpm);
-        setActiveRole('SECRETARIA');
-        soundManager.playSuccess();
-        addNotification({
-          title: 'Secretaria Académica',
-          message: 'Bem-vindo, Egas Paulo (CFTPM Moztechwave).',
-          type: 'success'
-        });
-        onClose();
-        navigate('secretaria');
-        return;
-      }
-      if (preset === 'professor') {
-        const uid = 'usr-prof-mat-001';
-        const profile = {
-          id: uid,
-          uid,
-          name: 'Prof. Américo Sitoe',
-          displayName: 'Prof. Américo Sitoe',
-          email: 'docente@ceuazul.co.mz',
-          role: 'PROFESSOR' as UserRole,
-          roles: ['PROFESSOR' as UserRole],
-          institutionId: CEU_AZUL_INSTITUTION_ID,
-          branchId: 'branch-ceu-azul-main',
-          status: 'aprovado',
-          createdAt: new Date().toISOString(),
-          lastLoginAt: new Date().toISOString()
-        };
-        try {
-          await setDoc(doc(db, 'users', uid), profile, { merge: true });
-        } catch (e) {
-          console.warn('Firestore write warning:', e);
-        }
-        setActiveInstitution(CEU_AZUL_INSTITUTION as Institution);
-        setActiveRole('PROFESSOR');
-        soundManager.playSuccess();
-        addNotification({
-          title: 'Portal do Professor',
-          message: 'Bem-vindo, Professor Américo Sitoe.',
-          type: 'success'
-        });
-        onClose();
-        navigate('portal_professor');
-        return;
-      }
-      if (preset === 'aluno') {
-        const uid = 'usr-aluno-yula-062';
-        const profile = {
-          id: uid,
-          uid,
-          name: 'Yula Andrade Rupia',
-          displayName: 'Yula Andrade Rupia (Aluna)',
-          email: 'yula@ceuazul.aluno',
-          role: 'ALUNO' as UserRole,
-          roles: ['ALUNO' as UserRole],
-          institutionId: CEU_AZUL_INSTITUTION_ID,
-          branchId: 'branch-ceu-azul-main',
-          status: 'aprovado',
-          codigoAcesso: 'CEU-AZUL-ALUNO-062',
-          createdAt: new Date().toISOString(),
-          lastLoginAt: new Date().toISOString()
-        };
-        try {
-          await setDoc(doc(db, 'users', uid), profile, { merge: true });
-        } catch (e) {
-          console.warn('Firestore write warning:', e);
-        }
-        setActiveInstitution(CEU_AZUL_INSTITUTION as Institution);
-        setActiveRole('ALUNO');
-        soundManager.playSuccess();
-        addNotification({
-          title: 'Portal do Aluno',
-          message: 'Bem-vinda, estudante Yula Andrade Rupia.',
-          type: 'success'
-        });
-        onClose();
-        navigate('portal_aluno');
-        return;
-      }
-      if (preset === 'porteiro') {
-        const uid = 'usr-porteiro-001';
-        const profile = {
-          id: uid,
-          uid,
-          name: 'Agente Fernando (Portaria)',
-          displayName: 'Agente Fernando (Portaria)',
-          email: 'portaria@ceuazul.co.mz',
-          role: 'PORTEIRO' as UserRole,
-          roles: ['PORTEIRO' as UserRole],
-          institutionId: CEU_AZUL_INSTITUTION_ID,
-          branchId: 'branch-ceu-azul-main',
-          status: 'aprovado',
-          createdAt: new Date().toISOString(),
-          lastLoginAt: new Date().toISOString()
-        };
-        try {
-          await setDoc(doc(db, 'users', uid), profile, { merge: true });
-        } catch (e) {
-          console.warn('Firestore write warning:', e);
-        }
-        setActiveInstitution(CEU_AZUL_INSTITUTION as Institution);
-        setActiveRole('PORTEIRO');
-        soundManager.playSuccess();
-        addNotification({
-          title: 'Terminal de Portaria',
-          message: 'Terminal de Controlo de Acesso ativado.',
-          type: 'success'
-        });
-        onClose();
-        navigate('controlo_entrada');
-        return;
-      }
-    } catch (err: any) {
-      console.error('Quick login error:', err);
-      setFeedback({ success: false, message: 'Erro ao processar login rápido.' });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Access Code Authentication (e.g. Student Code or Institution Token)
-  const handleAccessCodeSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!accessCodeInput.trim()) {
-      setFeedback({ success: false, message: 'Insira o seu código de acesso institucional.' });
-      return;
-    }
-
-    setLoading(true);
-    setFeedback(null);
-
-    try {
-      const code = accessCodeInput.trim();
-      const clean = code.toUpperCase();
-
-      // 1. VERIFICAÇÃO DIRETA: CENTRO INFANTIL CÉU AZUL (Nacala-Porto)
-      // Suporte integral aos códigos: CEU-AZUL-001, CEU-AZUL-DIR-001, CEU-AZUL-CEO-001 e Alunos 41 a 62
-      const ceuMatch = CEU_AZUL_ACCESS_CODES[clean];
-      if (ceuMatch) {
-        soundManager.playSuccess();
-        setActiveInstitution(CEU_AZUL_INSTITUTION as Institution);
-        setActiveBranchId('branch-ceu-azul-main');
-
-        // Bootstrap assíncrono para o Firestore
-        bootstrapCeuAzul().catch(e => console.warn('Ceu Azul sync note:', e));
-
-        if (ceuMatch.role === 'ALUNO') {
-          setActiveRole('ALUNO');
-          const studentObj = ceuMatch.studentData || CEU_AZUL_STUDENTS.find(s => (s as any).codigoAcesso === clean);
-          if (studentObj) {
-            loginStudentByCode(clean);
-          }
-          await proceedAfterAuth({
-            uid: `std-${clean.toLowerCase()}`,
-            email: ceuMatch.email,
-            name: ceuMatch.name,
-            isSuperAdmin: false,
-            authorizedRoles: ['ALUNO'],
-            institutionId: CEU_AZUL_INSTITUTION_ID,
-            branchId: 'branch-ceu-azul-main'
-          });
-          addNotification({
-            title: 'Sessão de Aluno Iniciada',
-            message: `Bem-vindo(a), ${ceuMatch.name}! Painel exclusivo do Aluno no Centro Infantil Céu Azul.`,
-            type: 'success'
-          });
-          setLoading(false);
-          onClose();
-          navigate('portal_aluno');
-          return;
-        }
-
-        if (ceuMatch.role === 'DIRETOR') {
-          setActiveRole('DIRETOR');
-          await proceedAfterAuth({
-            uid: 'usr-jafim-dir-001',
-            email: 'jafimpaulo8@gmail.com',
-            name: 'Jafim Paulo Rupia',
-            isSuperAdmin: false,
-            authorizedRoles: ['DIRETOR'],
-            institutionId: CEU_AZUL_INSTITUTION_ID,
-            branchId: 'branch-ceu-azul-main'
-          });
-          addNotification({
-            title: 'Sessão de Diretor Iniciada',
-            message: 'Bem-vindo, Diretor Jafim Paulo Rupia! Painel de Gestão do Centro Infantil Céu Azul ativado.',
-            type: 'success'
-          });
-          setLoading(false);
-          onClose();
-          navigate('centro_dashboard');
-          return;
-        }
-
-        if (ceuMatch.role === 'CEO') {
-          setActiveRole('CEO');
-          await proceedAfterAuth({
-            uid: 'usr-alfredo-ceo-001',
-            email: 'andradaalfred02308@gmail.com',
-            name: 'Alfredo Andrade',
-            isSuperAdmin: false,
-            authorizedRoles: ['CEO'],
-            institutionId: CEU_AZUL_INSTITUTION_ID,
-            branchId: 'branch-ceu-azul-main'
-          });
-          addNotification({
-            title: 'Sessão de CEO Iniciada',
-            message: 'Bem-vindo, CEO Alfredo Andrade! Painel de Gestão Executiva do Centro Infantil Céu Azul ativado.',
-            type: 'success'
-          });
-          setLoading(false);
-          onClose();
-          navigate('centro_dashboard');
-          return;
-        }
-
-        if (ceuMatch.role === 'INSTITUICAO') {
-          setActiveRole('DIRETOR');
-          await proceedAfterAuth({
-            uid: 'inst-ceu-azul-nacala',
-            email: ceuMatch.email,
-            name: ceuMatch.name,
-            isSuperAdmin: false,
-            authorizedRoles: ['DIRETOR'],
-            institutionId: CEU_AZUL_INSTITUTION_ID,
-            branchId: 'branch-ceu-azul-main'
-          });
-          addNotification({
-            title: 'Acesso Institucional Concedido',
-            message: 'Centro Infantil Céu Azul autenticado com sucesso.',
-            type: 'success'
-          });
-          setLoading(false);
-          onClose();
-          navigate('centro_dashboard');
-          return;
-        }
-      }
-
-      // 1b. CÓDIGO DA SECRETARIA ACADÉMICA (CFTPM MOZTECHWAVE - Egas Paulo)
-      if (clean === 'MTW-SEC-001' || clean === 'SEC-MOZ-001') {
-        soundManager.playSuccess();
-        const cftpmInst = allInstitutions.find(i => i.id === 'inst-1' || i.id === 'moztechwave');
-        if (cftpmInst) setActiveInstitution(cftpmInst);
-        setActiveRole('SECRETARIA');
-        await proceedAfterAuth({
-          uid: 'usr-egas-sec-001',
-          email: 'centromoz8@gmail.com',
-          name: 'Egas Paulo',
-          isSuperAdmin: false,
-          authorizedRoles: ['SECRETARIA'],
-          institutionId: 'inst-1',
-          branchId: 'branch-1-maputo'
-        });
-        addNotification({
-          title: 'Sessão da Secretaria Iniciada',
-          message: 'Bem-vindo, Egas Paulo! Secretaria Académica CFTPM Moztechwave ativada.',
-          type: 'success'
-        });
-        setLoading(false);
-        onClose();
-        navigate('secretaria');
-        return;
-      }
-      
-      // 2. VERIFICAÇÃO DO CÓDIGO MESTRE DA PLATAFORMA
-      const isCeoMasterCode = [
-        'MTW-CEO-MASTER-2026',
-        'MTW-ROOT-001',
-        'SIGAR-CEO-2026',
-        'CEO-2026',
-        'MTW-CEO-MASTER',
-        'SUPERADMIN',
-        'ADMIN-CEO'
-      ].includes(clean);
-
-      if (isCeoMasterCode) {
-        await handleDirectCeoLogin();
-        return;
-      }
-
-      // 2. Check in Firestore access_codes collection (Perfis criados pelo Admin)
-      try {
-        const qCode = query(collection(db, 'access_codes'), where('code', '==', clean));
-        const snapCode = await getDocs(qCode);
-        if (!snapCode.empty) {
-          const codeDoc = snapCode.docs[0];
-          const cData = codeDoc.data();
-          soundManager.playSuccess();
-
-          const assignedRole = (cData.role || 'VISITANTE').toUpperCase();
-          if (cData.institutionId) {
-            const inst = allInstitutions.find(i => i.id === cData.institutionId);
-            if (inst) setActiveInstitution(inst);
-          }
-          if (cData.branchId) {
-            setActiveBranchId(cData.branchId);
-          }
-          setActiveRole(assignedRole as any);
-
-          await proceedAfterAuth({
-            uid: cData.uid || codeDoc.id,
-            email: cData.email || `${clean.toLowerCase()}@sigar.mz`,
-            name: cData.name || cData.userName || `Utilizador ${assignedRole}`,
-            isSuperAdmin: assignedRole === 'SUPER_ADMIN',
-            authorizedRoles: [assignedRole as UserRole],
-            institutionId: cData.institutionId || '',
-            branchId: cData.branchId || 'todas'
-          });
-
-          addNotification({
-            title: 'Código Validado',
-            message: `Acesso autorizado como ${assignedRole}.`,
-            type: 'success'
-          });
-          return;
-        }
-      } catch (errCode) {
-        console.warn('access_codes check fallback:', errCode);
-      }
-
-      // 3. Check in Firestore users collection by codigo
-      try {
-        const qUser = query(collection(db, 'users'), where('codigo', '==', clean));
-        const snapUser = await getDocs(qUser);
-        if (!snapUser.empty) {
-          const uDoc = snapUser.docs[0];
-          const uData = uDoc.data();
-          soundManager.playSuccess();
-
-          const assignedRole = (uData.role || 'VISITANTE').toUpperCase();
-          if (uData.institutionId) {
-            const inst = allInstitutions.find(i => i.id === uData.institutionId);
-            if (inst) setActiveInstitution(inst);
-          }
-          setActiveRole(assignedRole as any);
-
-          await proceedAfterAuth({
-            uid: uDoc.id,
-            email: uData.email || '',
-            name: uData.name || uData.displayName,
-            isSuperAdmin: assignedRole === 'SUPER_ADMIN',
-            authorizedRoles: uData.roles || [assignedRole as UserRole],
-            institutionId: uData.institutionId || '',
-            branchId: uData.branchId || 'todas'
-          });
-          return;
-        }
-      } catch (errU) {
-        console.warn('users check fallback:', errU);
-      }
-
-      // 4. Check in students collection (by code or codigoAcesso)
-      let foundStudentDoc = null;
-      try {
-        const qStd = query(collection(db, 'students'), where('code', '==', clean));
-        const snapStd = await getDocs(qStd);
-        if (!snapStd.empty) {
-          foundStudentDoc = snapStd.docs[0];
-        } else {
-          const qStdAccess = query(collection(db, 'students'), where('codigoAcesso', '==', clean));
-          const snapStdAccess = await getDocs(qStdAccess);
-          if (!snapStdAccess.empty) {
-            foundStudentDoc = snapStdAccess.docs[0];
-          }
-        }
-      } catch (errStd) {
-        console.warn('students check fallback:', errStd);
-      }
-
-      if (foundStudentDoc) {
-        const studentData = foundStudentDoc.data();
-        soundManager.playSuccess();
-        setActiveRole('ALUNO');
-        if (studentData.institutionId) {
-          const inst = allInstitutions.find(i => i.id === studentData.institutionId);
-          if (inst) setActiveInstitution(inst);
-        }
-        await proceedAfterAuth({
-          uid: studentData.userId || foundStudentDoc.id,
-          email: studentData.email || `${clean.toLowerCase()}@sigar.student`,
-          name: studentData.name || studentData.fullName,
-          isSuperAdmin: false,
-          authorizedRoles: ['ALUNO'],
-          institutionId: studentData.institutionId || '',
-          branchId: studentData.branchId || ''
-        });
-        setLoading(false);
-        onClose();
-        navigate('portal_aluno');
-        return;
-      }
-
-      // 4b. Local Students match
-      const localStudentMatch = students.find(s => 
-        (s as any).codigoAcesso?.toUpperCase() === clean ||
-        (s as any).codigo?.toUpperCase() === clean ||
-        (s as any).numAluno?.toUpperCase() === clean ||
-        s.code?.toUpperCase() === clean
-      );
-
-      if (localStudentMatch) {
-        soundManager.playSuccess();
-        setActiveRole('ALUNO');
-        const inst = allInstitutions.find(i => i.id === localStudentMatch.institutionId);
-        if (inst) setActiveInstitution(inst);
-        await proceedAfterAuth({
-          uid: localStudentMatch.id,
-          email: localStudentMatch.email || `${clean.toLowerCase()}@sigar.student`,
-          name: localStudentMatch.name || localStudentMatch.fullName,
-          isSuperAdmin: false,
-          authorizedRoles: ['ALUNO'],
-          institutionId: localStudentMatch.institutionId,
-          branchId: localStudentMatch.branchId || ''
-        });
-        addNotification({
-          title: 'Sessão de Aluno Iniciada',
-          message: `Bem-vindo(a), ${localStudentMatch.name || localStudentMatch.fullName}.`,
-          type: 'success'
-        });
-        setLoading(false);
-        onClose();
-        navigate('portal_aluno');
-        return;
-      }
-
-      // 5. Check in teachers collection
-      try {
-        const qTeach = query(collection(db, 'teachers'), where('code', '==', clean));
-        const snapTeach = await getDocs(qTeach);
-        if (!snapTeach.empty) {
-          const tDoc = snapTeach.docs[0];
-          const tData = tDoc.data();
-          soundManager.playSuccess();
-          setActiveRole('PROFESSOR');
-          await proceedAfterAuth({
-            uid: tDoc.id,
-            email: tData.email || `${clean.toLowerCase()}@sigar.prof`,
-            name: tData.name,
-            isSuperAdmin: false,
-            authorizedRoles: ['PROFESSOR'],
-            institutionId: tData.institutionId || '',
-            branchId: tData.branchId || ''
-          });
-          return;
-        }
-      } catch (errT) {
-        console.warn('teachers check fallback:', errT);
-      }
-
-      // 6. Check in institutions collection by accessCode or code
-      const qInst = query(collection(db, 'institutions'), where('accessCode', '==', clean));
-      const snapInst = await getDocs(qInst);
-
-      if (!snapInst.empty) {
-        const instDoc = snapInst.docs[0];
-        const instData = instDoc.data();
-        soundManager.playSuccess();
-        setActiveRole('DIRETOR');
-        await proceedAfterAuth({
-          uid: `inst-token-${instDoc.id}`,
-          email: instData.email || '',
-          name: instData.name,
-          isSuperAdmin: false,
-          authorizedRoles: ['DIRETOR'],
-          institutionId: instDoc.id,
-          branchId: 'todas'
-        });
-        return;
-      }
-
-      // 7. Check local registered institutions by accessCode or code
-      const localInstMatch = allInstitutions.find(i => 
-        i.accessCode?.toUpperCase() === clean || 
-        i.code.toUpperCase() === clean ||
-        `SIGAR-ACC-8819-${i.code.replace('MTW-', '')}`.toUpperCase() === clean
-      );
-
-      if (localInstMatch) {
-        soundManager.playSuccess();
-        setActiveInstitution(localInstMatch);
-        setActiveRole('DIRETOR');
-        await proceedAfterAuth({
-          uid: `inst-${localInstMatch.id}`,
-          email: localInstMatch.email || '',
-          name: localInstMatch.representativeName || localInstMatch.name,
-          isSuperAdmin: false,
-          authorizedRoles: ['DIRETOR'],
-          institutionId: localInstMatch.id,
-          branchId: 'todas'
-        });
-        return;
-      }
-
-      setFeedback({
-        success: false,
-        message: 'Código de acesso não encontrado. Verifique se digitou corretamente ou solicite o seu código à direção.'
-      });
-      soundManager.playError();
-    } catch (err: any) {
-      console.error('Access code error:', err);
-      setFeedback({ success: false, message: 'Erro ao validar código. Tente novamente.' });
     } finally {
       setLoading(false);
     }
@@ -1567,15 +542,22 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
     setActiveBranchId(effectiveBranch);
     setActiveRole(chosenRole);
 
-    // Save context to user document if UID available
-    if (authSession?.uid && !authSession.uid.startsWith('inst-token-')) {
+    // Save context to user document if UID available (non-SuperAdmin updates only lastLoginAt/updatedAt)
+    if (authSession?.uid) {
       try {
-        await setDoc(doc(db, 'users', authSession.uid), {
-          lastInstitutionId: effectiveInstId,
-          lastBranchId: effectiveBranch,
-          activeRole: chosenRole,
-          updatedAt: new Date().toISOString()
-        }, { merge: true });
+        if (authSession.isSuperAdmin) {
+          await setDoc(doc(db, 'users', authSession.uid), {
+            lastInstitutionId: effectiveInstId,
+            lastBranchId: effectiveBranch,
+            activeRole: chosenRole,
+            updatedAt: new Date().toISOString()
+          }, { merge: true });
+        } else {
+          await setDoc(doc(db, 'users', authSession.uid), {
+            lastLoginAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          }, { merge: true });
+        }
       } catch (err) {
         console.warn('Could not update user context in Firestore:', err);
       }
@@ -1796,71 +778,14 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
                     isLight ? 'bg-amber-50 border-amber-300 text-amber-950' : 'bg-amber-950/40 border-amber-500/30 text-amber-200'
                   }`}>
                     <div className="flex items-center gap-2 font-bold text-sm">
-                      <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
-                      <span>Conta Autenticada no Firebase com Sucesso!</span>
+                      <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
+                      <span>Conta Autenticada Sem Perfil SIGAR</span>
                     </div>
                     <p className="leading-relaxed">
-                      O seu e-mail (<strong className="font-mono">{unassignedAccount.email}</strong>) foi autenticado. Defina agora o seu nome e perfil inicial para concluir a associação e aceder diretamente ao painel:
+                      O seu e-mail (<strong className="font-mono">{unassignedAccount.email}</strong>) foi autenticado, mas ainda não possui vínculo institucional nem permissões atribuídas. Contacte a direcção ou secretaria da sua instituição para associar o seu perfil.
                     </p>
                     <div className="text-[11px] font-mono opacity-80">
                       UID: {unassignedAccount.uid}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className={`block text-xs font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                      Seu Nome Completo
-                    </label>
-                    <input
-                      type="text"
-                      value={unassignedName}
-                      onChange={(e) => setUnassignedName(e.target.value)}
-                      placeholder="Ex: Alberto Mondlane"
-                      className={`w-full px-3.5 py-2.5 rounded-xl border text-sm ${
-                        isLight ? 'bg-slate-50 border-slate-300 text-slate-900 focus:bg-white' : 'bg-slate-950 border-slate-800 text-white'
-                      }`}
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className={`block text-xs font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                        Como pretende aceder?
-                      </label>
-                      <select
-                        value={unassignedRole}
-                        onChange={(e) => setUnassignedRole(e.target.value as UserRole)}
-                        className={`w-full px-3.5 py-2.5 rounded-xl border text-sm ${
-                          isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'
-                        }`}
-                      >
-                        <option value="ALUNO">Aluno / Estudante</option>
-                        <option value="PROFESSOR">Professor / Formador</option>
-                        <option value="SECRETARIA">Secretaria Académica</option>
-                        <option value="DIRETOR">Diretor Geral</option>
-                        <option value="FINANCEIRO">Financeiro / Tesouraria</option>
-                        <option value="PORTEIRO">Portaria / Acesso</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className={`block text-xs font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                        Instituição Vinculada
-                      </label>
-                      <select
-                        value={unassignedInstId}
-                        onChange={(e) => setUnassignedInstId(e.target.value)}
-                        className={`w-full px-3.5 py-2.5 rounded-xl border text-sm ${
-                          isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'
-                        }`}
-                      >
-                        <option value="">Selecionar Instituição...</option>
-                        {allInstitutions.map((i) => (
-                          <option key={i.id} value={i.id}>
-                            {i.name} ({i.city || i.province})
-                          </option>
-                        ))}
-                      </select>
                     </div>
                   </div>
 
@@ -1868,20 +793,11 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
                     <button
                       type="button"
                       onClick={() => setUnassignedAccount(null)}
-                      className={`px-4 py-2.5 rounded-xl text-xs font-semibold border ${
+                      className={`w-full px-4 py-2.5 rounded-xl text-xs font-semibold border cursor-pointer ${
                         isLight ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300' : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
                       }`}
                     >
                       Voltar ao Início
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleAssignProfileAndEnter}
-                      disabled={loading}
-                      className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-sky-600 hover:from-emerald-500 hover:to-sky-500 text-white font-bold text-xs shadow-md cursor-pointer disabled:opacity-50"
-                    >
-                      {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
-                      <span>Ativar Perfil e Entrar no SIGAR</span>
                     </button>
                   </div>
                 </div>
@@ -2493,8 +1409,8 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
               <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
                 <h4 className="font-bold text-sky-400">Como obter acesso?</h4>
                 <p className="text-[11px] text-slate-400">
-                  • <strong>Alunos:</strong> utilize o e-mail ou o código fornecido no ato da matrícula.<br />
-                  • <strong>Professores e Secretaria:</strong> acesse com a sua conta Google corporativa autorizada pela direção.<br />
+                  • <strong>Alunos:</strong> utilize o e-mail e palavra-passe ou conta Google associada na ativação do convite.<br />
+                  • <strong>Professores e Secretaria:</strong> acesse com a sua conta Google ou e-mail/senha autorizados pela direção.<br />
                   • <strong>Diretores e Finanças:</strong> contacte o administrador central para autorização de filial.
                 </p>
               </div>

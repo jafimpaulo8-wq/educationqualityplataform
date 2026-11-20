@@ -222,7 +222,6 @@ export const CEU_AZUL_INSTITUTION: Institution & {
 };
 
 export const CEU_AZUL_DIRECTOR: UserProfile & {
-  codigoAcesso: string;
   institutionIds: string[];
   roles: string[];
   status: string;
@@ -235,24 +234,10 @@ export const CEU_AZUL_DIRECTOR: UserProfile & {
   institutionId: CEU_AZUL_INSTITUTION_ID,
   institutionIds: [CEU_AZUL_INSTITUTION_ID],
   status: 'aprovado',
-  codigoAcesso: 'CEU-AZUL-DIR-001',
   preferences: {
     onboardingCompleted: true,
     theme: 'claro'
   }
-};
-
-export const CEU_AZUL_CEO = {
-  id: 'usr-alfredo-ceo-001',
-  name: 'Alfredo Andrade',
-  email: 'andradaalfred02308@gmail.com',
-  role: 'CEO',
-  roles: ['CEO'],
-  institutionId: CEU_AZUL_INSTITUTION_ID,
-  institutionIds: [CEU_AZUL_INSTITUTION_ID],
-  ownedInstitutions: [CEU_AZUL_INSTITUTION_ID],
-  status: 'aprovado',
-  codigoAcesso: 'CEU-AZUL-CEO-001'
 };
 
 export interface CeuAzulStudentRaw {
@@ -262,7 +247,6 @@ export interface CeuAzulStudentRaw {
   dataNascimento: string;
   lugarNascimento: string;
   contactos: string[];
-  codigoAcesso: string;
 }
 
 export const CEU_AZUL_STUDENTS_RAW: CeuAzulStudentRaw[] = [
@@ -272,8 +256,7 @@ export const CEU_AZUL_STUDENTS_RAW: CeuAzulStudentRaw[] = [
     nome: 'Hilton Contavida',
     dataNascimento: '21/10/21',
     lugarNascimento: 'Nacala Porto',
-    contactos: ['865009505', '844432254'],
-    codigoAcesso: 'CEU-AZUL-ALUNO-041'
+    contactos: ['865009505', '844432254']
   },
   {
     numLista: 42,
@@ -281,8 +264,7 @@ export const CEU_AZUL_STUDENTS_RAW: CeuAzulStudentRaw[] = [
     nome: 'Anheley Dino Daniel',
     dataNascimento: '22/11/22',
     lugarNascimento: 'Nacala Porto',
-    contactos: ['845009536', '867593500'],
-    codigoAcesso: 'CEU-AZUL-ALUNO-042'
+    contactos: ['845009536', '867593500']
   },
   {
     numLista: 43,
@@ -290,8 +272,7 @@ export const CEU_AZUL_STUDENTS_RAW: CeuAzulStudentRaw[] = [
     nome: "Cristina O'Valelo",
     dataNascimento: '16/02/22',
     lugarNascimento: 'Nacala Porto',
-    contactos: ['877420616'],
-    codigoAcesso: 'CEU-AZUL-ALUNO-043'
+    contactos: ['877420616']
   },
   {
     numLista: 44,
@@ -299,8 +280,7 @@ export const CEU_AZUL_STUDENTS_RAW: CeuAzulStudentRaw[] = [
     nome: 'Delfin Higa Yaluba',
     dataNascimento: '01/10/21',
     lugarNascimento: 'Nacala Porto',
-    contactos: ['861388162', '867633394'],
-    codigoAcesso: 'CEU-AZUL-ALUNO-044'
+    contactos: ['861388162', '867633394']
   },
   {
     numLista: 45,
@@ -308,8 +288,7 @@ export const CEU_AZUL_STUDENTS_RAW: CeuAzulStudentRaw[] = [
     nome: 'Elenson Lino Joaquim',
     dataNascimento: 'não fornecida',
     lugarNascimento: 'não fornecido',
-    contactos: [],
-    codigoAcesso: 'CEU-AZUL-ALUNO-045'
+    contactos: []
   },
   {
     numLista: 46,
@@ -317,8 +296,7 @@ export const CEU_AZUL_STUDENTS_RAW: CeuAzulStudentRaw[] = [
     nome: 'Luisha Moziulpo',
     dataNascimento: 'não fornecida',
     lugarNascimento: 'não fornecido',
-    contactos: [],
-    codigoAcesso: 'CEU-AZUL-ALUNO-046'
+    contactos: []
   },
   {
     numLista: 47,
@@ -326,8 +304,7 @@ export const CEU_AZUL_STUDENTS_RAW: CeuAzulStudentRaw[] = [
     nome: 'Fanio Lacupo Hiyuba',
     dataNascimento: 'não fornecida',
     lugarNascimento: 'não fornecido',
-    contactos: [],
-    codigoAcesso: 'CEU-AZUL-ALUNO-047'
+    contactos: []
   },
   {
     numLista: 48,
@@ -335,8 +312,7 @@ export const CEU_AZUL_STUDENTS_RAW: CeuAzulStudentRaw[] = [
     nome: 'Gesleijne',
     dataNascimento: 'não fornecida',
     lugarNascimento: 'não fornecido',
-    contactos: [],
-    codigoAcesso: 'CEU-AZUL-ALUNO-048'
+    contactos: []
   },
   {
     numLista: 49,
@@ -344,8 +320,7 @@ export const CEU_AZUL_STUDENTS_RAW: CeuAzulStudentRaw[] = [
     nome: 'Inneira Japein',
     dataNascimento: '19/02/22',
     lugarNascimento: 'Nacala Porto',
-    contactos: ['878355280', '852785149'],
-    codigoAcesso: 'CEU-AZUL-ALUNO-049'
+    contactos: ['878355280', '852785149']
   },
   {
     numLista: 50,
@@ -353,8 +328,7 @@ export const CEU_AZUL_STUDENTS_RAW: CeuAzulStudentRaw[] = [
     nome: 'Jackson Sopahi',
     dataNascimento: '07/06/22',
     lugarNascimento: 'Nacala Porto',
-    contactos: ['834205761', '834559283'],
-    codigoAcesso: 'CEU-AZUL-ALUNO-050'
+    contactos: ['834205761', '834559283']
   },
   {
     numLista: 51,
@@ -362,8 +336,7 @@ export const CEU_AZUL_STUDENTS_RAW: CeuAzulStudentRaw[] = [
     nome: 'Micaela Francisco',
     dataNascimento: '17/02/22',
     lugarNascimento: 'Nacala Porto',
-    contactos: [],
-    codigoAcesso: 'CEU-AZUL-ALUNO-051'
+    contactos: []
   },
   {
     numLista: 52,
@@ -371,8 +344,7 @@ export const CEU_AZUL_STUDENTS_RAW: CeuAzulStudentRaw[] = [
     nome: 'Marriano Francisco',
     dataNascimento: 'não fornecida',
     lugarNascimento: 'não fornecido',
-    contactos: [],
-    codigoAcesso: 'CEU-AZUL-ALUNO-052'
+    contactos: []
   },
   {
     numLista: 53,
@@ -380,8 +352,7 @@ export const CEU_AZUL_STUDENTS_RAW: CeuAzulStudentRaw[] = [
     nome: 'Marriano Lsiaca M.A',
     dataNascimento: '27/07/22',
     lugarNascimento: 'Nacala Porto',
-    contactos: ['870507775', '876317772'],
-    codigoAcesso: 'CEU-AZUL-ALUNO-053'
+    contactos: ['870507775', '876317772']
   },
   {
     numLista: 54,
@@ -389,8 +360,7 @@ export const CEU_AZUL_STUDENTS_RAW: CeuAzulStudentRaw[] = [
     nome: 'Matilda Alfredo',
     dataNascimento: '16/07/21',
     lugarNascimento: 'Nacala Porto',
-    contactos: ['86097820', '862550446'],
-    codigoAcesso: 'CEU-AZUL-ALUNO-054'
+    contactos: ['86097820', '862550446']
   },
   {
     numLista: 55,
@@ -398,8 +368,7 @@ export const CEU_AZUL_STUDENTS_RAW: CeuAzulStudentRaw[] = [
     nome: 'Meimuna Borepacio',
     dataNascimento: '25/10/22',
     lugarNascimento: 'Nacala Porto',
-    contactos: ['877743466', '840429736'],
-    codigoAcesso: 'CEU-AZUL-ALUNO-055'
+    contactos: ['877743466', '840429736']
   },
   {
     numLista: 56,
@@ -407,8 +376,7 @@ export const CEU_AZUL_STUDENTS_RAW: CeuAzulStudentRaw[] = [
     nome: 'Nezia Yunna',
     dataNascimento: '10/04/23',
     lugarNascimento: 'Nacala Porto',
-    contactos: ['877178579', '848481496'],
-    codigoAcesso: 'CEU-AZUL-ALUNO-056'
+    contactos: ['877178579', '848481496']
   },
   {
     numLista: 57,
@@ -416,8 +384,7 @@ export const CEU_AZUL_STUDENTS_RAW: CeuAzulStudentRaw[] = [
     nome: 'Oben Manuel Malinho',
     dataNascimento: '21/01/21',
     lugarNascimento: 'não fornecido',
-    contactos: [],
-    codigoAcesso: 'CEU-AZUL-ALUNO-057'
+    contactos: []
   },
   {
     numLista: 58,
@@ -425,8 +392,7 @@ export const CEU_AZUL_STUDENTS_RAW: CeuAzulStudentRaw[] = [
     nome: 'Sohebe Insego Aguba',
     dataNascimento: 'não fornecida',
     lugarNascimento: 'não fornecido',
-    contactos: [],
-    codigoAcesso: 'CEU-AZUL-ALUNO-058'
+    contactos: []
   },
   {
     numLista: 59,
@@ -434,8 +400,7 @@ export const CEU_AZUL_STUDENTS_RAW: CeuAzulStudentRaw[] = [
     nome: 'Tima Fortunato',
     dataNascimento: '12/02/23',
     lugarNascimento: 'Nacala Porto',
-    contactos: ['844444949'],
-    codigoAcesso: 'CEU-AZUL-ALUNO-059'
+    contactos: ['844444949']
   },
   {
     numLista: 60,
@@ -443,8 +408,7 @@ export const CEU_AZUL_STUDENTS_RAW: CeuAzulStudentRaw[] = [
     nome: 'Uriel Do Rosario',
     dataNascimento: 'não fornecida',
     lugarNascimento: 'não fornecido',
-    contactos: [],
-    codigoAcesso: 'CEU-AZUL-ALUNO-060'
+    contactos: []
   },
   {
     numLista: 61,
@@ -452,8 +416,7 @@ export const CEU_AZUL_STUDENTS_RAW: CeuAzulStudentRaw[] = [
     nome: 'Wendy Bernina',
     dataNascimento: '15/05/23',
     lugarNascimento: 'não fornecido',
-    contactos: [],
-    codigoAcesso: 'CEU-AZUL-ALUNO-061'
+    contactos: []
   },
   {
     numLista: 62,
@@ -461,8 +424,7 @@ export const CEU_AZUL_STUDENTS_RAW: CeuAzulStudentRaw[] = [
     nome: 'Yula Felix Silva Amine',
     dataNascimento: '27/01/21',
     lugarNascimento: 'Nacala Porto',
-    contactos: ['870128149', '850326604'],
-    codigoAcesso: 'CEU-AZUL-ALUNO-062'
+    contactos: ['870128149', '850326604']
   }
 ];
 
@@ -471,8 +433,6 @@ export const CEU_AZUL_STUDENTS: Student[] = CEU_AZUL_STUDENTS_RAW.map(raw => ({
   numLista: raw.numLista,
   numAluno: raw.numAluno,
   code: raw.numAluno,
-  codigoAcesso: raw.codigoAcesso,
-  codigo: raw.codigoAcesso,
   name: raw.nome,
   fullName: raw.nome,
   birthDate: raw.dataNascimento,
@@ -483,7 +443,7 @@ export const CEU_AZUL_STUDENTS: Student[] = CEU_AZUL_STUDENTS_RAW.map(raw => ({
   gender: 'Misto',
   phone: raw.contactos[0] || '853 181 189',
   contactos: raw.contactos,
-  email: `${raw.codigoAcesso.toLowerCase()}@ceuazul.ac.mz`,
+  email: `${raw.numAluno.toLowerCase()}@ceuazul.ac.mz`,
   province: 'Nampula',
   city: 'Nacala-Porto',
   address: 'Nacala-Porto, Nampula',
@@ -505,76 +465,3 @@ export const CEU_AZUL_STUDENTS: Student[] = CEU_AZUL_STUDENTS_RAW.map(raw => ({
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z'
 }));
-
-/**
- * Access Code Directory for fast in-app resolution and validation
- */
-export interface AccessCodeEntry {
-  code: string;
-  role: 'DIRETOR' | 'CEO' | 'ALUNO' | 'INSTITUICAO';
-  name: string;
-  email: string;
-  institutionId: string;
-  institutionName: string;
-  branchId: string;
-  studentId?: string;
-  studentData?: Student;
-  status: 'ativo' | 'activo';
-  description: string;
-}
-
-export const CEU_AZUL_ACCESS_CODES: Record<string, AccessCodeEntry> = {
-  'CEU-AZUL-001': {
-    code: 'CEU-AZUL-001',
-    role: 'INSTITUICAO',
-    name: 'Centro Infantil Céu Azul (Código Institucional)',
-    email: 'moztechwavenacala8@gmail.com',
-    institutionId: CEU_AZUL_INSTITUTION_ID,
-    institutionName: 'Centro Infantil Céu Azul',
-    branchId: 'branch-ceu-azul-main',
-    status: 'ativo',
-    description: 'Código Institucional do Centro Infantil Céu Azul — Delegação de Nacala-Porto'
-  },
-  'CEU-AZUL-DIR-001': {
-    code: 'CEU-AZUL-DIR-001',
-    role: 'DIRETOR',
-    name: 'Jafim Paulo Rupia',
-    email: 'jafimpaulo8@gmail.com',
-    institutionId: CEU_AZUL_INSTITUTION_ID,
-    institutionName: 'Centro Infantil Céu Azul',
-    branchId: 'branch-ceu-azul-main',
-    status: 'ativo',
-    description: 'Acesso Institucional do Diretor do Centro Infantil Céu Azul'
-  },
-  'CEU-AZUL-CEO-001': {
-    code: 'CEU-AZUL-CEO-001',
-    role: 'CEO',
-    name: 'Alfredo Andrade',
-    email: 'andradaalfred02308@gmail.com',
-    institutionId: CEU_AZUL_INSTITUTION_ID,
-    institutionName: 'Centro Infantil Céu Azul',
-    branchId: 'branch-ceu-azul-main',
-    status: 'ativo',
-    description: 'Acesso Institucional do CEO do Centro Infantil Céu Azul'
-  }
-};
-
-// Populate the 22 students into the access codes index
-CEU_AZUL_STUDENTS.forEach(student => {
-  const code = (student as any).codigoAcesso;
-  if (code) {
-    CEU_AZUL_ACCESS_CODES[code] = {
-      code,
-      role: 'ALUNO',
-      name: student.fullName || student.name || '',
-      email: student.email || `${code.toLowerCase()}@ceuazul.ac.mz`,
-      institutionId: CEU_AZUL_INSTITUTION_ID,
-      institutionName: 'Centro Infantil Céu Azul',
-      branchId: 'branch-ceu-azul-main',
-      studentId: student.id,
-      studentData: student,
-      status: 'ativo',
-      description: `Código individual de acesso do aluno ${student.fullName || student.name} (${(student as any).numAluno})`
-    };
-  }
-});

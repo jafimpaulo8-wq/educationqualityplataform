@@ -129,14 +129,14 @@ export const DEFAULT_DISCOUNT_RULES: MozcoinDiscountRule[] = [
  * Carteiras Iniciais (Utilizador & Institucionais)
  */
 export const DEFAULT_MOZCOIN_WALLETS: MozcoinWallet[] = [
-  // Carteira do Super Admin / CEO
+  // Carteira do Diretor (Centro Infantil Céu Azul)
   {
-    id: 'wlt-superadmin-01',
+    id: 'wlt-diretor-ceuazul',
     ownerType: 'user',
-    ownerId: 'usr-superadmin',
-    ownerName: 'Paulo Jafim (Super Admin / CEO)',
+    ownerId: 'usr-diretor-ceuazul',
+    ownerName: 'Paulo Jafim (Diretor Céu Azul)',
     ownerEmail: 'jafimpaulo8@gmail.com',
-    institutionId: 'inst-1',
+    institutionId: 'ceu-azul-nacala',
     balance: 15400,
     totalCredited: 25000,
     totalDebited: 9600,
@@ -382,25 +382,18 @@ export const DEFAULT_MOZTECHWAVE_IDENTITIES: MoztechwaveIdentity[] = [
     phone: '+258 84 399 2811',
     avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
     nationalId: '110100492819B',
-    primaryRole: 'SUPER_ADMIN',
+    primaryRole: 'DIRETOR',
     securityLevel: '2fa_ativo',
     twoFactorEnabled: true,
-    walletId: 'wlt-superadmin-01',
+    walletId: 'wlt-diretor-ceuazul',
     memberships: [
       {
-        institutionId: 'inst-1',
-        institutionName: 'Centro de Formação Técnico-Profissional de Moçambique',
-        institutionCode: 'MTW-CF-0001',
-        role: 'SUPER_ADMIN',
+        institutionId: 'ceu-azul-nacala',
+        institutionName: 'Centro Infantil Céu Azul',
+        institutionCode: 'CEU-AZUL-001',
+        role: 'DIRETOR',
         branches: ['todas'],
         isDefault: true
-      },
-      {
-        institutionId: 'inst-2',
-        institutionName: 'Instituto Politécnico do Sul',
-        institutionCode: 'MTW-CF-0002',
-        role: 'SUPER_ADMIN',
-        branches: ['todas']
       }
     ],
     lastLoginAt: '2026-09-23 08:45',

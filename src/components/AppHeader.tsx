@@ -27,7 +27,6 @@ import { useApp } from '../context/AppContext';
 import { useTranslation } from '../i18n/LanguageContext';
 import { AppRoute } from '../types';
 import { toCanonicalRole, ROLE_DEFINITIONS } from '../types/rbac';
-import { InstitutionLogoBadge } from './common/InstitutionLogoBadge';
 import { resolveInstitutionIdentity } from '../utils/institutionIdentity';
 
 interface AppHeaderProps {
@@ -132,19 +131,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           <Menu className="w-5 h-5" />
         </button>
 
-        <div className="flex items-center gap-2.5">
-          <div
-            title={identity.hasInstitution ? identity.officialName : 'Sem instituição selecionada'}
-            className={`hidden sm:flex items-center gap-2 px-2 py-1 rounded-xl border text-xs ${
-              isLight ? 'bg-slate-100 border-slate-200 text-slate-700' : 'bg-[#0d1527] border-slate-800 text-slate-300'
-            }`}
-          >
-            <InstitutionLogoBadge institution={activeInstitution} size="xs" rounded="lg" />
-            <span className={`font-bold max-w-[140px] truncate ${isLight ? 'text-slate-900' : 'text-white'}`}>
-              {instLabel}
-            </span>
-          </div>
-
+        <div className="flex items-center gap-2.5 min-w-0">
           <span className={`text-xs sm:text-sm font-semibold tracking-tight line-clamp-1 ${
             isLight ? 'text-slate-900' : 'text-white'
           }`}>

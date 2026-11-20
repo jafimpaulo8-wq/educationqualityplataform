@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import {
   ShieldCheck,
@@ -26,9 +26,11 @@ import { GateQrCameraScanner } from '../../components/access/GateQrCameraScanner
 import {
   buildGateWhatsAppMessage,
   buildWhatsAppUrl,
+  checkGateMovementSequence,
   checkStudentMonthlyPaymentStatus,
+  getMaputoDateTimeInfo,
   getStudentGuardianContact,
-  parseStudentQrPayload
+  resolveStudentFromQrPayload
 } from '../../utils/gateAccessUtils';
 
 export const GateEntryControlPanel: React.FC = () => {
@@ -41,6 +43,7 @@ export const GateEntryControlPanel: React.FC = () => {
     activeRole,
     firebaseUser,
     logGateAccess,
+    markGateWhatsAppLinkOpened,
     accessLogs,
     addNotification
   } = useApp();
@@ -101,6 +104,7 @@ export const GateEntryControlPanel: React.FC = () => {
 
   // Última ação confirmada (para apresentar botão WhatsApp pós-confirmação)
   const [lastAction, setLastAction] = useState<{
+    logId?: string;
     student: Student;
     type: 'entrada' | 'saida' | 'barrado';
     date: string;
@@ -113,31 +117,67 @@ export const GateEntryControlPanel: React.FC = () => {
     guardianName: string;
     guardianPhone: string;
     whatsappUrl: string | null;
+    whatsappOpened?: boolean;
   } | null>(null);
+  const isSubmittingRef = useRef(false);
 
   // Identificar aluno por QR Code (câmara) ou busca manual
-  const handleIdentifyStudent = (searchVal: string, allowNameFallback = false) => {
-    if (!searchVal.trim()) return;
-    const result = parseStudentQrPayload(searchVal, students, activeInstitution.id, {
-      allowNameFallback
-    });
+  const handleIdentifyStudent = (searchVal: string, allowManualNameLookup = false) => {
+    const trimmed = (searchVal || '').trim();
+    if (!trimmed) return;
 
-    if (result.student) {
+    const qrResult = resolveStudentFromQrPayload(
+      trimmed,
+      instStudents,
+      activeInstitution.id,
+      students
+    );
+
+    if (qrResult.student) {
       soundManager.playNotification();
-      setIdentifiedStudent(result.student);
+      setIdentifiedStudent(qrResult.student);
       setQrOrCodeInput('');
       setScanError(null);
-    } else {
-      soundManager.playError();
-      const errText =
-        result.errorReason || `Nenhum estudante encontrado nesta instituição para "${searchVal}".`;
-      setScanError(errText);
-      addNotification({
-        title: 'Aluno Não Identificado',
-        message: errText,
-        type: 'alert'
-      });
+      return;
     }
+
+    const isStructuredOrToken =
+      trimmed.startsWith('{') ||
+      trimmed.startsWith('http://') ||
+      trimmed.startsWith('https://') ||
+      trimmed.toUpperCase().startsWith('SIGAR-QR-V1:') ||
+      trimmed.toUpperCase().startsWith('SGR-');
+
+    if (allowManualNameLookup && qrResult.status === 'not_found' && !isStructuredOrToken) {
+      const q = trimmed.toLowerCase();
+      const manualMatches = instStudents.filter(s => {
+        const biMatch = (s.documentNumber || '').trim().toLowerCase() === q;
+        const nameMatch = (s.fullName || s.name || '').toLowerCase().includes(q);
+        return biMatch || (q.length >= 3 && nameMatch);
+      });
+      if (manualMatches.length === 1) {
+        soundManager.playNotification();
+        setIdentifiedStudent(manualMatches[0]);
+        setQrOrCodeInput('');
+        setScanError(null);
+        return;
+      }
+      if (manualMatches.length > 1) {
+        soundManager.playError();
+        setScanError(`Encontrados ${manualMatches.length} alunos para "${trimmed}". Indique o código exacto.`);
+        return;
+      }
+    }
+
+    soundManager.playError();
+    const errText =
+      qrResult.reason || `Nenhum estudante encontrado nesta instituição para "${searchVal}".`;
+    setScanError(errText);
+    addNotification({
+      title: 'Leitura Rejeitada / Não Identificada',
+      message: errText,
+      type: 'alert'
+    });
   };
 
   const handleManualSubmit = (e: React.FormEvent) => {
@@ -146,25 +186,34 @@ export const GateEntryControlPanel: React.FC = () => {
   };
 
   const paymentVerification = identifiedStudent
-    ? checkStudentMonthlyPaymentStatus({
-        student: identifiedStudent,
-        activeInstitution,
+    ? checkStudentMonthlyPaymentStatus(
+        identifiedStudent,
         courses,
+        contasReceber,
         paymentRecords,
-        contasReceber
-      })
+        currentTime
+      )
     : null;
 
+  const entrySequenceCheck = identifiedStudent
+    ? checkGateMovementSequence(identifiedStudent.id, 'entrada', accessLogs, activeInstitution.id)
+    : null;
+  const exitSequenceCheck = identifiedStudent
+    ? checkGateMovementSequence(identifiedStudent.id, 'saida', accessLogs, activeInstitution.id)
+    : null;
+
+  const maputoClock = getMaputoDateTimeInfo(currentTime);
   const identifiedGuardian = identifiedStudent ? getStudentGuardianContact(identifiedStudent) : null;
-  const hourNowStr = currentTime.toLocaleTimeString('pt-MZ', { hour: '2-digit', minute: '2-digit' });
+  const hourNowStr = maputoClock.timeStr.slice(0, 5);
   const barredPreviewMessage =
     identifiedStudent && paymentVerification && !paymentVerification.isPaidForCurrentMonth
       ? buildGateWhatsAppMessage({
           action: 'barrado',
           student: identifiedStudent,
-          institution: activeInstitution,
+          institutionName: centerName,
           timeStr: hourNowStr,
-          monthLabel: paymentVerification.currentMonthLabel
+          monthLabel: paymentVerification.monthLabel,
+          blockReason: paymentVerification.reason
         })
       : '';
   const barredWhatsAppUrl =
@@ -172,8 +221,12 @@ export const GateEntryControlPanel: React.FC = () => {
       ? buildWhatsAppUrl(identifiedGuardian.guardianPhone, barredPreviewMessage)
       : null;
 
-  // Confirmar Acesso (ENTRADA, SAÍDA ou BARRADO)
-  const handleConfirmAccess = (type: 'entrada' | 'saida' | 'barrado') => {
+  // Confirmar Acesso (ENTRADA, SAÍDA ou BARRADO) com trava anti-duplo clique
+  const handleConfirmAccess = (
+    type: 'entrada' | 'saida' | 'barrado',
+    options?: { openedFromWhatsAppLink?: boolean }
+  ) => {
+    if (isSubmittingRef.current) return;
     if (!identifiedStudent || !paymentVerification) {
       addNotification({
         title: 'Nenhum Aluno Selecionado',
@@ -189,49 +242,62 @@ export const GateEntryControlPanel: React.FC = () => {
       return;
     }
 
-    const now = new Date();
-    const dateStr = now.toLocaleDateString('pt-MZ');
-    const timeStr = now.toLocaleTimeString('pt-MZ');
-    const hourOnly = now.toLocaleTimeString('pt-MZ', { hour: '2-digit', minute: '2-digit' });
-    const guardian = getStudentGuardianContact(identifiedStudent);
+    isSubmittingRef.current = true;
+    try {
+      const maputoNow = getMaputoDateTimeInfo();
+      const dateStr = maputoNow.ddMmYyyy;
+      const timeStr = maputoNow.timeStr;
+      const hourOnly = maputoNow.timeStr.slice(0, 5);
+      const guardian = getStudentGuardianContact(identifiedStudent);
 
-    const standardMsg = buildGateWhatsAppMessage({
-      action: type,
-      student: identifiedStudent,
-      institution: activeInstitution,
-      timeStr: hourOnly,
-      monthLabel: paymentVerification.currentMonthLabel
-    });
-
-    const whatsappUrl = buildWhatsAppUrl(guardian.guardianPhone, standardMsg);
-
-    const log = logGateAccess(
-      identifiedStudent.id,
-      type,
-      activeGateLocation,
-      operatorName,
-      sendGuardianNotification,
-      standardMsg,
-      type === 'barrado' ? paymentVerification.reason : undefined
-    );
-
-    if (log) {
-      setLastAction({
+      const standardMsg = buildGateWhatsAppMessage({
+        action: type,
         student: identifiedStudent,
-        type,
-        date: dateStr,
-        time: timeStr,
-        hourOnly,
-        operator: operatorName,
-        institution: centerName,
-        location: activeGateLocation,
-        message: standardMsg,
-        guardianName: guardian.guardianName,
-        guardianPhone: guardian.guardianPhone,
-        whatsappUrl
+        institutionName: centerName,
+        timeStr: hourOnly,
+        monthLabel: paymentVerification.monthLabel,
+        blockReason: type === 'barrado' ? paymentVerification.reason : undefined
       });
-      setIdentifiedStudent(null);
-      setScanError(null);
+
+      const whatsappUrl = buildWhatsAppUrl(guardian.guardianPhone, standardMsg);
+
+      const log = logGateAccess(
+        identifiedStudent.id,
+        type,
+        activeGateLocation,
+        operatorName,
+        false,
+        standardMsg,
+        type === 'barrado' ? paymentVerification.reason : undefined
+      );
+
+      if (log) {
+        if (options?.openedFromWhatsAppLink) {
+          markGateWhatsAppLinkOpened(log.id);
+        }
+        setLastAction({
+          logId: log.id,
+          student: identifiedStudent,
+          type,
+          date: dateStr,
+          time: timeStr,
+          hourOnly,
+          operator: operatorName,
+          institution: centerName,
+          location: activeGateLocation,
+          message: standardMsg,
+          guardianName: guardian.guardianName,
+          guardianPhone: guardian.guardianPhone,
+          whatsappUrl,
+          whatsappOpened: Boolean(options?.openedFromWhatsAppLink)
+        });
+        setIdentifiedStudent(null);
+        setScanError(null);
+      }
+    } finally {
+      setTimeout(() => {
+        isSubmittingRef.current = false;
+      }, 400);
     }
   };
 
@@ -285,10 +351,10 @@ export const GateEntryControlPanel: React.FC = () => {
             <div className="text-right border-l border-slate-800 pl-4">
               <div className="text-xs text-slate-400 flex items-center gap-1 justify-end font-mono">
                 <Clock className="w-3.5 h-3.5 text-indigo-400" />
-                {currentTime.toLocaleTimeString('pt-MZ')}
+                {maputoClock.timeStr}
               </div>
               <div className="text-xs font-bold text-slate-200 mt-0.5">
-                {currentTime.toLocaleDateString('pt-MZ', { weekday: 'short', day: '2-digit', month: 'short' })}
+                {currentTime.toLocaleDateString('pt-MZ', { timeZone: 'Africa/Maputo', weekday: 'short', day: '2-digit', month: 'short' })}
               </div>
             </div>
           </div>
@@ -436,13 +502,12 @@ export const GateEntryControlPanel: React.FC = () => {
                 <div className="flex flex-wrap items-center gap-2">
                   {instStudents.slice(0, 6).map(s => {
                     const isCurrent = identifiedStudent?.id === s.id;
-                    const check = checkStudentMonthlyPaymentStatus({
-                      student: s,
-                      activeInstitution,
+                    const check = checkStudentMonthlyPaymentStatus(
+                      s,
                       courses,
-                      paymentRecords,
-                      contasReceber
-                    });
+                      contasReceber,
+                      paymentRecords
+                    );
                     return (
                       <button
                         key={s.id}
@@ -564,8 +629,21 @@ export const GateEntryControlPanel: React.FC = () => {
               {paymentVerification.isPaidForCurrentMonth ? (
                 <div className="pt-2 space-y-3">
                   <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900">
-                    <strong>{paymentVerification.currentMonthLabel}:</strong> {paymentVerification.reason}
+                    <strong>{paymentVerification.monthLabel}:</strong> {paymentVerification.reason}
                   </div>
+
+                  {paymentVerification.warningNote && (
+                    <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-800">
+                      {paymentVerification.warningNote}
+                    </div>
+                  )}
+
+                  {(entrySequenceCheck?.isDuplicateSequence || exitSequenceCheck?.isDuplicateSequence) && (
+                    <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900 space-y-0.5">
+                      {entrySequenceCheck?.warningMessage && <div>{entrySequenceCheck.warningMessage}</div>}
+                      {exitSequenceCheck?.warningMessage && <div>{exitSequenceCheck.warningMessage}</div>}
+                    </div>
+                  )}
 
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
@@ -606,7 +684,7 @@ export const GateEntryControlPanel: React.FC = () => {
                     <p className="text-xs font-semibold text-rose-900">{paymentVerification.reason}</p>
                     <p className="text-[11px] text-rose-700">
                       Entrada bloqueada por falta de pagamento da mensalidade de{' '}
-                      <strong>{paymentVerification.currentMonthLabel}</strong>.
+                      <strong>{paymentVerification.monthLabel}</strong>.
                     </p>
                   </div>
 
@@ -638,7 +716,7 @@ export const GateEntryControlPanel: React.FC = () => {
                           href={barredWhatsAppUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          onClick={() => handleConfirmAccess('barrado')}
+                          onClick={() => handleConfirmAccess('barrado', { openedFromWhatsAppLink: true })}
                           className="flex-1 min-w-[210px] py-2.5 px-4 bg-[#25D366] hover:bg-[#1fb858] text-white rounded-xl text-xs font-black flex items-center justify-center gap-2 shadow-sm transition cursor-pointer"
                         >
                           <MessageCircle className="w-4 h-4" />
@@ -754,16 +832,33 @@ export const GateEntryControlPanel: React.FC = () => {
                 <p className="text-slate-600 italic text-[11px]">"{lastAction.message}"</p>
 
                 {lastAction.whatsappUrl ? (
-                  <a
-                    href={lastAction.whatsappUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full py-2.5 px-4 bg-[#25D366] hover:bg-[#1fb858] text-white rounded-xl text-xs font-black flex items-center justify-center gap-2 shadow-sm transition cursor-pointer"
-                  >
-                    <MessageCircle className="w-4 h-4" />
-                    <span>Abrir WhatsApp do Encarregado ({lastAction.guardianPhone})</span>
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
+                  <div className="space-y-2">
+                    <a
+                      href={lastAction.whatsappUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() => {
+                        if (lastAction.logId) {
+                          markGateWhatsAppLinkOpened(lastAction.logId);
+                          setLastAction(prev => (prev ? { ...prev, whatsappOpened: true } : prev));
+                        }
+                      }}
+                      className="w-full py-2.5 px-4 bg-[#25D366] hover:bg-[#1fb858] text-white rounded-xl text-xs font-black flex items-center justify-center gap-2 shadow-sm transition cursor-pointer"
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                      <span>
+                        {lastAction.whatsappOpened
+                          ? `Reabrir WhatsApp (${lastAction.guardianPhone})`
+                          : `Abrir WhatsApp do Encarregado (${lastAction.guardianPhone})`}
+                      </span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                    {lastAction.whatsappOpened && (
+                      <span className="block text-[10px] font-bold text-emerald-700 text-center">
+                        Link WhatsApp aberto pelo operador
+                      </span>
+                    )}
+                  </div>
                 ) : (
                   <span className="block text-[11px] font-bold text-rose-600">
                     Número de WhatsApp do encarregado não registado.
@@ -957,11 +1052,20 @@ export const GateEntryControlPanel: React.FC = () => {
                             href={waUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            title="Abrir WhatsApp do Encarregado"
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-[#25D366]/15 hover:bg-[#25D366] text-[#128C7E] hover:text-white rounded-lg text-[11px] font-bold transition-all cursor-pointer"
+                            onClick={() => markGateWhatsAppLinkOpened(log.id)}
+                            title={
+                              log.whatsappStatus === 'link_aberto'
+                                ? 'Link WhatsApp já aberto'
+                                : 'Abrir WhatsApp do Encarregado'
+                            }
+                            className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                              log.whatsappStatus === 'link_aberto'
+                                ? 'bg-emerald-600 text-white'
+                                : 'bg-[#25D366]/15 hover:bg-[#25D366] text-[#128C7E] hover:text-white'
+                            }`}
                           >
                             <MessageCircle className="w-3.5 h-3.5" />
-                            <span>WhatsApp</span>
+                            <span>{log.whatsappStatus === 'link_aberto' ? 'Link Aberto' : 'WhatsApp'}</span>
                           </a>
                         ) : (
                           <span className="text-[10px] text-slate-400">—</span>

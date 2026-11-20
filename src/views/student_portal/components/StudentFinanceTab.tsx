@@ -17,8 +17,10 @@ import {
   Upload, 
   FileText,
   ShieldCheck,
-  X
+  X,
+  ExternalLink
 } from 'lucide-react';
+import { getPublicPaymentPortalUrl } from '../../../services/publicInstitutionService';
 
 interface StudentFinanceTabProps {
   currentStudent: Student;
@@ -31,7 +33,7 @@ export const StudentFinanceTab: React.FC<StudentFinanceTabProps> = ({
   onViewReceipt,
   onRequestAgreement
 }) => {
-  const { submitPayment } = useApp();
+  const { submitPayment, activeInstitution, firebaseUser } = useApp();
   const [installments, setInstallments] = useState<TuitionInstallment[]>(() =>
     getStudentTuitionInstallments(currentStudent)
   );
@@ -59,16 +61,21 @@ export const StudentFinanceTab: React.FC<StudentFinanceTabProps> = ({
 
     // Submeter pagamento no AppContext
     submitPayment({
+      institutionId: activeInstitution?.id || currentStudent.institutionId,
       studentId: currentStudent.id,
       studentName: currentStudent.fullName,
       studentCode: currentStudent.code,
+      studentUserId: currentStudent.userId || firebaseUser?.uid,
+      guardianUserId: (currentStudent as any).guardianUserId,
+      submittedByUid: firebaseUser?.uid,
       courseName: currentStudent.courseName,
       className: currentStudent.classGroupName,
       documentNumber: currentStudent.documentNumber,
+      serviceItem: 'mensalidade',
       amount: parseFloat(amountInput) || 4500,
       feeType: 'Mensalidade Escolar',
       monthReference: `${targetMonth}/2026`,
-      network: (paymentNetwork === 'Ponto24' || paymentNetwork === 'Transferência') ? 'Banco (BIM)' : paymentNetwork as any,
+      network: (paymentNetwork === 'Ponto24' || paymentNetwork === 'Transferência') ? 'Transferência Bancária' : paymentNetwork as any,
       transactionCode: transactionCode.toUpperCase(),
       date: new Date().toISOString().split('T')[0],
       time: new Date().toTimeString().slice(0, 5),
@@ -154,14 +161,27 @@ export const StudentFinanceTab: React.FC<StudentFinanceTabProps> = ({
             <span className="text-xs text-slate-500 font-medium block">Ação Financeira</span>
             <p className="text-xs font-bold text-slate-900 mt-1">Liquidar Propina do Mês</p>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowPaymentModal(true)}
-            className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition cursor-pointer"
-          >
-            <CreditCard className="w-4 h-4" />
-            <span>Pagar Propina (M-Pesa / e-Mola)</span>
-          </button>
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => setShowPaymentModal(true)}
+              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition cursor-pointer"
+            >
+              <CreditCard className="w-4 h-4" />
+              <span>Pagar Propina (M-Pesa / e-Mola)</span>
+            </button>
+            {activeInstitution?.id && (
+              <a
+                href={getPublicPaymentPortalUrl(activeInstitution)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Abrir Portal de Pagamentos</span>
+              </a>
+            )}
+          </div>
         </div>
       </div>
 
@@ -308,9 +328,9 @@ export const StudentFinanceTab: React.FC<StudentFinanceTabProps> = ({
                   <label className="block font-semibold text-slate-700 mb-2">Canal de Pagamento Oficial</label>
                   <div className="grid grid-cols-3 gap-2">
                     {[
-                      { id: 'M-Pesa', label: 'M-Pesa', note: '84/85 391 8201' },
-                      { id: 'e-Mola', label: 'e-Mola', note: '86/87 502 9184' },
-                      { id: 'Transferência', label: 'Banco (BIM)', note: 'Conta: 192837401' }
+                      { id: 'M-Pesa', label: 'M-Pesa', note: 'Carteira Móvel' },
+                      { id: 'e-Mola', label: 'e-Mola', note: 'Carteira Móvel' },
+                      { id: 'Transferência', label: 'Banco', note: 'Transferência' }
                     ].map(p => (
                       <button
                         key={p.id}

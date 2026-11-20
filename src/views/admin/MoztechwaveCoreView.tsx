@@ -135,8 +135,8 @@ export const MoztechwaveCoreView: React.FC = () => {
   const [managedUsers, setManagedUsers] = useState<ManagedUser[]>([
     {
       id: 'usr-owner-001',
-      name: 'Eng. Paulo Jafim (Platform Owner)',
-      email: 'jafimpaulo8@gmail.com',
+      name: 'Super Administrador Global (Platform Owner)',
+      email: 'moztechwavenacala8@gmail.com',
       role: 'SUPER_ADMIN',
       institutionId: 'all',
       institutionName: 'Moztechwave Ecosystem HQ',
@@ -625,7 +625,7 @@ export const MoztechwaveCoreView: React.FC = () => {
       status: 'concluido',
       description: `Operação Administrativa do Dono da Plataforma: ${mozcoinOpReason || 'Ajuste de Saldo de Tesouraria'}`,
       timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      operator: 'Super Admin (jafimpaulo8@gmail.com)',
+      operator: 'Super Admin (moztechwavenacala8@gmail.com)',
       referenceCode: `HQ-ADMLOG-${Date.now()}`
     };
 
@@ -1574,7 +1574,7 @@ export const MoztechwaveCoreView: React.FC = () => {
                   <Radio className="w-4 h-4 text-amber-400" /> Assinatura Criptográfica
                 </span>
                 <p className="text-slate-400">
-                  Identificador mestre protegido: <code className="text-emerald-400 font-mono">jafimpaulo8@gmail.com</code> possui autoridade exclusiva de governança da plataforma.
+                  Identificador mestre protegido: <code className="text-emerald-400 font-mono">moztechwavenacala8@gmail.com</code> possui autoridade exclusiva de governança da plataforma.
                 </p>
               </div>
             </div>

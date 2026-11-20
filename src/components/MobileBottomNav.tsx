@@ -1,24 +1,29 @@
 import React from 'react';
-import { 
-  Building2, 
-  Users, 
-  DollarSign, 
-  ShieldCheck, 
+import {
+  Building2,
+  Users,
+  DollarSign,
+  ShieldCheck,
   Menu,
-  Sparkles,
-  Award
+  Home,
+  UserCheck,
+  FileSpreadsheet,
+  QrCode
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { AppRoute } from '../types';
+import { toCanonicalRole } from '../types/rbac';
 
 interface MobileBottomNavProps {
   onOpenMobileMenu: () => void;
 }
 
 export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ onOpenMobileMenu }) => {
-  const { currentRoute, navigate, unreadCount } = useApp();
+  const { currentRoute, navigate, unreadCount, activeRole, activeStudentPortalTab } = useApp();
 
-  // Highlight active tab
+  const canonicalRole = toCanonicalRole(activeRole);
+  const isStudent = canonicalRole === 'ALUNO' || canonicalRole === 'RESPONSAVEL';
+
+  // Highlight active tab for staff/admin
   const isDashboard = currentRoute === 'centro_dashboard' || currentRoute === 'admin_dashboard';
   const isStudents = currentRoute === 'alunos_list' || currentRoute === 'alunos_cadastrar' || currentRoute === 'alunos_perfil';
   const isFinance = currentRoute === 'financeiro' || currentRoute === 'pagamentos' || currentRoute === 'caixa_escolar' || currentRoute === 'relatorios_financeiros';
@@ -27,68 +32,127 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ onOpenMobileMe
   return (
     <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#090d16]/95 backdrop-blur-md border-t border-slate-800/90 py-1 px-2 safe-area-inset-bottom">
       <div className="flex items-center justify-around">
-        {/* 1. Dashboard */}
-        <button
-          onClick={() => navigate('centro_dashboard')}
-          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all ${
-            isDashboard 
-              ? 'text-amber-400 font-bold' 
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <div className={`p-1 rounded-lg ${isDashboard ? 'bg-blue-600/20' : ''}`}>
-            <Building2 className="w-5 h-5" />
-          </div>
-          <span className="text-[10px] mt-0.5 tracking-tight">Início</span>
-        </button>
+        {isStudent ? (
+          <>
+            <button
+              type="button"
+              onClick={() => navigate('portal_aluno', { tab: 'inicio' })}
+              className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all ${
+                currentRoute === 'portal_aluno' && activeStudentPortalTab === 'inicio'
+                  ? 'text-amber-400 font-bold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <div className={`p-1 rounded-lg ${currentRoute === 'portal_aluno' && activeStudentPortalTab === 'inicio' ? 'bg-blue-600/20' : ''}`}>
+                <Home className="w-5 h-5" />
+              </div>
+              <span className="text-[10px] mt-0.5 tracking-tight">Início</span>
+            </button>
 
-        {/* 2. Alunos */}
-        <button
-          onClick={() => navigate('alunos_list')}
-          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all ${
-            isStudents 
-              ? 'text-amber-400 font-bold' 
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <div className={`p-1 rounded-lg ${isStudents ? 'bg-blue-600/20' : ''}`}>
-            <Users className="w-5 h-5" />
-          </div>
-          <span className="text-[10px] mt-0.5 tracking-tight">Alunos</span>
-        </button>
+            <button
+              type="button"
+              onClick={() => navigate('portal_aluno', { tab: 'perfil' })}
+              className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all ${
+                currentRoute === 'portal_aluno' && activeStudentPortalTab === 'perfil'
+                  ? 'text-amber-400 font-bold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <div className={`p-1 rounded-lg ${currentRoute === 'portal_aluno' && activeStudentPortalTab === 'perfil' ? 'bg-blue-600/20' : ''}`}>
+                <UserCheck className="w-5 h-5" />
+              </div>
+              <span className="text-[10px] mt-0.5 tracking-tight">Meu Perfil</span>
+            </button>
 
-        {/* 3. Financeiro */}
-        <button
-          onClick={() => navigate('financeiro')}
-          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all ${
-            isFinance 
-              ? 'text-amber-400 font-bold' 
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <div className={`p-1 rounded-lg ${isFinance ? 'bg-blue-600/20' : ''}`}>
-            <DollarSign className="w-5 h-5" />
-          </div>
-          <span className="text-[10px] mt-0.5 tracking-tight">Finanças</span>
-        </button>
+            <button
+              type="button"
+              onClick={() => navigate('portal_aluno', { tab: 'notas' })}
+              className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all ${
+                currentRoute === 'portal_aluno' && activeStudentPortalTab === 'notas'
+                  ? 'text-amber-400 font-bold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <div className={`p-1 rounded-lg ${currentRoute === 'portal_aluno' && activeStudentPortalTab === 'notas' ? 'bg-blue-600/20' : ''}`}>
+                <FileSpreadsheet className="w-5 h-5" />
+              </div>
+              <span className="text-[10px] mt-0.5 tracking-tight">Notas</span>
+            </button>
 
-        {/* 4. SIVEC / Certificados */}
-        <button
-          onClick={() => navigate('sivec_verify')}
-          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all ${
-            isCertificates 
-              ? 'text-amber-400 font-bold' 
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <div className={`p-1 rounded-lg ${isCertificates ? 'bg-blue-600/20' : ''}`}>
-            <ShieldCheck className="w-5 h-5" />
-          </div>
-          <span className="text-[10px] mt-0.5 tracking-tight">SIVEC</span>
-        </button>
+            <button
+              type="button"
+              onClick={() => navigate('portal_aluno', { tab: 'carteirinha' })}
+              className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all ${
+                currentRoute === 'portal_aluno' && activeStudentPortalTab === 'carteirinha'
+                  ? 'text-amber-400 font-bold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <div className={`p-1 rounded-lg ${currentRoute === 'portal_aluno' && activeStudentPortalTab === 'carteirinha' ? 'bg-blue-600/20' : ''}`}>
+                <QrCode className="w-5 h-5" />
+              </div>
+              <span className="text-[10px] mt-0.5 tracking-tight">Carteirinha</span>
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => navigate('centro_dashboard')}
+              className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all ${
+                isDashboard ? 'text-amber-400 font-bold' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <div className={`p-1 rounded-lg ${isDashboard ? 'bg-blue-600/20' : ''}`}>
+                <Building2 className="w-5 h-5" />
+              </div>
+              <span className="text-[10px] mt-0.5 tracking-tight">Início</span>
+            </button>
 
-        {/* 5. Menu Completo (Abre Drawer da Sidebar) */}
+            <button
+              type="button"
+              onClick={() => navigate('alunos_list')}
+              className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all ${
+                isStudents ? 'text-amber-400 font-bold' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <div className={`p-1 rounded-lg ${isStudents ? 'bg-blue-600/20' : ''}`}>
+                <Users className="w-5 h-5" />
+              </div>
+              <span className="text-[10px] mt-0.5 tracking-tight">Alunos</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => navigate('financeiro')}
+              className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all ${
+                isFinance ? 'text-amber-400 font-bold' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <div className={`p-1 rounded-lg ${isFinance ? 'bg-blue-600/20' : ''}`}>
+                <DollarSign className="w-5 h-5" />
+              </div>
+              <span className="text-[10px] mt-0.5 tracking-tight">Finanças</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => navigate('sivec_verify')}
+              className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all ${
+                isCertificates ? 'text-amber-400 font-bold' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <div className={`p-1 rounded-lg ${isCertificates ? 'bg-blue-600/20' : ''}`}>
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <span className="text-[10px] mt-0.5 tracking-tight">SIVEC</span>
+            </button>
+          </>
+        )}
+
+        {/* Menu Completo (Abre Drawer da Sidebar) */}
         <button
+          type="button"
           onClick={onOpenMobileMenu}
           className="relative flex flex-col items-center justify-center py-1 px-2 rounded-xl text-slate-400 hover:text-slate-200 transition-all"
         >

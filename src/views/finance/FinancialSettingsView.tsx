@@ -22,12 +22,14 @@ import {
   ShieldCheck, 
   Coins, 
   Check, 
-  X 
+  X,
+  ExternalLink
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { useToast } from '../../context/ToastContext';
 import { useTranslation } from '../../i18n/LanguageContext';
 import { soundManager } from '../../utils/audio';
+import { getPublicPaymentPortalUrl } from '../../services/publicInstitutionService';
 import { 
   FinancialSettings, 
   FinancialServiceItem, 
@@ -60,28 +62,26 @@ export const FinancialSettingsView: React.FC = () => {
 
   // Beneficiários
   const [beneficiaryName, setBeneficiaryName] = useState(
-    activeInstitution.financialSettings?.beneficiaryName || activeInstitution.name || 'Centro de Formação Técnica e Profissional de Maputo, Lda.'
+    activeInstitution.financialSettings?.beneficiaryName || activeInstitution.name || ''
   );
   const [beneficiaryNuit, setBeneficiaryNuit] = useState(
-    activeInstitution.financialSettings?.beneficiaryNuit || activeInstitution.nuit || '400192837'
+    activeInstitution.financialSettings?.beneficiaryNuit || activeInstitution.nuit || ''
   );
 
   // M-Pesa
-  const [mpesaNumber, setMpesaNumber] = useState(activeInstitution.financialSettings?.mpesaNumber || '849001200');
-  const [mpesaShortcode, setMpesaShortcode] = useState(activeInstitution.financialSettings?.mpesaShortcode || '90124');
-  const [mpesaHolderName, setMpesaHolderName] = useState(activeInstitution.financialSettings?.mpesaHolderName || 'CFTPM MOZTEC');
+  const [mpesaNumber, setMpesaNumber] = useState(activeInstitution.financialSettings?.mpesaNumber || '');
+  const [mpesaShortcode, setMpesaShortcode] = useState(activeInstitution.financialSettings?.mpesaShortcode || '');
+  const [mpesaHolderName, setMpesaHolderName] = useState(activeInstitution.financialSettings?.mpesaHolderName || activeInstitution.name || '');
   const [mpesaInstructions, setMpesaInstructions] = useState(
-    activeInstitution.financialSettings?.mpesaInstructions || 
-    'Discar *150# > Pagamentos > Pagar Negócio / Compra > Inserir Shortcode 90124 > Referência: Código do Aluno'
+    activeInstitution.financialSettings?.mpesaInstructions || ''
   );
 
   // e-Mola
-  const [emolaNumber, setEmolaNumber] = useState(activeInstitution.financialSettings?.emolaNumber || '861203400');
-  const [emolaShortcode, setEmolaShortcode] = useState(activeInstitution.financialSettings?.emolaShortcode || '44102');
-  const [emolaHolderName, setEmolaHolderName] = useState(activeInstitution.financialSettings?.emolaHolderName || 'CFTPM FORMACAO');
+  const [emolaNumber, setEmolaNumber] = useState(activeInstitution.financialSettings?.emolaNumber || '');
+  const [emolaShortcode, setEmolaShortcode] = useState(activeInstitution.financialSettings?.emolaShortcode || '');
+  const [emolaHolderName, setEmolaHolderName] = useState(activeInstitution.financialSettings?.emolaHolderName || activeInstitution.name || '');
   const [emolaInstructions, setEmolaInstructions] = useState(
-    activeInstitution.financialSettings?.emolaInstructions || 
-    'Discar *898# > Pagamentos de Serviços > Referência da Instituição: 44102 > Inserir Código do Aluno'
+    activeInstitution.financialSettings?.emolaInstructions || ''
   );
 
   // Serviços e Preços Dinâmicos (Não codificar valores fixos)
@@ -437,23 +437,36 @@ export const FinancialSettingsView: React.FC = () => {
             </p>
           </div>
 
-          <button
-            onClick={handleSaveAllFinance}
-            disabled={saving}
-            className="flex items-center gap-2 px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-lg shadow-emerald-600/20 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
-          >
-            {saving ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                <span>{t('action.saving', 'A salvar...')}</span>
-              </>
-            ) : (
-              <>
-                <Save className="w-4 h-4" />
-                <span>{t('action.save', 'Salvar Alterações')}</span>
-              </>
+          <div className="flex flex-wrap items-center gap-2.5">
+            {activeInstitution?.id && (
+              <a
+                href={getPublicPaymentPortalUrl(activeInstitution)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-emerald-300 font-bold text-sm transition-all"
+              >
+                <ExternalLink className="w-4 h-4" />
+                <span>Abrir Portal de Pagamentos</span>
+              </a>
             )}
-          </button>
+            <button
+              onClick={handleSaveAllFinance}
+              disabled={saving}
+              className="flex items-center gap-2 px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-lg shadow-emerald-600/20 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+            >
+              {saving ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>{t('action.saving', 'A salvar...')}</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  <span>{t('action.save', 'Salvar Alterações')}</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
 
         {/* Sub Navigation */}

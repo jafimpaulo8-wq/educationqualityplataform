@@ -22,8 +22,10 @@ import {
   Smartphone,
   Building,
   Check,
-  Receipt
+  Receipt,
+  ExternalLink
 } from 'lucide-react';
+import { getPublicPaymentPortalUrl } from '../../services/publicInstitutionService';
 
 export const FinancialManagerView: React.FC = () => {
   const { 
@@ -140,6 +142,17 @@ export const FinancialManagerView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap">
+          {activeInstitution?.id && (
+            <a
+              href={getPublicPaymentPortalUrl(activeInstitution)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-semibold transition-all flex items-center gap-2 shadow-xs"
+            >
+              <ExternalLink className="w-4 h-4" />
+              <span>Abrir Portal de Pagamentos</span>
+            </a>
+          )}
           <button
             id="btn-nav-caixa"
             onClick={() => navigate('caixa_escolar')}

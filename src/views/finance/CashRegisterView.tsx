@@ -25,9 +25,11 @@ import {
   FileText,
   Calendar,
   X,
-  FileDown
+  FileDown,
+  ExternalLink
 } from 'lucide-react';
 import { CashMovementType, CashTransaction, CashRegisterSession } from '../../types';
+import { getPublicPaymentPortalUrl } from '../../services/publicInstitutionService';
 
 export const CashRegisterView: React.FC = () => {
   const { 
@@ -224,6 +226,17 @@ export const CashRegisterView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          {activeInstitution?.id && (
+            <a
+              href={getPublicPaymentPortalUrl(activeInstitution)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span>Abrir Portal de Pagamentos</span>
+            </a>
+          )}
           {/* Navegação entre Sessão Atual e Histórico */}
           <div className="inline-flex p-1 bg-slate-100 rounded-xl border border-slate-200 text-xs mr-1">
             <button

@@ -14,6 +14,7 @@ import { MobileBottomNav } from './components/MobileBottomNav';
 
 import { ToastProvider } from './context/ToastContext';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
+import { DocumentIdentitySync } from './components/common/DocumentIdentitySync';
 
 // Public Portal Views
 import { HeroGallery } from './components/HeroGallery';
@@ -45,6 +46,7 @@ import { FinancialManagerView } from './views/finance/FinancialManagerView';
 import { CashRegisterView } from './views/finance/CashRegisterView';
 import { FinanceModuleView } from './views/finance/FinanceModuleView';
 import { PaymentPortalView } from './views/finance/PaymentPortalView';
+import { IndependentPaymentPortalView } from './views/finance/IndependentPaymentPortalView';
 import { FinancialReportsView } from './views/finance/FinancialReportsView';
 import { GateControlView } from './views/access/GateControlView';
 import { StudentQRCodeView } from './views/access/StudentQRCodeView';
@@ -101,9 +103,6 @@ import { SigarOnboardingTour } from './components/onboarding/SigarOnboardingTour
 import { AccessDeniedView } from './components/security/AccessDeniedView';
 import { isRouteAllowed } from './security/routeSecurity';
 import { Loader2, Sparkles, Lock, ArrowLeft, LogOut } from 'lucide-react';
-import { doc, setDoc } from 'firebase/firestore';
-import { db } from './services/firebase';
-import { CEU_AZUL_INSTITUTION } from './data/ceuAzulData';
 
 import { 
   RegistrationApplication, 
@@ -145,9 +144,9 @@ const MainAppContent: React.FC = () => {
   const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [authModalMode, setAuthModalMode] = useState<'google' | 'credentials' | 'code'>('google');
+  const [authModalMode, setAuthModalMode] = useState<'google' | 'credentials'>('google');
 
-  const handleOpenAuth = (mode: 'google' | 'credentials' | 'code' = 'google') => {
+  const handleOpenAuth = (mode: 'google' | 'credentials' = 'google') => {
     setAuthModalMode(mode);
     setAuthModalOpen(true);
   };
@@ -239,6 +238,16 @@ const MainAppContent: React.FC = () => {
     return <PublicRegistrationView />;
   }
 
+  // Independent Multi-Institutional Payments Portal (/instituicoes/:slug/pagamentos or #instituicoes/:slug/pagamentos)
+  const isInstitutionPagamentos =
+    ((pathname.includes('/instituicao') || pathname.includes('/instituicoes') || hash.includes('instituicao') || hash.includes('instituicoes')) &&
+      (pathname.includes('/pagamentos') || hash.includes('/pagamentos') || pathname.includes('/pagamento') || hash.includes('/pagamento'))) ||
+    currentRoute === 'portal_pagamentos';
+
+  if (isInstitutionPagamentos) {
+    return <IndependentPaymentPortalView />;
+  }
+
   // If the user is browsing the Public Portal (PARTE 3 - ZERO DADOS PRIVADOS)
   if (currentRoute === 'public_portal') {
     return (
@@ -280,7 +289,6 @@ const MainAppContent: React.FC = () => {
   const renderActiveView = () => {
     // If authenticated user does not have a SIGAR profile assigned yet
     if (firebaseUser && hasSigarProfile === false) {
-      const isJafim = firebaseUser.email === 'jafimpaulo8@gmail.com';
       return (
         <div className="min-h-[70vh] flex items-center justify-center p-6 text-center select-none">
           <div className="w-full max-w-md bg-slate-900/90 border border-amber-500/30 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-4 backdrop-blur-xl">
@@ -299,50 +307,6 @@ const MainAppContent: React.FC = () => {
               Contacte a direção ou secretaria da sua instituição para registrar as suas permissões e vínculo institucional autorizados.
             </p>
             <div className="pt-2 space-y-2">
-              {isJafim && (
-                <button
-                  onClick={async () => {
-                    if (!firebaseUser) return;
-                    try {
-                      const role = 'DIRETOR';
-                      const roles = ['DIRETOR', 'SUPER_ADMIN'];
-                      const name = firebaseUser.displayName || 'Jafim Paulo Rupia';
-                      const profile = {
-                        id: firebaseUser.uid,
-                        uid: firebaseUser.uid,
-                        name,
-                        displayName: name,
-                        email: firebaseUser.email || '',
-                        role,
-                        roles,
-                        institutionId: 'ceu-azul-nacala',
-                        institutionIds: ['ceu-azul-nacala'],
-                        branchId: 'branch-ceu-azul-main',
-                        status: 'aprovado',
-                        createdAt: new Date().toISOString(),
-                        lastLoginAt: new Date().toISOString()
-                      };
-                      await setDoc(doc(db, 'users', firebaseUser.uid), profile, { merge: true });
-                      await setDoc(doc(db, 'admins', firebaseUser.uid), { email: firebaseUser.email, role: 'SUPER_ADMIN' }, { merge: true });
-                      setActiveInstitution(CEU_AZUL_INSTITUTION);
-                      setActiveRole(role as any);
-                      addNotification({
-                        title: 'Perfil Ativado com Sucesso',
-                        message: `Sessão associada com sucesso como ${role}.`,
-                        type: 'success'
-                      });
-                      navigate('centro_dashboard');
-                    } catch (e) {
-                      console.warn('Profile activation error:', e);
-                    }
-                  }}
-                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-sky-600 hover:from-emerald-500 hover:to-sky-500 text-white text-xs font-bold shadow-md cursor-pointer transition-all flex items-center justify-center gap-1.5"
-                >
-                  <Sparkles className="w-4 h-4 text-amber-300" />
-                  <span>Ativar Perfil de Diretor &amp; Super Admin</span>
-                </button>
-              )}
-
               <div className="flex gap-2.5">
                 <button
                   onClick={() => navigate('public_portal')}
@@ -452,6 +416,8 @@ const MainAppContent: React.FC = () => {
         return <FinanceModuleView />;
       case 'pagamentos':
         return <PaymentPortalView />;
+      case 'portal_pagamentos':
+        return <IndependentPaymentPortalView />;
       case 'caixa_escolar':
         return <CashRegisterView />;
       case 'relatorios_financeiros':
@@ -631,6 +597,7 @@ export default function App() {
       <LanguageProvider>
         <AppProvider>
           <ToastProvider>
+            <DocumentIdentitySync />
             <MainAppContent />
           </ToastProvider>
         </AppProvider>

@@ -88,8 +88,33 @@ const SUB_NAV_ITEMS: SubNavItem[] = [
   { id: 'suporte', label: '12. Suporte', icon: HelpCircle }
 ];
 
+const VALID_PORTAL_TABS: PortalTabId[] = [
+  'inicio',
+  'perfil',
+  'disciplinas',
+  'horario',
+  'notas',
+  'frequencia',
+  'pagamentos',
+  'certificados',
+  'carteirinha',
+  'documentos',
+  'mensagens',
+  'suporte'
+];
+
 export const StudentPortalView: React.FC = () => {
-  const { students, authenticatedStudent, activeInstitution, activeBranch, firebaseUser, allCertificates, activeRole } = useApp();
+  const {
+    students,
+    authenticatedStudent,
+    activeInstitution,
+    activeBranch,
+    firebaseUser,
+    allCertificates,
+    activeRole,
+    activeStudentPortalTab,
+    setActiveStudentPortalTab
+  } = useApp();
   const identity = resolveInstitutionIdentity(activeInstitution);
 
   // Aluno autenticado real no Firebase (PARTE 10)
@@ -112,7 +137,10 @@ export const StudentPortalView: React.FC = () => {
     return students[0] || null;
   }, [authenticatedStudent, firebaseUser, students, activeRole]);
 
-  const [activeTab, setActiveTab] = useState<PortalTabId>('inicio');
+  const activeTab: PortalTabId = VALID_PORTAL_TABS.includes(activeStudentPortalTab as PortalTabId)
+    ? (activeStudentPortalTab as PortalTabId)
+    : 'inicio';
+  const setActiveTab = (tab: PortalTabId) => setActiveStudentPortalTab(tab);
 
   // Gerenciamento de Requerimentos à Secretaria (Inicia vazio)
   const [requests, setRequests] = useState<SecretariatRequest[]>([]);
@@ -157,115 +185,9 @@ export const StudentPortalView: React.FC = () => {
   const realBranch = currentStudent.branchName || activeBranch?.name || (identity.hasInstitution ? identity.officialName : 'Campus Principal');
 
   return (
-    <div id="student-portal-container" className="space-y-4 pb-12">
-      {/* 1. TOP HEADER: Identidade da Instituição Ativa */}
-      <header className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xl flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <InstitutionLogoBadge institution={activeInstitution} size="md" rounded="2xl" />
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-black text-white text-base sm:text-lg tracking-wider">{identity.shortName}</span>
-              <span className="hidden sm:inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                SIGAR PRO
-              </span>
-            </div>
-            <div className="text-[11px] text-slate-400 truncate max-w-[200px] sm:max-w-none">
-              {identity.officialName} • Portal do Estudante
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          {/* Notification Bell */}
-          <button
-            type="button"
-            onClick={() => setActiveTab('mensagens')}
-            className="relative p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition cursor-pointer"
-            title="Avisos e Notificações"
-          >
-            <Bell className="w-5 h-5" />
-          </button>
-
-          {/* Student Profile Badge */}
-          <div 
-            onClick={() => setActiveTab('perfil')}
-            className="flex items-center gap-2.5 pl-3 border-l border-slate-800 cursor-pointer group"
-          >
-            <div className="w-9 h-9 rounded-xl bg-sky-500/20 border border-sky-500/40 flex items-center justify-center text-sky-400 font-bold text-sm overflow-hidden">
-              {currentStudent.photoUrl ? (
-                <img src={currentStudent.photoUrl} alt={realDisplayName} className="w-full h-full object-cover" />
-              ) : (
-                <User className="w-5 h-5" />
-              )}
-            </div>
-            <div className="text-left">
-              <div className="text-xs font-bold text-white group-hover:text-sky-400 transition truncate max-w-[130px] sm:max-w-[160px]">
-                {realDisplayName}
-              </div>
-              <div className="text-[10px] text-amber-400 font-mono">
-                {currentStudent.code || 'ID Aluno'}
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* 2. MAIN LAYOUT: LEFT SUB-NAVIGATION + RIGHT PORTAL VIEWS */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-        {/* LEFT SUB-NAVIGATION MENU */}
-        <nav className="lg:col-span-3 bg-slate-900 border border-slate-800 rounded-3xl p-3 shadow-xl space-y-1">
-          <div className="px-3 py-2 text-[10px] font-mono uppercase tracking-wider text-slate-400 font-bold border-b border-slate-800/80 mb-1">
-            Menu do Estudante
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-1 gap-1">
-            {SUB_NAV_ITEMS.map((item) => {
-              const Icon = item.icon;
-              const isActive = activeTab === item.id;
-
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setActiveTab(item.id)}
-                  className={`w-full px-3.5 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-between transition-all cursor-pointer ${
-                    isActive
-                      ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20 font-black'
-                      : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <Icon className={`w-4 h-4 ${isActive ? 'text-slate-950' : 'text-slate-400'}`} />
-                    <span>{item.label}</span>
-                  </div>
-
-                  {item.badge && (
-                    <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold ${
-                      isActive ? 'bg-slate-950 text-amber-400' : 'bg-emerald-500/20 text-emerald-400'
-                    }`}>
-                      {item.badge}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Quick Request Button */}
-          <div className="pt-2 mt-2 border-t border-slate-800">
-            <button
-              type="button"
-              onClick={() => openRequestModal('declaracao_matricula', 'Declaração de Matrícula')}
-              className="w-full py-2.5 px-3 rounded-xl bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 text-sky-400 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition"
-            >
-              <Inbox className="w-3.5 h-3.5" />
-              <span>Pedir à Secretaria</span>
-            </button>
-          </div>
-        </nav>
-
-        {/* RIGHT CONTENT WORKSPACE */}
-        <main className="lg:col-span-9 space-y-5 min-w-0">
+    <div id="student-portal-container" className="p-4 sm:p-6 space-y-5 pb-12 max-w-7xl mx-auto">
+      {/* WORKSPACE DO ESTUDANTE (Navegação única consolidada no menu lateral principal) */}
+      <main className="space-y-5 min-w-0">
           {/* TAB 1: INÍCIO — DASHBOARD OFICIAL MOZTECHWAVE (IMAGE 3) */}
           {activeTab === 'inicio' && (
             <div className="space-y-6">
@@ -321,13 +243,23 @@ export const StudentPortalView: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="hidden lg:block text-right max-w-xs border-l border-slate-700/60 pl-6">
-                    <p className="text-xs text-slate-300 italic leading-relaxed">
-                      &ldquo;O conhecimento é o primeiro passo para grandes conquistas.&rdquo;
-                    </p>
-                    <span className="text-[10px] text-amber-400 font-mono mt-1 block">
-                      SIGAR PRO{identity.hasInstitution ? ` • ${identity.shortName}` : ''}
-                    </span>
+                  <div className="flex flex-col sm:flex-row lg:flex-col items-start lg:items-end gap-3 lg:border-l lg:border-slate-700/60 lg:pl-6">
+                    <div className="hidden lg:block text-right max-w-xs">
+                      <p className="text-xs text-slate-300 italic leading-relaxed">
+                        &ldquo;O conhecimento é o primeiro passo para grandes conquistas.&rdquo;
+                      </p>
+                      <span className="text-[10px] text-amber-400 font-mono mt-1 block">
+                        SIGAR PRO{identity.hasInstitution ? ` • ${identity.officialName}` : ''}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => openRequestModal('declaracao_matricula', 'Declaração de Matrícula')}
+                      className="px-3.5 py-2 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 border border-sky-400/30 text-sky-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition"
+                    >
+                      <Inbox className="w-3.5 h-3.5" />
+                      <span>Pedir à Secretaria</span>
+                    </button>
                   </div>
                 </div>
               </div>
@@ -930,7 +862,6 @@ export const StudentPortalView: React.FC = () => {
             />
           )}
         </main>
-      </div>
 
       {/* Modal de Requerimento */}
       {isRequestModalOpen && (

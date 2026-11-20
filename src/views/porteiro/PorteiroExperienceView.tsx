@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import {
   QrCode,
@@ -33,9 +33,11 @@ import { GateQrCameraScanner } from '../../components/access/GateQrCameraScanner
 import {
   buildGateWhatsAppMessage,
   buildWhatsAppUrl,
+  checkGateMovementSequence,
   checkStudentMonthlyPaymentStatus,
+  getMaputoDateTimeInfo,
   getStudentGuardianContact,
-  parseStudentQrPayload
+  resolveStudentFromQrPayload
 } from '../../utils/gateAccessUtils';
 
 interface QuickGateEntry {
@@ -53,6 +55,7 @@ export const PorteiroExperienceView: React.FC = () => {
     contasReceber,
     accessLogs,
     logGateAccess,
+    markGateWhatsAppLinkOpened,
     activeInstitution,
     activeBranch,
     firebaseUser,
@@ -82,6 +85,7 @@ export const PorteiroExperienceView: React.FC = () => {
 
   // Feedback imediato após confirmação de Entrada, Saída ou Registo de Barramento
   const [lastActionFeedback, setLastActionFeedback] = useState<{
+    logId?: string;
     type: 'entrada' | 'saida' | 'barrado';
     studentName: string;
     studentCode: string;
@@ -91,8 +95,10 @@ export const PorteiroExperienceView: React.FC = () => {
     guardianPhone: string;
     whatsappMessage: string;
     whatsappUrl: string | null;
+    whatsappOpened?: boolean;
     reason?: string;
   } | null>(null);
+  const isSubmittingRef = useRef(false);
 
   // Filtro do Histórico do Dia
   const [historyFilter, setHistoryFilter] = useState<'todos' | 'entrada' | 'saida' | 'barrado'>('todos');
@@ -131,20 +137,56 @@ export const PorteiroExperienceView: React.FC = () => {
   }, []);
 
   // Processar código lido pela câmara ou digitado manualmente
-  const handleRawCodeScanned = (rawText: string, allowNameFallback = false) => {
-    const result = parseStudentQrPayload(rawText, students, activeInstitution.id, {
-      allowNameFallback
-    });
+  const handleRawCodeScanned = (rawText: string, allowManualNameLookup = false) => {
+    const trimmed = (rawText || '').trim();
+    if (!trimmed) return;
 
-    if (result.student) {
+    const qrResult = resolveStudentFromQrPayload(
+      trimmed,
+      studentPool,
+      activeInstitution.id,
+      students
+    );
+
+    if (qrResult.student) {
       soundManager.playNotification();
-      setIdentifiedStudent(result.student);
+      setIdentifiedStudent(qrResult.student);
       setScanError(null);
       setLastActionFeedback(null);
-    } else {
-      soundManager.playError();
-      setScanError(result.errorReason || `Código "${rawText}" não encontrado nesta instituição.`);
+      return;
     }
+
+    // Fallback manual por nome completo ou BI APENAS na pesquisa manual e quando não é payload estruturado/adulterado/cross-tenant
+    const isStructuredOrToken =
+      trimmed.startsWith('{') ||
+      trimmed.startsWith('http://') ||
+      trimmed.startsWith('https://') ||
+      trimmed.toUpperCase().startsWith('SIGAR-QR-V1:') ||
+      trimmed.toUpperCase().startsWith('SGR-');
+
+    if (allowManualNameLookup && qrResult.status === 'not_found' && !isStructuredOrToken) {
+      const q = trimmed.toLowerCase();
+      const manualMatches = studentPool.filter(s => {
+        const biMatch = (s.documentNumber || '').trim().toLowerCase() === q;
+        const nameMatch = (s.fullName || s.name || '').toLowerCase().includes(q);
+        return biMatch || (q.length >= 3 && nameMatch);
+      });
+      if (manualMatches.length === 1) {
+        soundManager.playNotification();
+        setIdentifiedStudent(manualMatches[0]);
+        setScanError(null);
+        setLastActionFeedback(null);
+        return;
+      }
+      if (manualMatches.length > 1) {
+        soundManager.playError();
+        setScanError(`Foram encontrados ${manualMatches.length} alunos com "${trimmed}". Indique o código de matrícula completo.`);
+        return;
+      }
+    }
+
+    soundManager.playError();
+    setScanError(qrResult.reason || `Código "${rawText}" não encontrado nesta instituição.`);
   };
 
   // Buscar por digitação manual
@@ -157,26 +199,35 @@ export const PorteiroExperienceView: React.FC = () => {
 
   // Verificação da mensalidade do mês corrente para o aluno identificado
   const paymentVerification = identifiedStudent
-    ? checkStudentMonthlyPaymentStatus({
-        student: identifiedStudent,
-        activeInstitution,
+    ? checkStudentMonthlyPaymentStatus(
+        identifiedStudent,
         courses,
+        contasReceber,
         paymentRecords,
-        contasReceber
-      })
+        currentTime
+      )
+    : null;
+
+  const entrySequenceCheck = identifiedStudent
+    ? checkGateMovementSequence(identifiedStudent.id, 'entrada', accessLogs, activeInstitution.id)
+    : null;
+  const exitSequenceCheck = identifiedStudent
+    ? checkGateMovementSequence(identifiedStudent.id, 'saida', accessLogs, activeInstitution.id)
     : null;
 
   // Dados e links WhatsApp do aluno identificado quando barrado na porta
   const identifiedGuardian = identifiedStudent ? getStudentGuardianContact(identifiedStudent) : null;
-  const hourNowStr = currentTime.toLocaleTimeString('pt-MZ', { hour: '2-digit', minute: '2-digit' });
+  const maputoClock = getMaputoDateTimeInfo(currentTime);
+  const hourNowStr = maputoClock.timeStr.slice(0, 5);
   const barredPreviewMessage =
     identifiedStudent && paymentVerification && !paymentVerification.isPaidForCurrentMonth
       ? buildGateWhatsAppMessage({
           action: 'barrado',
           student: identifiedStudent,
-          institution: activeInstitution,
+          institutionName: centerName,
           timeStr: hourNowStr,
-          monthLabel: paymentVerification.currentMonthLabel
+          monthLabel: paymentVerification.monthLabel,
+          blockReason: paymentVerification.reason
         })
       : '';
   const barredWhatsAppUrl =
@@ -184,9 +235,12 @@ export const PorteiroExperienceView: React.FC = () => {
       ? buildWhatsAppUrl(identifiedGuardian.guardianPhone, barredPreviewMessage)
       : null;
 
-  // Executar registro de Entrada, Saída ou Barramento
-  const handleConfirmAccess = (type: 'entrada' | 'saida' | 'barrado') => {
-    if (!identifiedStudent || !paymentVerification) return;
+  // Executar registro de Entrada, Saída ou Barramento (com trava contra duplo clique)
+  const handleConfirmAccess = (
+    type: 'entrada' | 'saida' | 'barrado',
+    options?: { openedFromWhatsAppLink?: boolean }
+  ) => {
+    if (!identifiedStudent || !paymentVerification || isSubmittingRef.current) return;
 
     // Bloqueio rígido de entrada se mensalidade do mês atual não estiver paga
     if (type === 'entrada' && !paymentVerification.isPaidForCurrentMonth) {
@@ -195,48 +249,62 @@ export const PorteiroExperienceView: React.FC = () => {
       return;
     }
 
-    const now = new Date();
-    const hourOnly = now.toLocaleTimeString('pt-MZ', { hour: '2-digit', minute: '2-digit' });
-    const operator = firebaseUser?.displayName || 'Porteiro em Turno (Guarita Principal)';
-    const location = activeBranch?.name ? `Portaria - ${activeBranch.name}` : 'Portão Principal';
-    const guardian = getStudentGuardianContact(identifiedStudent);
+    isSubmittingRef.current = true;
+    try {
+      const maputoNow = getMaputoDateTimeInfo();
+      const hourOnly = maputoNow.timeStr.slice(0, 5);
+      const operator = firebaseUser?.displayName || 'Porteiro em Turno (Guarita Principal)';
+      const location = activeBranch?.name ? `Portaria - ${activeBranch.name}` : 'Portão Principal';
+      const guardian = getStudentGuardianContact(identifiedStudent);
 
-    const whatsappMessage = buildGateWhatsAppMessage({
-      action: type,
-      student: identifiedStudent,
-      institution: activeInstitution,
-      timeStr: hourOnly,
-      monthLabel: paymentVerification.currentMonthLabel
-    });
+      const whatsappMessage = buildGateWhatsAppMessage({
+        action: type,
+        student: identifiedStudent,
+        institutionName: centerName,
+        timeStr: hourOnly,
+        monthLabel: paymentVerification.monthLabel,
+        blockReason: type === 'barrado' ? paymentVerification.reason : undefined
+      });
 
-    const whatsappUrl = buildWhatsAppUrl(guardian.guardianPhone, whatsappMessage);
+      const whatsappUrl = buildWhatsAppUrl(guardian.guardianPhone, whatsappMessage);
 
-    logGateAccess(
-      identifiedStudent.id,
-      type,
-      location,
-      operator,
-      true,
-      whatsappMessage,
-      type === 'barrado' ? paymentVerification.reason : undefined
-    );
+      const createdLog = logGateAccess(
+        identifiedStudent.id,
+        type,
+        location,
+        operator,
+        false,
+        whatsappMessage,
+        type === 'barrado' ? paymentVerification.reason : undefined
+      );
 
-    setLastActionFeedback({
-      type,
-      studentName: identifiedStudent.fullName,
-      studentCode: identifiedStudent.code,
-      institutionName: centerName,
-      time: hourOnly,
-      guardianName: guardian.guardianName,
-      guardianPhone: guardian.guardianPhone,
-      whatsappMessage,
-      whatsappUrl,
-      reason: type === 'barrado' ? paymentVerification.reason : undefined
-    });
+      if (createdLog && options?.openedFromWhatsAppLink) {
+        markGateWhatsAppLinkOpened(createdLog.id);
+      }
 
-    // Limpar aluno identificado para a próxima leitura após confirmação
-    setIdentifiedStudent(null);
-    setScanError(null);
+      setLastActionFeedback({
+        logId: createdLog?.id,
+        type,
+        studentName: identifiedStudent.fullName,
+        studentCode: identifiedStudent.code,
+        institutionName: centerName,
+        time: hourOnly,
+        guardianName: guardian.guardianName,
+        guardianPhone: guardian.guardianPhone,
+        whatsappMessage,
+        whatsappUrl,
+        whatsappOpened: Boolean(options?.openedFromWhatsAppLink),
+        reason: type === 'barrado' ? paymentVerification.reason : undefined
+      });
+
+      // Limpar aluno identificado para a próxima leitura após confirmação
+      setIdentifiedStudent(null);
+      setScanError(null);
+    } finally {
+      setTimeout(() => {
+        isSubmittingRef.current = false;
+      }, 400);
+    }
   };
 
   // Filtrar histórico do dia (apenas dados reais da instituição ativa)
@@ -244,7 +312,7 @@ export const PorteiroExperienceView: React.FC = () => {
     ? accessLogs.filter(log => log.institutionId === activeInstitution.id)
     : [];
 
-  const todayStr = new Date().toLocaleDateString('pt-MZ');
+  const todayStr = maputoClock.ddMmYyyy;
   const todayLogs = instAccessLogs.filter(log => {
     if (historyFilter !== 'todos' && log.type !== historyFilter) return false;
 
@@ -260,7 +328,7 @@ export const PorteiroExperienceView: React.FC = () => {
   });
 
   const logsForTodayCount = instAccessLogs.filter(
-    l => !l.date || l.date === todayStr || l.timestamp?.includes(todayStr)
+    l => !l.date || l.date === todayStr || l.timestamp?.startsWith(todayStr)
   );
   const totalEntradasHoje = logsForTodayCount.filter(l => l.type === 'entrada').length;
   const totalSaidasHoje = logsForTodayCount.filter(l => l.type === 'saida').length;
@@ -329,10 +397,10 @@ export const PorteiroExperienceView: React.FC = () => {
           <div className="flex items-center gap-3 bg-slate-950/80 px-4 py-2.5 rounded-2xl border border-slate-700">
             <div className="text-right">
               <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider font-mono">
-                {currentTime.toLocaleDateString('pt-MZ', { weekday: 'short', day: 'numeric', month: 'short' })}
+                {currentTime.toLocaleDateString('pt-MZ', { timeZone: 'Africa/Maputo', weekday: 'short', day: 'numeric', month: 'short' })}
               </span>
               <span className="text-xl font-mono font-black text-emerald-400 tracking-wider">
-                {currentTime.toLocaleTimeString('pt-MZ')}
+                {maputoClock.timeStr}
               </span>
             </div>
             <button
@@ -488,18 +556,33 @@ export const PorteiroExperienceView: React.FC = () => {
             </div>
 
             {lastActionFeedback.whatsappUrl ? (
-              <a
-                href={lastActionFeedback.whatsappUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#25D366] hover:bg-[#1fb858] text-white rounded-xl text-xs font-black shadow-md transition cursor-pointer"
-              >
-                <MessageCircle className="w-4 h-4" />
-                <span>
-                  Enviar WhatsApp ao Encarregado ({lastActionFeedback.guardianPhone})
-                </span>
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
+              <div className="flex items-center gap-2 flex-wrap">
+                <a
+                  href={lastActionFeedback.whatsappUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => {
+                    if (lastActionFeedback.logId) {
+                      markGateWhatsAppLinkOpened(lastActionFeedback.logId);
+                      setLastActionFeedback(prev => (prev ? { ...prev, whatsappOpened: true } : prev));
+                    }
+                  }}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#25D366] hover:bg-[#1fb858] text-white rounded-xl text-xs font-black shadow-md transition cursor-pointer"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  <span>
+                    {lastActionFeedback.whatsappOpened
+                      ? `Reabrir WhatsApp (${lastActionFeedback.guardianPhone})`
+                      : `Enviar WhatsApp ao Encarregado (${lastActionFeedback.guardianPhone})`}
+                  </span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+                {lastActionFeedback.whatsappOpened && (
+                  <span className="text-[10px] font-bold px-2 py-1 rounded-lg bg-emerald-100 text-emerald-800">
+                    Link WhatsApp aberto
+                  </span>
+                )}
+              </div>
             ) : (
               <span className="text-xs font-bold text-rose-700 bg-rose-100 px-3 py-1.5 rounded-xl">
                 Número WhatsApp do encarregado não disponível no cadastro do aluno.
@@ -616,13 +699,13 @@ export const PorteiroExperienceView: React.FC = () => {
                   </span>
                   <div className="flex flex-wrap gap-1.5">
                     {studentPool.slice(0, 5).map(st => {
-                      const check = checkStudentMonthlyPaymentStatus({
-                        student: st,
-                        activeInstitution,
+                      const check = checkStudentMonthlyPaymentStatus(
+                        st,
                         courses,
+                        contasReceber,
                         paymentRecords,
-                        contasReceber
-                      });
+                        currentTime
+                      );
                       return (
                         <button
                           key={st.id}
@@ -737,7 +820,7 @@ export const PorteiroExperienceView: React.FC = () => {
                       <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
                       <div>
                         <strong className="block font-black">
-                          Mensalidade de {paymentVerification.currentMonthLabel} Regularizada
+                          Mensalidade de {paymentVerification.monthLabel} Regularizada
                         </strong>
                         <span className="text-[11px] text-emerald-700">{paymentVerification.reason}</span>
                       </div>
@@ -746,6 +829,20 @@ export const PorteiroExperienceView: React.FC = () => {
                       Autorizado
                     </span>
                   </div>
+
+                  {paymentVerification.warningNote && (
+                    <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-800 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>{paymentVerification.warningNote}</span>
+                    </div>
+                  )}
+
+                  {(entrySequenceCheck?.isDuplicateSequence || exitSequenceCheck?.isDuplicateSequence) && (
+                    <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900 space-y-0.5">
+                      {entrySequenceCheck?.warningMessage && <div>{entrySequenceCheck.warningMessage}</div>}
+                      {exitSequenceCheck?.warningMessage && <div>{exitSequenceCheck.warningMessage}</div>}
+                    </div>
+                  )}
 
                   {/* BOTÕES ENTRAR OU SAIR */}
                   <div className="grid grid-cols-2 gap-3 pt-1">
@@ -788,7 +885,7 @@ export const PorteiroExperienceView: React.FC = () => {
                     </div>
                     <p className="text-[11px] text-rose-700 leading-relaxed">
                       O(A) aluno(a) não pode entrar sem regularizar a mensalidade de{' '}
-                      <strong>{paymentVerification.currentMonthLabel}</strong>. Clique no botão abaixo para avisar o encarregado via WhatsApp.
+                      <strong>{paymentVerification.monthLabel}</strong>. Clique no botão abaixo para avisar o encarregado via WhatsApp.
                     </p>
                   </div>
 
@@ -830,17 +927,7 @@ export const PorteiroExperienceView: React.FC = () => {
                           href={barredWhatsAppUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          onClick={() => {
-                            logGateAccess(
-                              identifiedStudent.id,
-                              'barrado',
-                              activeBranch?.name ? `Portaria - ${activeBranch.name}` : 'Portão Principal',
-                              operatorDisplayName,
-                              true,
-                              barredPreviewMessage,
-                              paymentVerification.reason
-                            );
-                          }}
+                          onClick={() => handleConfirmAccess('barrado', { openedFromWhatsAppLink: true })}
                           className="flex-1 min-w-[220px] py-3 px-4 bg-[#25D366] hover:bg-[#1fb858] text-white rounded-xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition cursor-pointer"
                         >
                           <MessageCircle className="w-4 h-4" />
@@ -1091,8 +1178,17 @@ export const PorteiroExperienceView: React.FC = () => {
                             href={waUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            title={`Enviar WhatsApp para ${log.guardianPhone}`}
-                            className="p-2 rounded-lg bg-[#25D366]/15 hover:bg-[#25D366] text-[#128C7E] hover:text-white transition"
+                            onClick={() => markGateWhatsAppLinkOpened(log.id)}
+                            title={
+                              log.whatsappStatus === 'link_aberto'
+                                ? `Link WhatsApp já aberto (${log.guardianPhone})`
+                                : `Enviar WhatsApp para ${log.guardianPhone}`
+                            }
+                            className={`p-2 rounded-lg transition ${
+                              log.whatsappStatus === 'link_aberto'
+                                ? 'bg-emerald-600 text-white'
+                                : 'bg-[#25D366]/15 hover:bg-[#25D366] text-[#128C7E] hover:text-white'
+                            }`}
                           >
                             <MessageCircle className="w-4 h-4" />
                           </a>

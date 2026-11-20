@@ -3,21 +3,18 @@
  * Project: siverc-94da3
  */
 
-import { doc, setDoc, serverTimestamp, getDoc, collection, getDocs, query, where } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
 import { 
   CEU_AZUL_INSTITUTION_ID, 
   CEU_AZUL_INSTITUTION, 
-  CEU_AZUL_DIRECTOR, 
-  CEU_AZUL_CEO, 
-  CEU_AZUL_STUDENTS,
-  CEU_AZUL_ACCESS_CODES 
+  CEU_AZUL_STUDENTS
 } from '../data/ceuAzulData';
 
 let isBootstrapping = false;
 let isBootstrapped = false;
 
-export async function bootstrapCeuAzul(currentUid?: string): Promise<boolean> {
+export async function bootstrapCeuAzul(_currentUid?: string): Promise<boolean> {
   if (isBootstrapping || isBootstrapped) return true;
   isBootstrapping = true;
 
@@ -32,7 +29,6 @@ export async function bootstrapCeuAzul(currentUid?: string): Promise<boolean> {
         tipo: "Centro de Educação Infantil",
         type: "centro_infantil",
         code: "CEU-AZUL-001",
-        accessCode: "CEU-AZUL-001",
         nuit: "402029013",
         local: "Nacala-Porto, Nampula, Moçambique",
         city: "Nacala-Porto",
@@ -64,64 +60,7 @@ export async function bootstrapCeuAzul(currentUid?: string): Promise<boolean> {
       console.warn('Bootstrap note - institutions:', e);
     }
 
-    // 2. DIRETOR PROFILE: /users/{UID_REAL_DO_JAFIM}
-    const directorUid = currentUid || 'usr-jafim-dir-001';
-    try {
-      await setDoc(doc(db, 'users', directorUid), {
-        email: "jafimpaulo8@gmail.com",
-        name: "Jafim Paulo Rupia",
-        role: "DIRETOR",
-        roles: ["DIRETOR"],
-        institutionId: CEU_AZUL_INSTITUTION_ID,
-        institutionIds: [CEU_AZUL_INSTITUTION_ID],
-        status: "aprovado",
-        codigoAcesso: "CEU-AZUL-DIR-001",
-        updatedAt: serverTimestamp()
-      }, { merge: true });
-    } catch (e) {
-      console.warn('Bootstrap note - director user:', e);
-    }
-
-    // 3. CEO PROFILE: /users/usr-alfredo-ceo-001
-    try {
-      await setDoc(doc(db, 'users', 'usr-CFTP-ceo-001'), {
-        name: "CFTP",
-        email: "moztechwavenacala8@gmail.com",
-        role: "CEO",
-        roles: ["CEO"],
-        institutionId: CEU_AZUL_INSTITUTION_ID,
-        institutionIds: [CEU_AZUL_INSTITUTION_ID],
-        ownedInstitutions: [CEU_AZUL_INSTITUTION_ID],
-        status: "aprovado",
-        codigoAcesso: "CEU-AZUL-CEO-001",
-        updatedAt: serverTimestamp()
-      }, { merge: true });
-    } catch (e) {
-      console.warn('Bootstrap note - CEO user:', e);
-    }
-
-    // 4. ACCESS CODES: /access_codes/{CODE}
-    for (const [codeKey, codeData] of Object.entries(CEU_AZUL_ACCESS_CODES)) {
-      try {
-        await setDoc(doc(db, 'access_codes', codeKey), {
-          code: codeData.code,
-          role: codeData.role,
-          name: codeData.name,
-          email: codeData.email,
-          institutionId: codeData.institutionId,
-          institutionName: codeData.institutionName,
-          branchId: codeData.branchId,
-          studentId: codeData.studentId || null,
-          status: codeData.status,
-          description: codeData.description,
-          updatedAt: serverTimestamp()
-        }, { merge: true });
-      } catch (e) {
-        // silent catch on restricted writes
-      }
-    }
-
-    // 5. STUDENTS (22 Alunos Nº 41 a 62): /students/{studentId}
+    // 2. STUDENTS (22 Alunos Nº 41 a 62): /students/{studentId}
     for (const std of CEU_AZUL_STUDENTS) {
       try {
         await setDoc(doc(db, 'students', std.id), {
@@ -144,8 +83,6 @@ export async function bootstrapCeuAzul(currentUid?: string): Promise<boolean> {
           roles: ["ALUNO"],
           estado: "activo",
           status: "Ativo",
-          codigoAcesso: (std as any).codigoAcesso,
-          codigo: (std as any).codigoAcesso,
           courseName: "Educação Pré-Escolar / Infantil",
           classGroupName: "CEU AZUL-1",
           turma: "CEU AZUL-1",

@@ -1,5 +1,5 @@
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, auth } from './firebase';
 import { Institution, PublicInstitution, OnlineRegistrationConfig } from '../types';
 import { CEU_AZUL_INSTITUTION } from '../data/ceuAzulData';
 import { INITIAL_INSTITUTIONS, DEFAULT_ONLINE_REGISTRATION_CONFIG } from '../data/mockData';
@@ -7,36 +7,120 @@ import { INITIAL_INSTITUTIONS, DEFAULT_ONLINE_REGISTRATION_CONFIG } from '../dat
 export const PUBLIC_INSTITUTIONS_COLLECTION = 'publicInstitutions';
 
 /**
- * Normaliza um slug removendo barras, cerquilhas e espaços.
+ * Resolve o slug canónico de uma instituição para portais públicos.
+ */
+export function resolveInstitutionSlug(inst: Partial<Institution>): string {
+  if (inst.slug && inst.slug.trim()) {
+    return inst.slug.trim().toLowerCase();
+  }
+  if (inst.id === 'ceu-azul-nacala') return 'ceu-azul';
+  if (inst.id === 'inst-1') return 'cftpm-moztechwave';
+  if (inst.id === 'inst-peniel') return 'peniel';
+  const rawName = (inst.shortName || inst.name || inst.id || 'instituicao')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+  return rawName || 'instituicao';
+}
+
+/**
+ * Normaliza um slug removendo barras, cerquilhas, prefixos e sufixos de rota pública.
  */
 export function normalizeSlug(rawSlug: string): string {
   if (!rawSlug) return '';
   return decodeURIComponent(rawSlug)
     .trim()
     .toLowerCase()
+    .replace(/\?.*$/, '')
     .replace(/^[#/]+|[#/]+$/g, '')
     .replace(/^instituico?e?s\//, '')
-    .replace(/\/inscricoes$/, '')
+    .replace(/\/(inscricoes|inscricao|pagamentos|pagamento).*$/, '')
     .trim();
 }
 
 /**
+ * Extrai o slug institucional de pathname ou hash (ex: #instituicoes/ceu-azul/pagamentos).
+ */
+export function extractSlugFromLocation(pathname?: string, hash?: string): string {
+  const path = pathname ?? (typeof window !== 'undefined' ? window.location.pathname : '');
+  const h = hash ?? (typeof window !== 'undefined' ? window.location.hash : '');
+
+  const hashMatch = h.match(/instituico?e?s\/([^/?#]+)\/(inscricoes|inscricao|pagamentos|pagamento)/i);
+  if (hashMatch?.[1]) {
+    return normalizeSlug(hashMatch[1]);
+  }
+
+  const pathMatch = path.match(/instituico?e?s\/([^/?#]+)\/(inscricoes|inscricao|pagamentos|pagamento)/i);
+  if (pathMatch?.[1]) {
+    return normalizeSlug(pathMatch[1]);
+  }
+
+  return '';
+}
+
+/**
+ * Remove estritamente quaisquer números privados de M-Pesa, e-Mola, mKesh ou dados bancários internos
+ * antes de persistir ou expor em configuração pública (publicInstitutions).
+ */
+export function sanitizePublicInstitutionPayload<T extends Record<string, any>>(raw: T): PublicInstitution {
+  const {
+    financialSettings: _fs,
+    financialAccounts: _fa,
+    bankAccounts: _ba,
+    receivingAccounts: _ra,
+    mpesa: _m,
+    emola: _e,
+    mkesh: _k,
+    mpesaNumber: _mn,
+    emolaNumber: _en,
+    mkeshNumber: _kn,
+    pixKey: _pk,
+    accessCode: _ac,
+    ownerEmail: _oe,
+    subscription: _sub,
+    students: _st,
+    users: _us,
+    ...rest
+  } = raw || {};
+
+  const rawPm = (raw?.paymentMethods && typeof raw.paymentMethods === 'object') ? raw.paymentMethods : {};
+  const acceptedChannels = Array.isArray(raw?.acceptedChannels) && raw.acceptedChannels.length > 0
+    ? raw.acceptedChannels
+    : Array.isArray(rawPm.acceptedChannels) && rawPm.acceptedChannels.length > 0
+      ? rawPm.acceptedChannels
+      : ['M-Pesa', 'e-Mola', 'mKesh', 'Transferência Bancária', 'Balcão / Tesouraria'];
+
+  const sanitizedPaymentMethods: PublicInstitution['paymentMethods'] = {
+    ...(rawPm.bankName ? { bankName: String(rawPm.bankName) } : {}),
+    acceptedChannels,
+    instructions: typeof rawPm.instructions === 'string' && rawPm.instructions.trim()
+      ? rawPm.instructions.trim()
+      : 'Autentique-se no Portal de Pagamentos com a sua conta institucional para consultar as coordenadas oficiais e submeter comprovativos.'
+  };
+
+  return {
+    ...(rest as PublicInstitution),
+    acceptedChannels,
+    paymentMethods: sanitizedPaymentMethods,
+    updatedAt: rest.updatedAt || new Date().toISOString()
+  };
+}
+
+/**
  * Constrói um objeto PublicInstitution a partir de uma Institution interna,
- * expondo apenas dados públicos e não-sensíveis necessários ao portal de candidatura.
+ * expondo exclusivamente identidade, branding e configuração pública (ZERO números privados M-Pesa/e-Mola/mKesh).
  */
 export function buildPublicInstitutionFromModel(inst: Institution): PublicInstitution {
-  const primarySlug = inst.slug || (
-    inst.id === 'ceu-azul-nacala' 
-      ? 'ceu-azul' 
-      : inst.id === 'inst-1' 
-        ? 'cftpm-moztechwave' 
-        : inst.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-  );
+  const primarySlug = resolveInstitutionSlug(inst);
 
-  const aliases: string[] = inst.slugAliases || [];
-  if (!aliases.includes(primarySlug)) aliases.push(primarySlug);
-  if (inst.code && !aliases.includes(inst.code.toLowerCase())) aliases.push(inst.code.toLowerCase());
-  if (inst.id && !aliases.includes(inst.id.toLowerCase())) aliases.push(inst.id.toLowerCase());
+  const aliases = Array.from(new Set([
+    ...(inst.slugAliases || []),
+    primarySlug,
+    ...(inst.code ? [inst.code.toLowerCase()] : []),
+    ...(inst.id ? [inst.id.toLowerCase()] : [])
+  ]));
 
   const effectiveConfig: OnlineRegistrationConfig = inst.onlineRegistrationConfig || {
     ...DEFAULT_ONLINE_REGISTRATION_CONFIG,
@@ -44,7 +128,11 @@ export function buildPublicInstitutionFromModel(inst: Institution): PublicInstit
     title: `Inscrições Abertas — ${inst.name}`
   };
 
-  return {
+  const configuredChannels = inst.financialSettings?.paymentMethods
+    ?.filter(m => m.enabled)
+    .map(m => m.name);
+
+  return sanitizePublicInstitutionPayload({
     id: primarySlug,
     institutionId: inst.id,
     slug: primarySlug,
@@ -63,25 +151,46 @@ export function buildPublicInstitutionFromModel(inst: Institution): PublicInstit
     city: inst.city,
     province: inst.province,
     logoUrl: inst.logoUrl,
+    emblemUrl: inst.emblemUrl,
+    faviconUrl: inst.faviconUrl || inst.logoUrl || inst.emblemUrl,
     slogan: inst.slogan,
+    primaryColor: inst.institutionalColors?.primary,
+    accentColor: inst.institutionalColors?.accent,
     branches: inst.branches,
     onlineRegistrationConfig: effectiveConfig,
+    acceptedChannels: configuredChannels && configuredChannels.length > 0
+      ? configuredChannels
+      : ['M-Pesa', 'e-Mola', 'mKesh', 'Transferência Bancária', 'Presencial'],
     paymentMethods: {
-      mpesa: inst.financialSettings?.mpesaNumber || inst.financialAccounts?.[0]?.mpesaNumber || inst.phone,
-      emola: inst.financialSettings?.emolaNumber || inst.financialAccounts?.[0]?.emolaNumber,
-      bankName: inst.financialAccounts?.[0]?.bankName || 'Millennium BIM',
-      accountNumber: inst.financialAccounts?.[0]?.accountNumber,
-      nib: inst.financialAccounts?.[0]?.nib,
-      instructions: inst.financialSettings?.bankInfo || 'Envie o comprovativo por WhatsApp para confirmação imediata.'
+      bankName: inst.financialAccounts?.[0]?.bankName,
+      acceptedChannels: configuredChannels && configuredChannels.length > 0
+        ? configuredChannels
+        : ['M-Pesa', 'e-Mola', 'mKesh', 'Transferência Bancária', 'Presencial'],
+      instructions: 'Inicie sessão no Portal de Pagamentos com a sua conta de aluno, encarregado ou tesouraria para consultar coordenadas de recebimento e submeter comprovativos.'
     },
     termsAndConditions: `1. Termos Oficiais da ${inst.name}.\n2. A submissão da candidatura não garante admissão imediata sem análise documental e homologação pela Secretaria Académica.\n3. O pagamento da taxa de inscrição não é reembolsável após validação do processo.`,
     privacyPolicy: `A ${inst.name} compromete-se a resguardar a privacidade e os dados pessoais do candidato exclusivamente para fins de admissão e gestão académica oficial no SIGAR PRO.`,
     updatedAt: new Date().toISOString()
-  };
+  });
 }
 
 /**
- * Lista de instituições padrão de fallback para resolução quando offline ou sem registo na nuvem.
+ * Sincroniza metadados estritamente públicos da instituição para publicInstitutions/{slug}.
+ */
+export async function syncPublicInstitutionMetadata(inst: Institution): Promise<void> {
+  if (!inst?.id || !auth.currentUser) return;
+  const publicData = buildPublicInstitutionFromModel(inst);
+  const slug = publicData.slug;
+  if (!slug) return;
+  try {
+    await setDoc(doc(db, PUBLIC_INSTITUTIONS_COLLECTION, slug), publicData);
+  } catch (err) {
+    console.warn(`[PublicInstitutionService] Nota ao sincronizar publicInstitutions/${slug}:`, err);
+  }
+}
+
+/**
+ * Lista de instituições padrão para fallback de identidade pública quando offline ou sem registo em publicInstitutions.
  */
 const KNOWN_INSTITUTIONS: Institution[] = [
   CEU_AZUL_INSTITUTION as Institution,
@@ -90,10 +199,11 @@ const KNOWN_INSTITUTIONS: Institution[] = [
 
 /**
  * Resolve e valida a instituição a partir do slug do endereço público.
- * 
+ *
  * Regra Mandatória:
  * - Nunca utilizar a instituição ativa do browser para determinar o portal público.
  * - Validar primeiramente em publicInstitutions/{slug}.
+ * - Sanitizar sempre quaisquer campos financeiros privados legados antes de retornar.
  * - Se o slug for inválido ou não existir, retorna NULL.
  */
 export async function resolvePublicInstitutionBySlug(
@@ -111,13 +221,13 @@ export async function resolvePublicInstitutionBySlug(
     const snap = await getDoc(docRef);
     if (snap.exists()) {
       const data = snap.data() as PublicInstitution;
-      return data;
+      return sanitizePublicInstitutionPayload(data);
     }
   } catch (error) {
     console.warn(`[PublicInstitutionService] Nota ao buscar publicInstitutions/${slug}:`, error);
   }
 
-  // 2. Tentar encontrar nas instituições conhecidas
+  // 2. Tentar encontrar nas instituições conhecidas do utilizador ou catálogos padrão
   const pool = localInstitutionsPool && localInstitutionsPool.length > 0
     ? localInstitutionsPool
     : KNOWN_INSTITUTIONS;
@@ -133,16 +243,13 @@ export async function resolvePublicInstitutionBySlug(
     if (inst.id && inst.id.toLowerCase() === slug) return true;
     if (inst.sigla && inst.sigla.toLowerCase() === slug) return true;
 
-    // Correspondências amigáveis por nome para compatibilidade
     const slugifiedName = inst.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
     if (slugifiedName === slug) return true;
 
-    // Correspondência de alias históricos CFTPM
     if ((slug === 'cftpm' || slug === 'cftpm-moztechwave') && (inst.id === 'inst-1' || inst.code.includes('MTW-CF'))) {
       return true;
     }
 
-    // Correspondência de Céu Azul
     if ((slug === 'ceu-azul' || slug === 'centro-infantil-ceu-azul') && (inst.id === 'ceu-azul-nacala' || inst.name.includes('Céu Azul'))) {
       return true;
     }
@@ -151,14 +258,7 @@ export async function resolvePublicInstitutionBySlug(
   });
 
   if (matched) {
-    const publicData = buildPublicInstitutionFromModel(matched);
-    // Sincronizar em segundo plano para persistência na nuvem (não-bloqueante)
-    try {
-      setDoc(doc(db, PUBLIC_INSTITUTIONS_COLLECTION, slug), publicData, { merge: true }).catch(() => {});
-    } catch (e) {
-      // ignore
-    }
-    return publicData;
+    return buildPublicInstitutionFromModel(matched);
   }
 
   // 3. Slug inválido ou inexistente: NUNCA retornar o tenant ativo do browser!
@@ -172,28 +272,37 @@ export async function resolvePublicInstitutionBySlug(
 export function getPublicRegistrationUrl(inst: Institution, preview = false): string {
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://sigar.moztechwave.com';
   const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
-  const slug = inst.slug || (inst.id === 'ceu-azul-nacala' ? 'ceu-azul' : 'cftpm-moztechwave');
+  const slug = resolveInstitutionSlug(inst);
   const previewQuery = preview ? '?preview=true' : '';
   return `${origin}${pathname}#instituicoes/${slug}/inscricoes${previewQuery}`;
 }
 
 /**
+ * Gera URL oficial formatada para o Portal Independente de Pagamentos da instituição.
+ * Formato multi-institucional: #instituicoes/<slug>/pagamentos
+ */
+export function getPublicPaymentPortalUrl(inst: Partial<Institution>): string {
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://sigar.moztechwave.com';
+  const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
+  const slug = resolveInstitutionSlug(inst);
+  return `${origin}${pathname}#instituicoes/${slug}/pagamentos`;
+}
+
+/**
  * Gera token criptográfico seguro com pelo menos 128 bits de entropia (16+ bytes).
- * Sem nomes ou códigos previsíveis da instituição.
  */
 export function generateSecureInvitationToken(): string {
   if (typeof window !== 'undefined' && window.crypto && window.crypto.getRandomValues) {
-    const bytes = new Uint8Array(24); // 192 bits de entropia
+    const bytes = new Uint8Array(24);
     window.crypto.getRandomValues(bytes);
     return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
   }
-  // Fallback seguro em caso de ambiente sem Web Crypto
   const rnd = () => Math.random().toString(36).substring(2, 15);
   return `${Date.now().toString(36)}${rnd()}${rnd()}${rnd()}`.slice(0, 48);
 }
 
 /**
- * Utilitário para compressão de fotografia para até 150 KB no Spark.
+ * Utilitário para compressão de fotografia ou comprovativo para até 150 KB no Spark.
  */
 export async function compressImageToBase64(file: File, maxSizeBytes = 150000): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -228,7 +337,6 @@ export async function compressImageToBase64(file: File, maxSizeBytes = 150000): 
 
         ctx.drawImage(img, 0, 0, width, height);
 
-        // Ajusta qualidade iterativamente até caber em maxSizeBytes
         let quality = 0.85;
         let dataUrl = canvas.toDataURL('image/jpeg', quality);
 

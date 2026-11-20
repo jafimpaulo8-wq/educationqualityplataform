@@ -88,19 +88,9 @@ export async function updateUserPreferences(userId: string, preferences: Record<
 
 export async function checkIsSuperAdmin(uid: string): Promise<boolean> {
   try {
-    const email = auth.currentUser?.email;
-    if (email === 'moztechwavenacala8@gmail.com' || email === 'jafimpaulo8@gmail.com') return true;
-    const adminDoc = await getDoc(doc(db, COLLECTIONS.ADMINS, uid));
-    if (adminDoc.exists()) return true;
-    
-    const userDoc = await getDoc(doc(db, COLLECTIONS.USERS, uid));
-    if (userDoc.exists()) {
-      const data = userDoc.data();
-      const role = String(data?.role || '').toUpperCase();
-      const roles: string[] = Array.isArray(data?.roles) ? data.roles.map((r: any) => String(r).toUpperCase()) : [];
-      return role === 'SUPER_ADMIN' || role === 'SUPERADMIN' || roles.includes('SUPER_ADMIN');
-    }
-    return false;
+    const currentUser = auth.currentUser;
+    if (!currentUser || currentUser.uid !== uid) return false;
+    return currentUser.email === 'moztechwavenacala8@gmail.com' && currentUser.emailVerified === true;
   } catch {
     return false;
   }

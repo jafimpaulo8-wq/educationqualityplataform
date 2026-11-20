@@ -31,12 +31,14 @@ import {
   QrCode,
   Eye,
   Package,
-  FileSpreadsheet
+  FileSpreadsheet,
+  ExternalLink
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { PaymentRecord, ContaReceber, ContaPagar } from '../../types';
 import { InstitutionLogoBadge } from '../../components/common/InstitutionLogoBadge';
 import { resolveInstitutionIdentity } from '../../utils/institutionIdentity';
+import { getPublicPaymentPortalUrl } from '../../services/publicInstitutionService';
 
 export const FinanceExperienceView: React.FC = () => {
   const {
@@ -59,8 +61,11 @@ export const FinanceExperienceView: React.FC = () => {
     openCashRegister,
     closeCashRegister,
     addNotification,
-    navigate
+    navigate,
+    userProfile,
+    firebaseUser
   } = useApp();
+  const directorDisplayName = userProfile?.name || firebaseUser?.displayName || 'Diretor Financeiro';
 
   const identity = resolveInstitutionIdentity(activeInstitution);
   const instStudents = useMemo(
@@ -122,13 +127,13 @@ export const FinanceExperienceView: React.FC = () => {
   const [newPagarDue, setNewPagarDue] = useState('2026-10-05');
 
   // M-Pesa STK Simulator
-  const [mpesaPhone, setMpesaPhone] = useState('84 123 4567');
+  const [mpesaPhone, setMpesaPhone] = useState('');
   const [mpesaAmount, setMpesaAmount] = useState<number>(3500);
   const [mpesaStudentName, setMpesaStudentName] = useState(instStudents[0]?.fullName || 'Estudante Selecionado');
   const [mpesaSimulating, setMpesaSimulating] = useState(false);
 
   // e-Mola Simulator
-  const [emolaPhone, setEmolaPhone] = useState('86 987 6543');
+  const [emolaPhone, setEmolaPhone] = useState('');
   const [emolaAmount, setEmolaAmount] = useState<number>(2500);
   const [emolaStudentName, setEmolaStudentName] = useState(instStudents[1]?.fullName || instStudents[0]?.fullName || 'Estudante Selecionado');
   const [emolaSimulating, setEmolaSimulating] = useState(false);
@@ -324,21 +329,25 @@ export const FinanceExperienceView: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="relative p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-300">
-            <Clock className="w-4 h-4" />
-            <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white font-bold text-[10px] flex items-center justify-center">
-              4
-            </span>
-          </div>
-
+        <div className="flex items-center gap-3 flex-wrap">
+          {activeInstitution?.id && (
+            <a
+              href={getPublicPaymentPortalUrl(activeInstitution)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span>Abrir Portal de Pagamentos</span>
+            </a>
+          )}
           <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5">
             <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-amber-500 to-emerald-500 flex items-center justify-center text-slate-950 font-bold text-xs">
-              MC
+              {directorDisplayName.slice(0, 2).toUpperCase()}
             </div>
             <div className="text-left leading-tight hidden sm:block">
-              <div className="text-xs font-bold text-white">Dr. Mário Cossa</div>
-              <div className="text-[10px] text-amber-400 font-medium">Diretor Financeiro ▾</div>
+              <div className="text-xs font-bold text-white">{directorDisplayName}</div>
+              <div className="text-[10px] text-amber-400 font-medium">Gestão Financeira</div>
             </div>
           </div>
         </div>
@@ -355,7 +364,7 @@ export const FinanceExperienceView: React.FC = () => {
             </div>
             <div>
               <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-                Bem-vindo, Dr. Mário Cossa!
+                Bem-vindo(a), {directorDisplayName}!
               </h1>
               <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-xl">
                 Controlo integral de receitas, despesas, conciliação M-Pesa &amp; e-Mola e caixa em tempo real.

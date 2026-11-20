@@ -42,6 +42,7 @@ export interface InstitutionBankAccount {
   iban?: string;
   mpesaNumber?: string;
   emolaNumber?: string;
+  mkeshNumber?: string;
   currency: string;
   isDefault: boolean;
 }
@@ -106,6 +107,9 @@ export interface FinancialSettings {
   emolaShortcode?: string;
   emolaHolderName?: string;
   emolaInstructions?: string;
+  mkeshNumber?: string;
+  mkeshHolderName?: string;
+  mkeshInstructions?: string;
   customServices?: FinancialServiceItem[];
   paymentMethods?: PaymentMethodConfig[];
   familyDiscountPercentage?: number;
@@ -166,6 +170,7 @@ export interface Institution {
   logo?: string;
   logoUrl?: string;
   emblemUrl?: string;
+  faviconUrl?: string;
   shortName?: string;
   slogan?: string;
   sigla?: string;
@@ -239,17 +244,17 @@ export interface PublicInstitution {
   city: string;
   province: string;
   logoUrl?: string;
+  emblemUrl?: string;
+  faviconUrl?: string;
   slogan?: string;
   primaryColor?: string;
   accentColor?: string;
   branches?: Branch[];
   onlineRegistrationConfig: OnlineRegistrationConfig;
+  acceptedChannels?: string[];
   paymentMethods?: {
-    mpesa?: string;
-    emola?: string;
     bankName?: string;
-    accountNumber?: string;
-    nib?: string;
+    acceptedChannels?: string[];
     instructions?: string;
   };
   termsAndConditions?: string;
@@ -1076,7 +1081,10 @@ export interface Student {
   address: string;
   guardianName?: string;
   guardianPhone?: string;
+  guardianRelationship?: string;
   emergencyContact?: string;
+  isFinancialExempt?: boolean;
+  exemptUntil?: string;
   notes?: string;
   courseId: string;
   courseName: string;
@@ -1424,6 +1432,7 @@ export type AppRoute =
   | 'moztechwave_core'
   | 'public_portal'
   | 'inscricao_publica'
+  | 'portal_pagamentos'
   | 'ativar_conta'
   | 'inscricao_privada'
   | 'candidatos_gestao'
@@ -1710,9 +1719,11 @@ export interface GateAccessLog {
   blockReason?: string;
   operator: string;
   operatorRole?: string;
-  whatsappStatus: 'enviado' | 'pendente' | 'falhou';
+  whatsappStatus: 'enviado' | 'link_aberto' | 'pendente' | 'falhou';
   notificationSent?: boolean;
   notificationMessage?: string;
+  persistenceStatus?: 'saved' | 'local_only' | 'error';
+  persistenceError?: string;
   confirmed: boolean;
 }
 

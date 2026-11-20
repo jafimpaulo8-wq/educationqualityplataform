@@ -148,6 +148,7 @@ export const PublicRegistrationView: React.FC = () => {
     applications,
     navigate,
     openWhatsAppMessage,
+    setPublicPortalIdentity,
     themeMode
   } = useApp();
 
@@ -199,6 +200,20 @@ export const PublicRegistrationView: React.FC = () => {
       isCancelled = true;
     };
   }, [allInstitutions]);
+
+  useEffect(() => {
+    if (resolvedPublicInst && !slugNotFound) {
+      setPublicPortalIdentity({
+        officialName: resolvedPublicInst.name,
+        logoUrl: resolvedPublicInst.logoUrl,
+      });
+    } else {
+      setPublicPortalIdentity(null);
+    }
+    return () => {
+      setPublicPortalIdentity(null);
+    };
+  }, [resolvedPublicInst, slugNotFound, setPublicPortalIdentity]);
 
   // Identificação do tipo institucional para adaptação da UI
   const isChildCenter = useMemo(() => {
@@ -1776,9 +1791,9 @@ export const PublicRegistrationView: React.FC = () => {
                   {/* Payment Method Selector */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     {[
-                      { id: 'M-Pesa', label: 'M-Pesa', desc: resolvedPublicInst.paymentMethods?.mpesa || 'Vodacom' },
-                      { id: 'e-Mola', label: 'e-Mola', desc: resolvedPublicInst.paymentMethods?.emola || 'Movitel' },
-                      { id: 'BIM', label: 'BIM / Banco', desc: resolvedPublicInst.paymentMethods?.bankName || 'Millennium BIM' },
+                      { id: 'M-Pesa', label: 'M-Pesa', desc: 'Carteira Móvel Vodacom' },
+                      { id: 'e-Mola', label: 'e-Mola', desc: 'Carteira Móvel Movitel' },
+                      { id: 'BIM', label: 'Transferência Bancária', desc: resolvedPublicInst.paymentMethods?.bankName || 'Via Bancária Institucional' },
                       { id: 'Presencial', label: 'Secretaria', desc: 'Presencial no balcão' }
                     ].map(item => (
                       <button
@@ -1808,12 +1823,7 @@ export const PublicRegistrationView: React.FC = () => {
                           <span className="text-[11px] font-mono text-emerald-400">Taxa: {(selectedCourse?.price || 1500).toLocaleString()} MT</span>
                         </div>
                         <p className="text-xs text-slate-400">
-                          Número oficial de recebimento da instituição:{' '}
-                          <strong className="text-white font-mono">
-                            {paymentMethod === 'M-Pesa'
-                              ? (resolvedPublicInst.paymentMethods?.mpesa || resolvedPublicInst.phone || 'Contactar secretaria')
-                              : (resolvedPublicInst.paymentMethods?.emola || resolvedPublicInst.phone || 'Contactar secretaria')}
-                          </strong>.
+                          Por segurança, os números privados M-Pesa/e-Mola são disponibilizados na secretaria da instituição ({resolvedPublicInst.phone || 'atendimento oficial'}) ou após autenticação no Portal de Pagamentos.
                         </p>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-xl">
                           <input
@@ -1857,12 +1867,11 @@ export const PublicRegistrationView: React.FC = () => {
 
                     {paymentMethod === 'BIM' && (
                       <div className="space-y-3 text-xs text-slate-300">
-                        <p className="font-semibold text-white">Coordenadas Bancárias da Instituição:</p>
-                        <div className="p-3 rounded-xl bg-slate-900 font-mono text-[11px] space-y-1">
-                          <p>Banco: {resolvedPublicInst.paymentMethods?.bankName || 'Millennium BIM'}</p>
-                          <p>Titular: {resolvedPublicInst.name}</p>
-                          {resolvedPublicInst.paymentMethods?.accountNumber && <p>Conta: {resolvedPublicInst.paymentMethods.accountNumber}</p>}
-                          {resolvedPublicInst.paymentMethods?.nib && <p>NIB: {resolvedPublicInst.paymentMethods.nib}</p>}
+                        <p className="font-semibold text-white">Instruções de Pagamento Bancário:</p>
+                        <div className="p-3 rounded-xl bg-slate-900 text-[11px] space-y-1">
+                          {resolvedPublicInst.paymentMethods?.bankName && <p>Banco: <strong className="text-white">{resolvedPublicInst.paymentMethods.bankName}</strong></p>}
+                          <p>Beneficiário: <strong className="text-white">{resolvedPublicInst.name}</strong></p>
+                          <p className="text-slate-400">Consulte o NIB/IBAN oficial com a secretaria ou no Portal de Pagamentos autenticado.</p>
                         </div>
                         <input
                           type="text"

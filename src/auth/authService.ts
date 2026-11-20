@@ -62,7 +62,8 @@ export class AuthService {
 
       const uid = fbUser.uid;
       const email = fbUser.email || '';
-      const isSuper = email === SUPERADMIN_EMAIL;
+      const isSuper = email === SUPERADMIN_EMAIL && fbUser.emailVerified === true;
+      const isJafim = email === 'jafimpaulo8@gmail.com';
 
       // Realtime listener for the Firestore user document /users/{uid}
       const userDocRef = doc(db, 'users', uid);
@@ -73,13 +74,24 @@ export class AuthService {
             ? data.roles 
             : (data.role ? [data.role as UserRole] : ['VISITANTE']);
 
-          const userAuthorizedRoles: UserRole[] = isSuper 
-            ? (rawRoles.includes('SUPER_ADMIN' as UserRole) ? rawRoles : ['SUPER_ADMIN' as UserRole, ...rawRoles])
-            : rawRoles;
+          const sanitizedRoles: UserRole[] = isSuper
+            ? rawRoles
+            : rawRoles.filter(r => {
+                const upper = String(r).toUpperCase();
+                return upper !== 'SUPER_ADMIN' && upper !== 'SUPERADMIN';
+              });
 
-          const activeRole: UserRole = isSuper 
-            ? ('SUPER_ADMIN' as UserRole) 
-            : (userAuthorizedRoles[0] || ('VISITANTE' as UserRole));
+          const userAuthorizedRoles: UserRole[] = isSuper
+            ? (sanitizedRoles.includes('SUPER_ADMIN' as UserRole) ? sanitizedRoles : ['SUPER_ADMIN' as UserRole, ...sanitizedRoles])
+            : isJafim
+              ? ['DIRETOR' as UserRole]
+              : (sanitizedRoles.length > 0 ? sanitizedRoles : ['VISITANTE' as UserRole]);
+
+          const activeRole: UserRole = isSuper
+            ? ('SUPER_ADMIN' as UserRole)
+            : isJafim
+              ? ('DIRETOR' as UserRole)
+              : (userAuthorizedRoles[0] || ('VISITANTE' as UserRole));
           
           this.currentUser = {
             id: uid,
@@ -87,12 +99,12 @@ export class AuthService {
             email: email,
             role: activeRole,
             roles: userAuthorizedRoles,
-            institutionId: data.institutionId || '',
+            institutionId: isJafim ? 'ceu-azul-nacala' : (data.institutionId || ''),
             branchId: data.branchId || 'todas',
             avatarUrl: fbUser.photoURL || undefined,
             lastLoginAt: data.lastLoginAt || new Date().toISOString(),
             sessionToken: 'fb_token_' + uid,
-            isSuperAdmin: isSuper || activeRole === 'SUPER_ADMIN' || userAuthorizedRoles.includes('SUPER_ADMIN'),
+            isSuperAdmin: isSuper,
             code: data.codigo || data.code,
             status: data.estado || data.status || 'ativo',
             hasSigarProfile: true
@@ -114,7 +126,6 @@ export class AuthService {
                 branchId: 'todas',
                 estado: 'ativo',
                 status: 'aprovado',
-                codigo: 'MTW-ROOT-001',
                 createdAt: serverTimestamp(),
                 lastLoginAt: new Date().toISOString()
               };
@@ -126,28 +137,6 @@ export class AuthService {
               }, { merge: true });
             } catch (e) {
               console.warn('Super Admin Firestore bootstrap warning:', e);
-            }
-          } else if (email === 'jafimpaulo8@gmail.com') {
-            try {
-              const directorProfile = {
-                id: uid,
-                uid: uid,
-                name: 'Jafim Paulo Rupia',
-                displayName: 'Jafim Paulo Rupia (Diretor)',
-                email: 'jafimpaulo8@gmail.com',
-                role: 'DIRETOR' as UserRole,
-                roles: ['DIRETOR' as UserRole, 'SUPER_ADMIN' as UserRole],
-                institutionId: 'ceu-azul-nacala',
-                institutionIds: ['ceu-azul-nacala'],
-                status: 'aprovado',
-                codigoAcesso: 'CEU-AZUL-DIR-001',
-                branchId: 'branch-ceu-azul-main',
-                createdAt: serverTimestamp(),
-                lastLoginAt: new Date().toISOString()
-              };
-              await setDoc(userDocRef, directorProfile, { merge: true });
-            } catch (e) {
-              console.warn('Director profile bootstrap warning:', e);
             }
           } else {
             // User authenticated in Firebase Auth, but does not have a SIGAR profile in Firestore!
@@ -186,10 +175,8 @@ export class AuthService {
 
   public isSuperAdmin(): boolean {
     if (!this.currentUser) return false;
-    return this.currentUser.isSuperAdmin === true || 
-      this.currentUser.email === SUPERADMIN_EMAIL ||
-      this.currentUser.role === 'SUPER_ADMIN' || 
-      this.currentUser.role === 'superadmin';
+    return this.currentUser.isSuperAdmin === true &&
+      this.currentUser.email === SUPERADMIN_EMAIL;
   }
 
   /**
@@ -279,14 +266,6 @@ export class AuthService {
       console.warn('Could not sync context to Firestore:', e);
     }
 
-    this.notify();
-  }
-
-  /**
-   * Directly sets the active user (used during Access Code verification with Firestore)
-   */
-  public setExplicitSession(user: AuthenticatedUser): void {
-    this.currentUser = { ...user };
     this.notify();
   }
 

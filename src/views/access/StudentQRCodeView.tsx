@@ -30,6 +30,15 @@ import {
   generateStudentQrHash,
   PublicStudentInfo 
 } from '../../utils/studentQrSecurity';
+import {
+  buildGateWhatsAppMessage,
+  buildWhatsAppUrl,
+  checkGateMovementSequence,
+  checkStudentMonthlyPaymentStatus,
+  getMaputoDateTimeInfo,
+  getStudentGuardianContact,
+  resolveStudentFromQrPayload
+} from '../../utils/gateAccessUtils';
 import { Student } from '../../types';
 import { InstitutionLogoBadge } from '../../components/common/InstitutionLogoBadge';
 import { resolveInstitutionIdentity } from '../../utils/institutionIdentity';
@@ -38,17 +47,21 @@ import { RealQRCode } from '../../components/common/RealQRCode';
 export const StudentQRCodeView: React.FC = () => {
   const { 
     students, 
-    classes, 
+    classes,
+    courses,
+    contasReceber,
+    paymentRecords,
     activeInstitution, 
     activeRole, 
     firebaseUser,
     logGateAccess, 
+    markGateWhatsAppLinkOpened,
     accessLogs,
-    openWhatsAppMessage,
     addNotification
   } = useApp();
 
   const identity = resolveInstitutionIdentity(activeInstitution);
+  const centerName = identity.officialName || activeInstitution.name || 'Instituição de Ensino';
   const instStudents = identity.hasInstitution
     ? students.filter(s => s.institutionId === activeInstitution.id)
     : [];
@@ -66,11 +79,18 @@ export const StudentQRCodeView: React.FC = () => {
   
   // Optical scanner animation state
   const [isScanningActive, setIsScanningActive] = useState(false);
+  const [scanBlockAlert, setScanBlockAlert] = useState<string | null>(null);
   const [lastActionResult, setLastActionResult] = useState<{
-    type: 'entrada' | 'saida';
+    logId?: string;
+    type: 'entrada' | 'saida' | 'barrado';
     timestamp: string;
     student: Student;
     operator: string;
+    guardianName: string;
+    guardianPhone: string;
+    whatsappMessage: string;
+    whatsappUrl: string | null;
+    whatsappOpened?: boolean;
   } | null>(null);
 
   const isUserAuthenticatedOperator = isAuthorizedGateOperator(activeRole);
@@ -79,7 +99,19 @@ export const StudentQRCodeView: React.FC = () => {
 
   const currentStudent = instStudents.find(s => s.id === selectedStudentId) || instStudents[0];
   const publicData: PublicStudentInfo | null = currentStudent 
-    ? getAuthorizedPublicStudentData(currentStudent, identity.officialName, identity.code)
+    ? getAuthorizedPublicStudentData(currentStudent, identity.officialName, currentStudent.institutionId || activeInstitution.id)
+    : null;
+
+  const paymentVerification = currentStudent
+    ? checkStudentMonthlyPaymentStatus(currentStudent, courses, contasReceber, paymentRecords)
+    : null;
+
+  const currentGuardian = currentStudent ? getStudentGuardianContact(currentStudent) : null;
+  const entrySequenceCheck = currentStudent
+    ? checkGateMovementSequence(currentStudent.id, 'entrada', accessLogs, activeInstitution.id)
+    : null;
+  const exitSequenceCheck = currentStudent
+    ? checkGateMovementSequence(currentStudent.id, 'saida', accessLogs, activeInstitution.id)
     : null;
 
   // Filtered students for QR directory
@@ -93,21 +125,24 @@ export const StudentQRCodeView: React.FC = () => {
   });
 
   // Recent logs for current student today
-  const studentLogsToday = accessLogs.filter(l => l.studentId === currentStudent?.id);
+  const studentLogsToday = accessLogs.filter(
+    l => l.studentId === currentStudent?.id && l.institutionId === activeInstitution.id
+  );
 
   // Trigger scan simulation
   const handleSelectStudentForScan = (studentId: string) => {
     setIsScanningActive(true);
+    setScanBlockAlert(null);
     setTimeout(() => {
       setSelectedStudentId(studentId);
       setIsScanningActive(false);
       setLastActionResult(null);
-    }, 400);
+    }, 300);
   };
 
-  // Confirm Gate Access (Entrada ou Saída)
-  const handleConfirmAccess = (type: 'entrada' | 'saida') => {
-    if (!currentStudent) return;
+  // Confirm Gate Access (Entrada, Saída ou Barramento) COM validação financeira obrigatória
+  const handleConfirmAccess = (type: 'entrada' | 'saida' | 'barrado') => {
+    if (!currentStudent || !paymentVerification) return;
     if (!isOperatorMode) {
       addNotification({
         title: 'Operação Bloqueada no Scan Público',
@@ -117,27 +152,91 @@ export const StudentQRCodeView: React.FC = () => {
       return;
     }
 
-    const log = logGateAccess(currentStudent.id, type);
-    const nowStr = new Date().toLocaleTimeString('pt-MZ');
-    setLastActionResult({
-      type,
-      timestamp: nowStr,
+    if (type === 'entrada' && !paymentVerification.isPaidForCurrentMonth) {
+      setScanBlockAlert(`ACESSO NÃO PERMITIDO: ${paymentVerification.reason}`);
+      addNotification({
+        title: 'Entrada Bloqueada na Portaria',
+        message: `${currentStudent.fullName}: ${paymentVerification.reason}`,
+        type: 'alert'
+      });
+      return;
+    }
+
+    const maputoNow = getMaputoDateTimeInfo();
+    const hourOnly = maputoNow.timeStr.slice(0, 5);
+    const guardian = getStudentGuardianContact(currentStudent);
+    const operatorName =
+      firebaseUser?.displayName || (activeRole === 'superadmin' ? 'Super Administrador' : 'Operador da Portaria');
+
+    const whatsappMessage = buildGateWhatsAppMessage({
+      action: type,
       student: currentStudent,
-      operator: firebaseUser?.displayName || (activeRole === 'superadmin' ? 'Super Administrador' : 'Operador da Portaria')
+      institutionName: centerName,
+      timeStr: hourOnly,
+      monthLabel: paymentVerification.monthLabel,
+      blockReason: type === 'barrado' ? paymentVerification.reason : undefined
+    });
+    const whatsappUrl = buildWhatsAppUrl(guardian.guardianPhone, whatsappMessage);
+
+    const log = logGateAccess(
+      currentStudent.id,
+      type,
+      'Portão Principal',
+      operatorName,
+      false,
+      whatsappMessage,
+      type === 'barrado' ? paymentVerification.reason : undefined
+    );
+
+    setScanBlockAlert(null);
+    setLastActionResult({
+      logId: log?.id,
+      type,
+      timestamp: maputoNow.timeStr,
+      student: currentStudent,
+      operator: operatorName,
+      guardianName: guardian.guardianName,
+      guardianPhone: guardian.guardianPhone,
+      whatsappMessage,
+      whatsappUrl,
+      whatsappOpened: false
     });
   };
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!searchInput.trim()) return;
-    const found = instStudents.find(s => 
-      s.code.toLowerCase().includes(searchInput.toLowerCase()) ||
-      s.fullName.toLowerCase().includes(searchInput.toLowerCase())
-    );
-    if (found) {
-      handleSelectStudentForScan(found.id);
+    const trimmed = searchInput.trim();
+    if (!trimmed) return;
+
+    const qrResult = resolveStudentFromQrPayload(trimmed, instStudents, activeInstitution.id, students);
+    if (qrResult.student) {
+      setScanBlockAlert(null);
+      handleSelectStudentForScan(qrResult.student.id);
       setSearchInput('');
+      return;
     }
+
+    const isStructuredOrToken =
+      trimmed.startsWith('{') ||
+      trimmed.startsWith('http://') ||
+      trimmed.startsWith('https://') ||
+      trimmed.toUpperCase().startsWith('SIGAR-QR-V1:') ||
+      trimmed.toUpperCase().startsWith('SGR-');
+
+    if (qrResult.status === 'not_found' && !isStructuredOrToken) {
+      const q = trimmed.toLowerCase();
+      const foundByName = instStudents.find(
+        s => q.length >= 3 && s.fullName.toLowerCase().includes(q)
+      );
+      if (foundByName) {
+        setScanBlockAlert(null);
+        handleSelectStudentForScan(foundByName.id);
+        setSearchInput('');
+        return;
+      }
+    }
+
+    setScanBlockAlert(qrResult.reason);
   };
 
   return (
@@ -289,18 +388,31 @@ export const StudentQRCodeView: React.FC = () => {
             </form>
           </div>
 
+          {scanBlockAlert && (
+            <div className="p-4 rounded-2xl bg-rose-950/60 border border-rose-500/50 text-xs text-rose-200 flex items-center gap-2.5">
+              <ShieldAlert className="w-5 h-5 text-rose-400 shrink-0" />
+              <span>{scanBlockAlert}</span>
+            </div>
+          )}
+
           {/* Action Confirmation Banner (Operador) */}
           {lastActionResult && (
             <div className={`p-5 rounded-2xl border shadow-lg space-y-3 animate-in fade-in duration-300 ${
               lastActionResult.type === 'entrada'
                 ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200'
+                : lastActionResult.type === 'barrado'
+                ? 'bg-rose-950/40 border-rose-500/40 text-rose-200'
                 : 'bg-sky-950/40 border-sky-500/40 text-sky-200'
             }`}>
               <div className="flex items-center justify-between pb-2 border-b border-emerald-500/20">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-5 h-5 text-emerald-400" />
                   <span className="font-bold text-sm text-white">
-                    {lastActionResult.type === 'entrada' ? 'ENTRADA CONFIRMADA NA PORTARIA' : 'SAÍDA REGISTRADA NA PORTARIA'}
+                    {lastActionResult.type === 'entrada'
+                      ? 'ENTRADA CONFIRMADA NA PORTARIA'
+                      : lastActionResult.type === 'barrado'
+                      ? 'ACESSO BARRADO REGISTADO NA PORTARIA'
+                      : 'SAÍDA REGISTRADA NA PORTARIA'}
                   </span>
                 </div>
                 <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-emerald-500/20 text-emerald-300">
@@ -319,14 +431,31 @@ export const StudentQRCodeView: React.FC = () => {
                   <p className="text-[11px] text-slate-400">Operador: {lastActionResult.operator}</p>
                 </div>
               </div>
-              <div className="p-2.5 bg-slate-900/80 rounded-xl border border-slate-800 text-xs flex items-center justify-between">
+              <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-800 text-xs flex flex-wrap items-center justify-between gap-2">
                 <span className="flex items-center gap-2 text-slate-300">
-                  <Smartphone className="w-4 h-4 text-emerald-400" />
-                  WhatsApp automático disparado ao encarregado ({lastActionResult.student.guardianName || 'Encarregado'})
+                  <Smartphone className="w-4 h-4 text-emerald-400 shrink-0" />
+                  Encarregado: {lastActionResult.guardianName} ({lastActionResult.guardianPhone || 'Sem número'})
                 </span>
-                <span className="text-[10px] uppercase font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">
-                  Entregue
-                </span>
+                {lastActionResult.whatsappUrl ? (
+                  <a
+                    href={lastActionResult.whatsappUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => {
+                      if (lastActionResult.logId) {
+                        markGateWhatsAppLinkOpened(lastActionResult.logId);
+                        setLastActionResult(prev => (prev ? { ...prev, whatsappOpened: true } : prev));
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-[#25D366] hover:bg-[#1fb858] text-white font-bold text-[11px] transition"
+                  >
+                    {lastActionResult.whatsappOpened ? 'Link WhatsApp Aberto' : 'Abrir WhatsApp do Encarregado'}
+                  </a>
+                ) : (
+                  <span className="text-[10px] uppercase font-bold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded">
+                    Sem contacto WhatsApp
+                  </span>
+                )}
               </div>
             </div>
           )}
@@ -374,8 +503,23 @@ export const StudentQRCodeView: React.FC = () => {
                       </div>
                       <div className="text-right">
                         <span className="text-[11px] text-slate-300 block">{log.operator}</span>
-                        <span className="text-[10px] text-emerald-400 flex items-center gap-1 justify-end">
-                          <Smartphone className="w-3 h-3" /> WhatsApp OK
+                        <span
+                          className={`text-[10px] flex items-center gap-1 justify-end ${
+                            log.whatsappStatus === 'link_aberto' || log.whatsappStatus === 'enviado'
+                              ? 'text-emerald-400'
+                              : log.whatsappStatus === 'falhou'
+                              ? 'text-rose-400'
+                              : 'text-amber-400'
+                          }`}
+                        >
+                          <Smartphone className="w-3 h-3" />{' '}
+                          {log.whatsappStatus === 'link_aberto'
+                            ? 'Link WhatsApp aberto'
+                            : log.whatsappStatus === 'enviado'
+                            ? 'Enviado'
+                            : log.whatsappStatus === 'falhou'
+                            ? 'Falhou'
+                            : 'Pendente de envio'}
                         </span>
                       </div>
                     </div>
@@ -491,20 +635,52 @@ export const StudentQRCodeView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Botoes de Acao: ENTRADA e SAIDA para Operador Autenticado */}
-              {isOperatorMode ? (
+              {/* Botoes de Acao: ENTRADA e SAIDA para Operador Autenticado (COM validação financeira obrigatória) */}
+              {isOperatorMode && paymentVerification ? (
                 <div className="space-y-3 pt-2">
+                  <div
+                    className={`p-3 rounded-xl border text-xs ${
+                      paymentVerification.isPaidForCurrentMonth
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                        : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                    }`}
+                  >
+                    <strong className="block font-bold">
+                      {paymentVerification.isPaidForCurrentMonth
+                        ? `Mensalidade Regular (${paymentVerification.monthLabel})`
+                        : `ACESSO NÃO PERMITIDO (${paymentVerification.monthLabel})`}
+                    </strong>
+                    <span className="text-[11px] opacity-90">{paymentVerification.reason}</span>
+                    {paymentVerification.warningNote && (
+                      <span className="block text-[10px] text-amber-300 mt-1">
+                        {paymentVerification.warningNote}
+                      </span>
+                    )}
+                  </div>
+
+                  {(entrySequenceCheck?.isDuplicateSequence || exitSequenceCheck?.isDuplicateSequence) && (
+                    <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-300 space-y-0.5">
+                      {entrySequenceCheck?.warningMessage && <div>{entrySequenceCheck.warningMessage}</div>}
+                      {exitSequenceCheck?.warningMessage && <div>{exitSequenceCheck.warningMessage}</div>}
+                    </div>
+                  )}
+
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block">
                     Ações de Acesso da Portaria:
                   </span>
                   <div className="grid grid-cols-2 gap-3">
                     <button
                       type="button"
+                      disabled={!paymentVerification.isPaidForCurrentMonth}
                       onClick={() => handleConfirmAccess('entrada')}
-                      className="py-3.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase tracking-wider rounded-2xl transition-all shadow-lg shadow-emerald-900/30 flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                      className={`py-3.5 px-4 font-black text-xs uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2 ${
+                        paymentVerification.isPaidForCurrentMonth
+                          ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/30 cursor-pointer active:scale-95'
+                          : 'bg-rose-950/60 border border-rose-500/40 text-rose-300 cursor-not-allowed'
+                      }`}
                     >
                       <LogIn className="w-4 h-4" />
-                      Confirmar Entrada
+                      {paymentVerification.isPaidForCurrentMonth ? 'Confirmar Entrada' : 'Entrada Bloqueada'}
                     </button>
                     <button
                       type="button"
@@ -515,8 +691,19 @@ export const StudentQRCodeView: React.FC = () => {
                       Confirmar Saída
                     </button>
                   </div>
+
+                  {!paymentVerification.isPaidForCurrentMonth && (
+                    <button
+                      type="button"
+                      onClick={() => handleConfirmAccess('barrado')}
+                      className="w-full py-2.5 px-4 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl transition cursor-pointer"
+                    >
+                      Registar Barramento na Portaria{currentGuardian?.hasValidPhone ? ` • ${currentGuardian.guardianPhone}` : ''}
+                    </button>
+                  )}
+
                   <p className="text-[11px] text-center text-slate-400">
-                    Ao confirmar, o sistema grava o carimbo temporal e notifica o encarregado via WhatsApp.
+                    Após confirmar, é gerado o botão oficial de WhatsApp para o encarregado (sem simulação automática).
                   </p>
                 </div>
               ) : (
@@ -567,7 +754,11 @@ export const StudentQRCodeView: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredStudents.map(student => {
             const isCurrentlySelected = student.id === selectedStudentId;
-            const studentQrHash = generateStudentQrHash(student.id, student.code, activeInstitution.code);
+            const studentQrHash = generateStudentQrHash(
+              student.id,
+              student.code,
+              student.institutionId || activeInstitution.id
+            );
             return (
               <div
                 key={student.id}
@@ -630,17 +821,37 @@ export const StudentQRCodeView: React.FC = () => {
                     <Download className="w-3.5 h-3.5" />
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const msg = `Olá! Segue o link de validação digital da carteirinha escolar de ${student.fullName}: ${window.location.origin}/?scan_aluno=${student.code}`;
-                      openWhatsAppMessage(student.guardianPhone || student.phone, msg);
-                    }}
-                    title="Enviar QR ao Encarregado via WhatsApp"
-                    className="p-2 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white rounded-xl transition-all cursor-pointer"
-                  >
-                    <Smartphone className="w-3.5 h-3.5" />
-                  </button>
+                  {(() => {
+                    const guardian = getStudentGuardianContact(student);
+                    const msg = `Olá ${guardian.guardianName}! Segue o link de validação digital da carteirinha escolar de ${student.fullName}: ${window.location.origin}/?scan_aluno=${encodeURIComponent(student.code)}`;
+                    const waUrl = buildWhatsAppUrl(guardian.guardianPhone, msg);
+                    return waUrl ? (
+                      <a
+                        href={waUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Enviar QR ao Encarregado via WhatsApp"
+                        className="p-2 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white rounded-xl transition-all cursor-pointer inline-flex items-center justify-center"
+                      >
+                        <Smartphone className="w-3.5 h-3.5" />
+                      </a>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          addNotification({
+                            title: 'Encarregado sem WhatsApp',
+                            message: `${student.fullName} não tem contacto de encarregado registado.`,
+                            type: 'alert'
+                          });
+                        }}
+                        title="Sem contacto de encarregado"
+                        className="p-2 bg-slate-800 text-slate-500 rounded-xl transition-all cursor-pointer"
+                      >
+                        <Smartphone className="w-3.5 h-3.5" />
+                      </button>
+                    );
+                  })()}
                 </div>
               </div>
             );

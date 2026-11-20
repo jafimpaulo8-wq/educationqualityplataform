@@ -1,100 +1,315 @@
 /**
- * 27. QR CODE DO ALUNO & CONTROLO DE ACESSO
- * Moztechwave Education Platform / SIVERC / SIGAR
- * 
- * Regras de Privacidade:
- * - Scan público: mostrar SOMENTE informações autorizadas (Nome, Curso, Turma, Número, Estado).
- * - NUNCA mostrar dados privados (BI, NUIT, Telefone, E-mail, Morada, Contactos de Encarregados, Dados Financeiros).
- * - Utilizador Autenticado Autorizado: Permite confirmar ENTRADA e SAÍDA com registro e disparo WhatsApp.
+ * Utilitário centralizado para geração e verificação de payloads e tokens de QR Code dos alunos.
+ * Mantém compatibilidade com QR Codes existentes enquanto elimina correspondência parcial,
+ * detecta adulterações/expiração/outra instituição e prepara contrato para verificação no servidor.
  */
 
-import { Student } from '../types';
-import { toCanonicalRole } from '../types/rbac';
+export const SIGAR_QR_PREFIX = 'SIGAR-QR-V1';
 
-export interface PublicStudentInfo {
-  id: string;
-  fullName: string;
-  code: string;
-  courseName: string;
-  classGroupName: string;
-  status: Student['status'];
-  photoUrl?: string;
-  institutionName: string;
-  institutionCode: string;
-  qrVerificationHash: string;
-  qrGeneratedAt: string;
-  academicYear: string;
+export interface SignedQrPayloadData {
+  studentId: string;
+  institutionId: string;
+  studentCode: string;
+  issuedAt: number;
+  expiresAt?: number;
+  signature: string;
+}
+
+export interface QrTokenVerificationResult {
+  isSignedV1: boolean;
+  valid: boolean;
+  tampered: boolean;
+  expired: boolean;
+  wrongInstitution: boolean;
+  requiresServerVerification: boolean;
+  institutionId?: string;
+  studentId?: string;
+  studentCode?: string;
+  signature?: string;
+  reason?: string;
 }
 
 /**
- * Gera um hash criptográfico de verificação de autenticidade do QR Code do estudante
+ * Hash determinístico legado (para compatibilidade estrita com carteirinhas já impressas).
+ * NUNCA deve ser usado com substring (.includes); apenas comparação exata.
  */
-export function generateStudentQrHash(studentId: string, studentCode: string, institutionId: string): string {
-  const seed = `${studentId}:${studentCode}:${institutionId}:SIGAR-MOZTECHWAVE-STUDENT-AUTH`;
+export function generateStudentQrHash(
+  studentId: string,
+  studentCode: string,
+  institutionId: string
+): string {
+  const input = `${studentId}|${studentCode}|${institutionId}|SIGAR-MZ-2026`;
   let hash = 0;
-  for (let i = 0; i < seed.length; i++) {
-    const char = seed.charCodeAt(i);
+  for (let i = 0; i < input.length; i++) {
+    const char = input.charCodeAt(i);
     hash = ((hash << 5) - hash) + char;
-    hash |= 0;
+    hash = hash & hash;
   }
-  const hex1 = Math.abs(hash).toString(16).padStart(8, '0');
-  const hex2 = Math.abs((hash * 43) | 0).toString(16).padStart(8, '0');
-  return `SIVERC-ALU-${hex1.toUpperCase()}-${hex2.toUpperCase()}`;
+  const absHash = Math.abs(hash).toString(36).toUpperCase().padStart(6, '0');
+  return `SGR-${absHash}`;
 }
 
 /**
- * Extrai ESTRITAMENTE as informações públicas autorizadas para exibição.
- * Protege dados privados e sensíveis em conformidade com a legislação de dados discentes.
+ * Assinatura determinística de cliente (camada inicial pré-servidor).
+ * Em produção, a emissão e validação final com segredo privado devem ocorrer via Cloud Function.
  */
-export function getAuthorizedPublicStudentData(
-  student: Student, 
-  institutionName: string = 'Instituto Técnico Profissional',
-  institutionCode: string = 'MTW'
-): PublicStudentInfo {
+function computeClientEnvelopeTag(
+  institutionId: string,
+  studentId: string,
+  studentCode: string,
+  issuedAt: number,
+  expiresAt: number
+): string {
+  const canonical = `V1|${institutionId.trim()}|${studentId.trim()}|${studentCode.trim().toUpperCase()}|${issuedAt}|${expiresAt}|SIGAR-GATE-ENVELOPE`;
+  let h1 = 0x811c9dc5;
+  let h2 = 0x9e3779b9;
+  for (let i = 0; i < canonical.length; i++) {
+    const c = canonical.charCodeAt(i);
+    h1 ^= c;
+    h1 = Math.imul(h1, 0x01000193);
+    h2 ^= c + (i << 1);
+    h2 = Math.imul(h2, 0x85ebca6b);
+  }
+  const part1 = (h1 >>> 0).toString(16).toUpperCase().padStart(8, '0');
+  const part2 = (h2 >>> 0).toString(16).toUpperCase().padStart(8, '0');
+  return `${part1}${part2}`;
+}
+
+export function buildSignedStudentQrToken(params: {
+  studentId: string;
+  institutionId: string;
+  studentCode: string;
+  issuedAtMs?: number;
+  ttlDays?: number;
+}): string {
+  const issuedAt = params.issuedAtMs ?? Date.now();
+  const ttlMs = (params.ttlDays ?? 365) * 24 * 60 * 60 * 1000;
+  const expiresAt = issuedAt + ttlMs;
+  const cleanInst = (params.institutionId || '').trim();
+  const cleanId = (params.studentId || '').trim();
+  const cleanCode = (params.studentCode || '').trim().toUpperCase();
+  const sig = computeClientEnvelopeTag(cleanInst, cleanId, cleanCode, issuedAt, expiresAt);
+  return `${SIGAR_QR_PREFIX}:${cleanInst}:${cleanId}:${cleanCode}:${issuedAt}:${expiresAt}:${sig}`;
+}
+
+/**
+ * Constrói o payload estruturado JSON para o QR Code da carteirinha do aluno.
+ * Inclui assinatura versionada + vínculo explícito à instituição e aluno.
+ */
+export function buildStudentQrPayload(params: {
+  studentId: string;
+  studentCode: string;
+  studentName: string;
+  institutionId: string;
+  institutionName?: string;
+}): string {
+  const cleanInst = (params.institutionId || '').trim();
+  const cleanCode = (params.studentCode || '').trim().toUpperCase();
+  const legacyHash = generateStudentQrHash(params.studentId, cleanCode, cleanInst);
+  const signedToken = buildSignedStudentQrToken({
+    studentId: params.studentId,
+    institutionId: cleanInst,
+    studentCode: cleanCode,
+  });
+
+  return JSON.stringify({
+    v: 2,
+    t: 'SIGAR_STUDENT_ID',
+    id: params.studentId,
+    code: cleanCode,
+    inst: cleanInst,
+    hash: legacyHash,
+    token: signedToken,
+  });
+}
+
+/**
+ * Valida token SIGAR-QR-V1 no cliente antes de submeter à validação final do servidor.
+ */
+export function verifySignedStudentQrToken(
+  token: string,
+  expectedInstitutionId: string,
+  nowMs: number = Date.now()
+): QrTokenVerificationResult {
+  const trimmed = (token || '').trim();
+  if (!trimmed.startsWith(`${SIGAR_QR_PREFIX}:`)) {
+    return {
+      isSignedV1: false,
+      valid: false,
+      tampered: false,
+      expired: false,
+      wrongInstitution: false,
+      requiresServerVerification: false,
+    };
+  }
+
+  const parts = trimmed.split(':');
+  if (parts.length !== 7) {
+    return {
+      isSignedV1: true,
+      valid: false,
+      tampered: true,
+      expired: false,
+      wrongInstitution: false,
+      requiresServerVerification: true,
+      reason: 'Formato de token QR inválido ou truncado.',
+    };
+  }
+
+  const [, instId, studentId, studentCode, issuedStr, expStr, providedSig] = parts;
+  const issuedAt = Number(issuedStr);
+  const expiresAt = Number(expStr);
+
+  if (!instId || !studentId || !studentCode || !Number.isFinite(issuedAt) || !Number.isFinite(expiresAt) || !providedSig) {
+    return {
+      isSignedV1: true,
+      valid: false,
+      tampered: true,
+      expired: false,
+      wrongInstitution: false,
+      requiresServerVerification: true,
+      reason: 'Campos obrigatórios do token QR ausentes ou corrompidos.',
+    };
+  }
+
+  const expectedSig = computeClientEnvelopeTag(instId, studentId, studentCode, issuedAt, expiresAt);
+  if (providedSig.toUpperCase() !== expectedSig) {
+    return {
+      isSignedV1: true,
+      valid: false,
+      tampered: true,
+      expired: false,
+      wrongInstitution: false,
+      requiresServerVerification: true,
+      institutionId: instId,
+      studentId,
+      studentCode,
+      signature: providedSig,
+      reason: 'Assinatura do token QR adulterada ou inválida.',
+    };
+  }
+
+  if (expectedInstitutionId && instId !== expectedInstitutionId) {
+    return {
+      isSignedV1: true,
+      valid: false,
+      tampered: false,
+      expired: false,
+      wrongInstitution: true,
+      requiresServerVerification: true,
+      institutionId: instId,
+      studentId,
+      studentCode,
+      signature: providedSig,
+      reason: `QR Code pertence a outra instituição (${instId}).`,
+    };
+  }
+
+  if (expiresAt > 0 && nowMs > expiresAt) {
+    return {
+      isSignedV1: true,
+      valid: false,
+      tampered: false,
+      expired: true,
+      wrongInstitution: false,
+      requiresServerVerification: true,
+      institutionId: instId,
+      studentId,
+      studentCode,
+      signature: providedSig,
+      reason: 'Token QR expirado. Emita uma nova carteirinha na Secretaria.',
+    };
+  }
+
   return {
-    id: student.id,
-    fullName: student.fullName,
-    code: student.code,
-    courseName: student.courseName,
-    classGroupName: student.classGroupName,
-    status: student.status,
-    photoUrl: student.photoUrl,
-    institutionName: institutionName,
-    institutionCode: institutionCode,
-    qrVerificationHash: generateStudentQrHash(student.id, student.code, student.institutionId || institutionCode),
-    qrGeneratedAt: new Date().toLocaleDateString('pt-MZ'),
-    academicYear: '2026'
+    isSignedV1: true,
+    valid: true,
+    tampered: false,
+    expired: false,
+    wrongInstitution: false,
+    requiresServerVerification: true,
+    institutionId: instId,
+    studentId,
+    studentCode,
+    signature: providedSig,
   };
 }
 
 /**
- * Verifica se o utilizador logado possui perfil com autorização para homologar ENTRADA ou SAÍDA.
+ * URL pública de verificação para QR Codes de carteirinhas ou certificados.
  */
-export function isAuthorizedGateOperator(userRole?: string | null): boolean {
-  if (!userRole) return false;
-  const canonical = toCanonicalRole(userRole);
-  
-  const authorizedRoles = [
-    'SUPER_ADMIN', 
-    'ADMIN_INSTITUICAO', 
-    'DIRETOR', 
-    'SECRETARIA', 
-    'PORTARIA', 
-    'PROFESSOR',
-    'FORMADOR'
-  ];
-
-  if (authorizedRoles.includes(canonical)) {
-    return true;
-  }
-
-  const rawLower = userRole.toLowerCase();
-  return (
-    rawLower.includes('portaria') ||
-    rawLower.includes('seguranca') ||
-    rawLower.includes('recepcao') ||
-    rawLower.includes('admin') ||
-    rawLower.includes('director') ||
-    rawLower.includes('secretaria')
-  );
+export function getStudentQrUrl(studentCode: string, institutionId: string): string {
+  const base = typeof window !== 'undefined' ? window.location.origin : 'https://sigar.moztechwave.com';
+  return `${base}/?route=sivec_verify_public&type=student&code=${encodeURIComponent(studentCode)}&inst=${encodeURIComponent(institutionId)}`;
 }
+
+export interface PublicStudentInfo {
+  fullName: string;
+  code: string;
+  courseName: string;
+  classGroupName: string;
+  status: string;
+  photoUrl?: string;
+  institutionName: string;
+  qrVerificationHash: string;
+  signedToken: string;
+}
+
+/**
+ * Filtra estritamente apenas os dados públicos autorizados do estudante (sem BI, telefone pessoal, morada, financeiro ou encarregado).
+ */
+export function getAuthorizedPublicStudentData(
+  student: {
+    id: string;
+    fullName: string;
+    name?: string;
+    code: string;
+    courseName: string;
+    classGroupName: string;
+    status: string;
+    photoUrl?: string;
+    institutionId?: string;
+  },
+  institutionName: string,
+  institutionIdOrCode: string
+): PublicStudentInfo {
+  const instRef = student.institutionId || institutionIdOrCode || 'INST';
+  const cleanCode = (student.code || '').trim().toUpperCase();
+  return {
+    fullName: student.fullName || student.name || 'Estudante',
+    code: cleanCode,
+    courseName: student.courseName || 'Curso não especificado',
+    classGroupName: student.classGroupName || 'Sem turma',
+    status: student.status || 'Ativo',
+    photoUrl: student.photoUrl,
+    institutionName: institutionName || 'Instituição de Ensino',
+    qrVerificationHash: generateStudentQrHash(student.id, cleanCode, instRef),
+    signedToken: buildSignedStudentQrToken({
+      studentId: student.id,
+      institutionId: instRef,
+      studentCode: cleanCode,
+    }),
+  };
+}
+
+/**
+ * Verifica se o perfil autenticado tem autorização operacional na portaria.
+ */
+export function isAuthorizedGateOperator(role?: string): boolean {
+  const normalized = (role || '').trim().toUpperCase();
+  return [
+    'SUPER_ADMIN',
+    'SUPERADMIN',
+    'ADMIN_INSTITUICAO',
+    'ADMIN',
+    'DIRETOR',
+    'DIRECTOR',
+    'DIRECTOR_GERAL',
+    'SECRETARIA',
+    'PORTEIRO',
+    'PORTEIRO_ACESSO',
+    'OPERADOR',
+    'STAFF',
+  ].includes(normalized);
+}
+

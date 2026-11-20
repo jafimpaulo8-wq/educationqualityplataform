@@ -21,6 +21,7 @@ import {
   FileCheck
 } from 'lucide-react';
 import { PaymentRecord, PAYMENT_SERVICE_CATALOG } from '../../types/finance';
+import { Institution } from '../../types';
 import { useApp } from '../../context/AppContext';
 import { InstitutionLogoBadge } from '../../components/common/InstitutionLogoBadge';
 import { resolveInstitutionIdentity } from '../../utils/institutionIdentity';
@@ -31,11 +32,13 @@ interface PaymentReceiptModalProps {
   payment: PaymentRecord;
   onClose: () => void;
   onReprint?: () => void;
+  institution?: Partial<Institution>;
 }
 
-export const PaymentReceiptModal: React.FC<PaymentReceiptModalProps> = ({ payment, onClose, onReprint }) => {
+export const PaymentReceiptModal: React.FC<PaymentReceiptModalProps> = ({ payment, onClose, onReprint, institution }) => {
   const { activeInstitution, recordReceiptReprint, currentUser, sendDirectWhatsAppMessage } = useApp();
-  const identity = resolveInstitutionIdentity(activeInstitution);
+  const effectiveInstitution = (institution as Institution) || activeInstitution;
+  const identity = resolveInstitutionIdentity(effectiveInstitution);
   const instLabel = identity.officialName || 'Instituição de Ensino';
   const contactLine = [
     identity.address,
@@ -47,8 +50,10 @@ export const PaymentReceiptModal: React.FC<PaymentReceiptModalProps> = ({ paymen
   const [showQrCode, setShowQrCode] = useState<boolean>(payment.qrCodeEnabled !== false);
   const [copied, setCopied] = useState(false);
 
-  const serviceConfig = PAYMENT_SERVICE_CATALOG[payment.serviceItem];
-  const receiptNumber = payment.receiptNumber || `REC-2026-${payment.id.slice(-4).toUpperCase()}`;
+  const serviceKey = payment.serviceItem || 'outros';
+  const serviceConfig = PAYMENT_SERVICE_CATALOG[serviceKey];
+  const serviceDisplay = (payment.serviceItem || payment.serviceDescription || serviceConfig?.label || 'PAGAMENTO').toUpperCase();
+  const receiptNumber = payment.receiptNumber || `REC-${new Date().getFullYear()}-${payment.id.slice(-4).toUpperCase()}`;
   const isReprint = (payment.reprintCount && payment.reprintCount > 0);
 
   const handlePrint = () => {
@@ -62,7 +67,7 @@ export const PaymentReceiptModal: React.FC<PaymentReceiptModalProps> = ({ paymen
     const text = `*RECIBO DE PAGAMENTO OFICIAL - ${instLabel}*
 N.º: ${receiptNumber}
 Aluno: ${payment.studentName} (${payment.studentCode})
-Serviço: ${payment.serviceItem.toUpperCase()} - ${payment.serviceDescription || serviceConfig?.label}
+Serviço: ${serviceDisplay} - ${payment.serviceDescription || serviceConfig?.label || ''}
 Valor: ${payment.amount.toLocaleString('pt-MZ', { minimumFractionDigits: 2 })} MT
 Método: ${payment.network} (Tx: ${payment.transactionCode})
 Data: ${payment.date} ${payment.time}
@@ -76,7 +81,7 @@ ${isReprint ? `(2ª VIA - Reimpressão #${payment.reprintCount})` : '(1ª VIA - 
   };
 
   const handleShareWhatsApp = () => {
-    const rawMsg = `*RECIBO DE PAGAMENTO OFICIAL - ${instLabel}*\nN.º: ${receiptNumber}\nAluno: ${payment.studentName} (${payment.studentCode})\nServiço: ${payment.serviceItem.toUpperCase()}\nValor: ${payment.amount.toLocaleString('pt-MZ', { minimumFractionDigits: 2 })} MT\nData: ${payment.date} ${payment.time}\nVerificação: ${window.location.origin}/?validar-recibo=${encodeURIComponent(receiptNumber)}`;
+    const rawMsg = `*RECIBO DE PAGAMENTO OFICIAL - ${instLabel}*\nN.º: ${receiptNumber}\nAluno: ${payment.studentName} (${payment.studentCode})\nServiço: ${serviceDisplay}\nValor: ${payment.amount.toLocaleString('pt-MZ', { minimumFractionDigits: 2 })} MT\nData: ${payment.date} ${payment.time}\nVerificação: ${window.location.origin}/?validar-recibo=${encodeURIComponent(receiptNumber)}`;
     const phone = payment.studentPhone || identity.whatsapp || identity.phone || '';
 
     sendDirectWhatsAppMessage({
@@ -388,7 +393,7 @@ ${isReprint ? `(2ª VIA - Reimpressão #${payment.reprintCount})` : '(1ª VIA - 
 
               {/* Institution Header */}
               <div className="flex items-center gap-4 pb-3 border-b border-slate-200">
-                <InstitutionLogoBadge institution={activeInstitution} size="lg" rounded="xl" />
+                <InstitutionLogoBadge institution={effectiveInstitution} size="lg" rounded="xl" />
                 <div className="flex-1">
                   <h1 className="text-lg sm:text-xl font-black text-slate-900 uppercase tracking-tight">
                     {instLabel}
@@ -499,7 +504,7 @@ ${isReprint ? `(2ª VIA - Reimpressão #${payment.reprintCount})` : '(1ª VIA - 
                     Recibo {receiptNumber} • {payment.studentName} ({payment.studentCode})
                   </p>
                   <p className="text-slate-500 text-[11px]">
-                    Rubrica: {payment.serviceItem.toUpperCase()} • Modo: {payment.network} ({payment.transactionCode})
+                    Rubrica: {serviceDisplay} • Modo: {payment.network} ({payment.transactionCode})
                   </p>
                 </div>
                 <div className="text-right">

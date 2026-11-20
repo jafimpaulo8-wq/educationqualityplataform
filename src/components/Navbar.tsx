@@ -17,7 +17,7 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { useApp } from '../context/AppContext';
 
 interface NavbarProps {
-  onNavigateToPlatform: (mode?: 'google' | 'credentials' | 'code') => void;
+  onNavigateToPlatform: (mode?: 'google' | 'credentials') => void;
   onOpenPublicVerify: () => void;
   onOpenOnlineRegistration?: () => void;
   onOpenRegisterInstitution: () => void;

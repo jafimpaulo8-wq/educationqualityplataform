@@ -73,6 +73,7 @@ export const InstitutionSettingsView: React.FC = () => {
   const [address, setAddress] = useState(activeInstitution.address || '');
   const [logoUrl, setLogoUrl] = useState(identity.logoUrl);
   const [emblemUrl, setEmblemUrl] = useState(activeInstitution.emblemUrl || '');
+  const [faviconUrl, setFaviconUrl] = useState(activeInstitution.faviconUrl || identity.faviconUrl || '');
   const [primaryColor, setPrimaryColor] = useState(identity.colors.primary);
   const [secondaryColor, setSecondaryColor] = useState(identity.colors.secondary);
   const [accentColor, setAccentColor] = useState(identity.colors.accent);
@@ -161,6 +162,7 @@ export const InstitutionSettingsView: React.FC = () => {
     setAddress(activeInstitution.address || '');
     setLogoUrl(resolved.logoUrl);
     setEmblemUrl(activeInstitution.emblemUrl || '');
+    setFaviconUrl(activeInstitution.faviconUrl || resolved.faviconUrl || '');
     setPrimaryColor(resolved.colors.primary);
     setSecondaryColor(resolved.colors.secondary);
     setAccentColor(resolved.colors.accent);
@@ -256,6 +258,7 @@ export const InstitutionSettingsView: React.FC = () => {
         address,
         logoUrl,
         emblemUrl: emblemUrl.trim(),
+        faviconUrl: faviconUrl.trim(),
         institutionalColors: {
           primary: primaryColor || DEFAULT_INSTITUTION_COLORS.primary,
           secondary: secondaryColor || DEFAULT_INSTITUTION_COLORS.secondary,
@@ -500,6 +503,22 @@ export const InstitutionSettingsView: React.FC = () => {
                 placeholder="https://exemplo.co.mz/emblema.png"
                 className="w-full px-3.5 py-2.5 rounded-xl bg-[#0d1527] border border-slate-800 text-white text-xs focus:border-blue-500 focus:outline-hidden"
               />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                URL do Favicon dos Portais Públicos (Opcional)
+              </label>
+              <input
+                type="text"
+                value={faviconUrl}
+                onChange={(e) => setFaviconUrl(e.target.value)}
+                placeholder="https://exemplo.co.mz/favicon.ico"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-[#0d1527] border border-slate-800 text-white text-xs focus:border-blue-500 focus:outline-hidden"
+              />
+              <p className="text-[11px] text-slate-500 mt-1">
+                Usado automaticamente no separador do navegador do Portal de Pagamentos e Portal de Inscrições. Se vazio, usa o logótipo.
+              </p>
             </div>
 
             <div className="pt-4 border-t border-slate-800/80 space-y-3">

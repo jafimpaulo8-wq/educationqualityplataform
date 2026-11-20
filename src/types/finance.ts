@@ -149,6 +149,10 @@ export interface ContaReceber {
   studentId?: string;
   studentName?: string;
   studentCode?: string;
+  studentUserId?: string;
+  guardianUserId?: string;
+  guardianUids?: string[];
+  guardianEmail?: string;
   classGroupId?: string;
   classGroupName?: string;
   courseName?: string;
@@ -164,8 +168,10 @@ export interface ContaReceber {
   issueDate?: string;
   paymentDate?: string;
   status: 'pendente' | 'pago' | 'atrasado' | 'cancelado' | 'parcial';
-  paymentMethod?: 'Dinheiro' | 'M-Pesa' | 'e-Mola' | 'Ponto24' | 'Transferência Bancária' | 'POS' | string;
+  paymentMethod?: 'Dinheiro' | 'M-Pesa' | 'e-Mola' | 'mKesh' | 'Ponto24' | 'Transferência Bancária' | 'POS' | string;
   receiptNumber?: string;
+  receiptId?: string;
+  paymentRecordId?: string;
   notes?: string;
   createdAt: string;
   updatedAt?: string;
@@ -250,6 +256,13 @@ export interface PaymentRecord {
   studentId: string;
   studentName: string;
   studentCode: string;
+  studentUserId?: string;
+  guardianUserId?: string;
+  guardianUids?: string[];
+  guardianEmail?: string;
+  submittedByUid?: string;
+  contaReceberId?: string;
+  receiptId?: string;
   studentPhone?: string;
   courseName?: string;
   
@@ -303,6 +316,49 @@ export interface PaymentRecord {
   lastReprintedAt?: string;
   lastReprintedBy?: string;
   qrCodeEnabled?: boolean;
+}
+
+export interface OfficialReceiptRecord {
+  id: string;
+  institutionId: string;
+  paymentId: string;
+  contaReceberId?: string;
+  receiptNumber: string;
+  studentId: string;
+  studentName: string;
+  studentCode: string;
+  studentUserId?: string;
+  guardianUserId?: string;
+  guardianUids?: string[];
+  guardianEmail?: string;
+  serviceItem: PaymentServiceItem | string;
+  serviceDescription?: string;
+  amount: number;
+  network: PaymentNetwork;
+  transactionCode: string;
+  issuedAt: string;
+  issuedBy: string;
+  issuedByUid?: string;
+  qrVerificationCode: string;
+  reprintCount: number;
+  status: 'Emitido';
+}
+
+export interface InstitutionalReceivingAccount {
+  id: string;
+  institutionId: string;
+  channel: 'M-Pesa' | 'e-Mola' | 'mKesh' | 'Banco';
+  label: string;
+  accountNumber: string;
+  holderName: string;
+  nib?: string;
+  iban?: string;
+  shortcode?: string;
+  instructions?: string;
+  isDefault?: boolean;
+  isActive: boolean;
+  updatedAt: string;
+  updatedBy?: string;
 }
 
 export const PAYMENT_SERVICE_CATALOG: Record<PaymentServiceItem, {
