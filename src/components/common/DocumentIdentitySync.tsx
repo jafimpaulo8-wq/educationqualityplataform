@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { resolveInstitutionIdentity } from '../../utils/institutionIdentity';
+import { isPublicRegistrationPath } from '../../services/publicInstitutionService';
 
 const NEUTRAL_FAVICON_DATA_URI =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23090d16'/%3E%3Cpath d='M18 42V22h10c6 0 10 3.5 10 8.5S34 39 28 39h-4v3H18zm6-8h4c2.8 0 4.5-1.3 4.5-3.5S30.8 27 28 27h-4v7z' fill='%2338bdf8'/%3E%3C/svg%3E";
@@ -55,7 +56,7 @@ export const DocumentIdentitySync: React.FC = () => {
       currentRoute === 'portal_pagamentos';
 
     const isRegistrationPortalRoute =
-      (hasInstPrefix && (pathname.includes('/inscricoes') || hash.includes('/inscricoes'))) ||
+      isPublicRegistrationPath(pathname, hash) ||
       currentRoute === 'inscricao_publica';
 
     // 1. Portal público / independente por slug institucional (Inscrições ou Pagamentos)

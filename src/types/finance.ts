@@ -235,6 +235,9 @@ export type PaymentServiceItem =
 export type PaymentNetwork = 'M-Pesa' | 'e-Mola' | 'Ponto24' | 'Transferência Bancária' | 'Dinheiro' | 'Banco (BIM)' | string;
 
 export type PaymentStatus =
+  | 'PENDING_APPROVAL'
+  | 'APPROVED'
+  | 'REJECTED'
   | 'PENDENTE DE CONFIRMAÇÃO'
   | 'PAGO'
   | 'REJEITADO'
@@ -298,7 +301,9 @@ export interface PaymentRecord {
 
   // Administrador
   reviewedBy?: string;
+  reviewedByUid?: string;
   reviewedAt?: string;
+  adminNotes?: string;
   correctionNotes?: string;
   rejectionReason?: string;
 
@@ -324,6 +329,7 @@ export interface OfficialReceiptRecord {
   paymentId: string;
   contaReceberId?: string;
   receiptNumber: string;
+  sequenceNumber?: number;
   studentId: string;
   studentName: string;
   studentCode: string;
@@ -331,11 +337,18 @@ export interface OfficialReceiptRecord {
   guardianUserId?: string;
   guardianUids?: string[];
   guardianEmail?: string;
+  courseName?: string;
+  institutionName?: string;
+  institutionNuit?: string;
+  institutionAddress?: string;
+  institutionPhone?: string;
   serviceItem: PaymentServiceItem | string;
   serviceDescription?: string;
   amount: number;
   network: PaymentNetwork;
   transactionCode: string;
+  paymentDate?: string;
+  paymentTime?: string;
   issuedAt: string;
   issuedBy: string;
   issuedByUid?: string;

@@ -1,0 +1,932 @@
+# [AI Studio] SIGAR PRO — REORGANIZAÇÃO INTEGRAL DOS FLUXOS INSTITUCIONAIS, FINANCEIROS, ACADÉMICOS E DE UTILIZADORES
+
+## MISSÃO PRINCIPAL
+
+Quero que analises, corrijas e completes os fluxos do SIGAR PRO para que a plataforma funcione como um verdadeiro sistema de gestão institucional multi-instituição.
+
+Não quero correcções exclusivamente visuais, soluções temporárias ou funcionalidades simuladas. Quero fluxos funcionais, integrados, persistentes, seguros e reutilizáveis por todas as instituições existentes e futuras.
+
+A implementação deve respeitar a arquitectura já existente e aproveitar os componentes e serviços que funcionam. Não reconstruas o sistema desnecessariamente.
+
+**REGRA FUNDAMENTAL:** uma funcionalidade estrutural deve ser desenvolvida uma única vez e funcionar automaticamente para todas as instituições autorizadas, sem ser necessário voltar ao Google AI Studio para configurar manualmente cada nova instituição.
+
+---
+
+# BLOCO 0 — PROTECÇÃO DO PROJECTO E DOS DADOS
+
+Antes de qualquer implementação:
+
+1. Confirmar que estás a trabalhar no projecto Google AI Studio correcto, React/Vite/Firebase.
+2. A origem original é `/app/applet`.
+3. A cópia de trabalho de salvaguarda identificada anteriormente é `/app/sigar_pro_salvaguarda_am03/copia_trabalho`.
+4. Confirmar a existência e integridade da cópia de trabalho e do repositório Git local.
+5. Trabalhar exclusivamente na cópia de trabalho, sem modificar `/app/applet`.
+6. Se a cópia de trabalho não existir ou não puder ser validada, interromper a implementação e apresentar o problema.
+7. Criar um ponto de recuperação local antes de alterar o código, sem apagar ou substituir os pontos anteriores.
+8. Não assumir que a salvaguarda existente é externa ou durável: a cópia continua no mesmo ambiente de execução.
+9. Não apresentar dados de produção como se tivessem sido testados quando não foram.
+
+### Identidades que devem ser preservadas
+
+- `moztechwavenacala8@gmail.com` continua a ser o SUPER_ADMIN global existente.
+- `jafimpaulo8@gmail.com` continua DIRETOR do Centro Infantil Céu Azul (`ceu-azul-nacala`).
+- Não promover utilizadores a Super Admin automaticamente.
+- Não substituir identidades, instituições, contas ou permissões existentes.
+- Preservar CFTPM Moztechwave, Centro Infantil Céu Azul e restantes instituições e respectivos registos.
+
+### Proibições
+
+- Não executar alterações nas bases de dados remotas.
+- Não modificar regras de segurança Firebase de produção.
+- Não criar estudantes, pagamentos, recibos, certificados ou instituições fictícias.
+- Não apagar registos antigos.
+- Não publicar no Vercel nem efectuar deploy.
+- Não substituir funcionalidades existentes por demonstrações ou dados simulados.
+- Não utilizar `allow read, write: true`.
+- Não implementar autenticação baseada apenas em `localStorage`.
+- Não permitir que o utilizador escolha livremente um perfil para obter permissões.
+
+---
+
+# BLOCO 1 — PAGAMENTOS DO PORTAL DO ALUNO E FLUXO DE APROVAÇÃO
+
+Este fluxo deve funcionar de ponta a ponta.
+
+## 1.1 Portal do aluno
+
+No Portal do Aluno, criar ou corrigir a área de pagamentos.
+
+O aluno deverá encontrar:
+
+- Mensalidades.
+- Matrículas.
+- Inscrições.
+- Contribuições.
+- Taxas institucionais.
+- Outros pagamentos definidos pela instituição.
+
+Ao clicar em **Pagar**, deverá abrir um novo separador do navegador com o Portal de Pagamentos da mesma instituição.
+
+O portal deverá identificar automaticamente:
+
+- Instituição.
+- Aluno.
+- Número de matrícula ou identificador.
+- Curso, classe, sala ou grupo aplicável.
+- Dívidas e valores pendentes.
+- Tipo de pagamento seleccionado.
+
+Não exigir que o aluno volte a introduzir dados que o SIGAR já conhece.
+
+## 1.2 Portal de Pagamentos
+
+Criar uma interface organizada em que o aluno possa:
+
+1. Escolher o tipo de pagamento.
+2. Seleccionar a mensalidade, matrícula, contribuição ou outra obrigação.
+3. Consultar o valor devido.
+4. Indicar o valor que pretende pagar, respeitando as regras da instituição.
+5. Seleccionar o método de pagamento disponível.
+6. Introduzir a referência da transacção, quando aplicável.
+7. Anexar o comprovativo.
+8. Confirmar e submeter o pagamento.
+
+Os métodos disponíveis devem depender das integrações realmente configuradas pela instituição.
+
+Não apresentar M-Pesa, e-Mola, mKesh, bancos ou outros métodos como activos quando não existe integração ou procedimento funcional.
+
+## 1.3 Estado do pagamento
+
+Após a submissão:
+
+- Criar um registo persistente de pagamento.
+- Atribuir um identificador único.
+- Guardar o comprovativo.
+- Marcar o pagamento como PENDENTE DE APROVAÇÃO.
+- Não considerar a dívida paga automaticamente.
+- Não emitir recibo oficial antes da aprovação.
+
+## 1.4 Notificações para aprovação
+
+O pagamento deve gerar notificações reais no:
+
+- Portal do Director.
+- Portal da Secretaria.
+- Portal Financeiro/Tesouraria.
+
+A notificação deve apresentar:
+
+- Nome do aluno.
+- Instituição.
+- Tipo de pagamento.
+- Valor declarado.
+- Data da submissão.
+- Comprovativo.
+- Estado actual.
+
+Ao clicar na notificação, o responsável deve ser encaminhado directamente para o pagamento correspondente.
+
+## 1.5 Aprovação e rejeição
+
+Os utilizadores autorizados devem poder:
+
+- Aprovar.
+- Rejeitar.
+- Indicar motivo da rejeição.
+- Consultar o comprovativo.
+- Consultar o histórico da decisão.
+
+A aprovação deve ser registada com o utilizador responsável, data, hora e instituição.
+
+Apenas utilizadores com permissões financeiras adequadas podem aprovar pagamentos.
+
+Não permitir que a simples abertura de uma notificação aprove automaticamente um pagamento.
+
+## 1.6 Recibo do aluno
+
+Após a aprovação:
+
+1. Actualizar o estado do pagamento.
+2. Actualizar a conta corrente do aluno.
+3. Emitir um recibo persistente.
+4. Gerar o PDF real do recibo.
+5. Associar o recibo ao pagamento aprovado.
+6. Notificar o aluno no seu próprio portal.
+
+Quando o aluno abrir a notificação, deverá encontrar o recibo, consultar, visualizar e imprimir.
+
+O recibo deve conter:
+
+- Logótipo da instituição.
+- Nome e identificação institucional.
+- Nome e identificação do aluno.
+- Número do recibo.
+- Tipo de pagamento.
+- Valor.
+- Data.
+- Método de pagamento.
+- Referência, quando aplicável.
+- Estado de aprovação.
+- Identificação do responsável pela aprovação.
+- Elementos de autenticação institucional previstos pelo sistema.
+
+Não utilizar `window.print()` como substituto da geração e conservação de um documento PDF persistente.
+
+---
+
+# BLOCO 2 — IDENTIDADE VISUAL CENTRALIZADA EM TODOS OS PORTAIS
+
+Criar uma única fonte de identidade institucional.
+
+Cada instituição deve ter configurações próprias:
+
+- Logótipo.
+- Nome oficial.
+- Nome abreviado.
+- Cores institucionais.
+- Endereço.
+- Contactos.
+- Outros elementos de identidade visual.
+
+## 2.1 Aplicação automática
+
+O logótipo da instituição deve aparecer automaticamente em TODOS os portais associados a essa instituição:
+
+- Portal do Director.
+- Portal da Secretaria.
+- Portal Financeiro.
+- Portal do Pedagógico.
+- Portal do Professor.
+- Portal do Formador.
+- Portal do Educador.
+- Portal do Aluno.
+- Portal do Encarregado.
+- Portal do Porteiro.
+- Portal da Empresa.
+- Outros portais que o SIGAR disponibilizar.
+
+Não implementar o logótipo individualmente em cada instituição.
+
+Todos os portais devem consultar a identidade institucional central.
+
+## 2.2 Separador do navegador
+
+Cada portal deve apresentar:
+
+- Favicon/logótipo da instituição.
+- Nome da instituição no título do separador.
+- Identificação do portal aberto.
+
+Exemplo:
+
+`CFTPM Moztechwave | Portal da Secretaria`
+
+`Centro Infantil Céu Azul | Portal do Director`
+
+O utilizador deve conseguir confirmar visualmente a instituição em que está a trabalhar.
+
+## 2.3 Actualização
+
+Quando o administrador alterar o logótipo ou as informações institucionais, todos os portais devem reflectir a alteração automaticamente.
+
+Não exigir alterações manuais no código.
+
+A implementação deve funcionar também para instituições futuras.
+
+Respeitar o isolamento institucional: nunca mostrar o logótipo de uma instituição em portais de outra.
+
+---
+
+# BLOCO 3 — CONFIGURAÇÃO DAS INSCRIÇÕES PÚBLICAS
+
+Corrigir integralmente o construtor e a publicação dos portais de inscrição.
+
+## 3.1 Configuração pelo administrador
+
+O responsável deve poder configurar:
+
+- Ano lectivo ou período de formação.
+- Cursos, classes, disciplinas ou modalidades.
+- Salas, grupos e turmas.
+- Faixas etárias, quando aplicável.
+- Vagas.
+- Horários.
+- Preços e taxas.
+- Descrição institucional.
+- Mensagem de boas-vindas.
+- Contactos.
+- Número de WhatsApp.
+- Documentos exigidos.
+- Perguntas personalizadas.
+- Campos obrigatórios.
+- Campos opcionais.
+- Campos desactivados.
+- Métodos de pagamento.
+- Datas de abertura e encerramento.
+
+## 3.2 Regra de isolamento
+
+Quando uma instituição publica o seu link:
+
+- Mostrar apenas cursos e modalidades daquela instituição.
+- Mostrar exclusivamente o seu logótipo.
+- Mostrar a sua descrição.
+- Mostrar os seus contactos.
+- Mostrar o seu número de WhatsApp.
+- Mostrar apenas as salas, grupos e vagas que configurou.
+- Mostrar somente as perguntas e campos seleccionados.
+- Respeitar as obrigatoriedades definidas.
+
+Não apresentar cursos de outras instituições.
+
+Não utilizar dados do Céu Azul como fallback para a Moztechwave, nem dados da Moztechwave como fallback para outra instituição.
+
+Se a instituição não for encontrada, apresentar uma mensagem clara de instituição não encontrada.
+
+Nunca substituir silenciosamente uma instituição inválida por outra.
+
+## 3.3 Perguntas e campos
+
+Corrigir a lógica de campos:
+
+- Campo marcado como obrigatório: exigir preenchimento.
+- Campo opcional: permitir avançar sem preenchimento.
+- Campo desactivado: não apresentar.
+- Pergunta não seleccionada: não apresentar.
+- Documento obrigatório: exigir anexo válido.
+- Documento opcional: permitir continuar sem anexo.
+
+A validação deve acontecer no frontend e no servidor.
+
+Não aceitar inscrições com campos obrigatórios incompletos.
+
+## 3.4 WhatsApp
+
+O botão de WhatsApp deve utilizar exactamente o número configurado pela instituição.
+
+Validar o formato do número e gerar correctamente o endereço de contacto.
+
+Não utilizar números fixos ou herdados de outra instituição.
+
+## 3.5 Endereço público
+
+Utilizar identificadores estáveis e únicos, preferencialmente slugs institucionais.
+
+Exemplo:
+
+`/i/moztechwave`
+
+`/i/ceu-azul-nacala`
+
+A rota pública deve identificar a instituição pelo seu ID/slug, nunca depender exclusivamente do nome escrito pelo utilizador.
+
+Preservar compatibilidade com links antigos sempre que seja possível fazê-lo com segurança.
+
+---
+
+# BLOCO 4 — GESTÃO DE UTILIZADORES E CONVITES
+
+O administrador de cada instituição deve possuir uma área permanente de gestão de utilizadores.
+
+## 4.1 Cadastro de utilizadores
+
+Permitir cadastrar:
+
+- Pedagógico.
+- Secretaria.
+- Financeiro/Tesouraria.
+- Professor.
+- Formador.
+- Educador.
+- Porteiro.
+- Cozinheiro.
+- Motorista/Transportador.
+- Monitor/Auxiliar.
+- Outros profissionais configurados.
+
+A lista deve depender dos perfis e módulos autorizados para aquela instituição.
+
+O administrador deve poder atribuir:
+
+- Nome.
+- Contacto.
+- Endereço de e-mail.
+- Perfil.
+- Departamento.
+- Funções.
+- Permissões específicas.
+- Fotografia, quando disponível.
+
+Não permitir que um administrador institucional crie ou promova Super Administradores globais.
+
+## 4.2 Convite individual
+
+Aproveitar o fluxo de convite do aluno que já existe e adaptá-lo aos profissionais.
+
+O processo deverá ser:
+
+1. Administrador cadastra o profissional.
+2. Selecciona o perfil e as permissões.
+3. SIGAR gera uma chave de acesso e um convite individual.
+4. Administrador pode partilhar pelo WhatsApp.
+5. O convite também pode ser enviado automaticamente por e-mail quando existir integração real.
+6. A pessoa abre o link.
+7. Confirma a identidade através do mecanismo seguro implementado.
+8. Define uma nova palavra-passe.
+9. Carrega a sua fotografia de perfil.
+10. Confirma os dados.
+11. A conta fica associada à instituição e ao perfil previamente atribuído.
+12. O utilizador entra no portal correspondente.
+
+O link deve ser individual, temporário, de utilização única e protegido contra reutilização ou apropriação por terceiros.
+
+A pessoa não deve poder alterar o convite para obter outro perfil ou entrar noutra instituição.
+
+## 4.3 WhatsApp
+
+Disponibilizar botão de convite pelo WhatsApp, com mensagem pré-preenchida e link correcto.
+
+Distinguir partilha manual de envio automático por API.
+
+Não afirmar que uma mensagem foi enviada automaticamente se apenas foi aberto o WhatsApp para o administrador a enviar.
+
+## 4.4 Gestão posterior
+
+Permitir:
+
+- Consultar convites.
+- Reenviar convites.
+- Revogar convites.
+- Consultar estado de activação.
+- Suspender utilizadores.
+- Reactivar utilizadores.
+- Alterar permissões.
+- Consultar histórico de alterações.
+
+---
+
+# BLOCO 5 — FOTOGRAFIA E CRACHÁ DE TODOS OS PERFIS
+
+Todos os perfis que utilizem o SIGAR devem possuir uma ficha de identificação e um crachá institucional.
+
+Incluir:
+
+- Fotografia.
+- Nome completo.
+- Instituição.
+- Perfil ou função.
+- Código interno ou identificador.
+- Número de identificação, apenas quando autorizado e necessário.
+- Código QR de verificação, quando aplicável.
+
+Os crachás devem poder ser visualizados e impressos.
+
+A fotografia deve ser carregada pelo próprio utilizador durante a activação ou actualização do perfil, ou pelo administrador quando autorizado.
+
+Criar um modelo de crachá institucional reutilizável, que aplique automaticamente o logótipo e as cores da instituição.
+
+Não expor BI, telefone, endereço ou outros dados pessoais através de QR público.
+
+---
+
+# BLOCO 6 — REGISTO E ADESÃO DE NOVAS INSTITUIÇÕES
+
+Criar um processo completo de adesão institucional.
+
+Uma instituição nova deve conseguir iniciar o processo sem intervenção técnica manual.
+
+## 6.1 Identificação e autenticação
+
+Permitir iniciar o processo através de Google, usando autenticação real.
+
+Depois da autenticação, apresentar o formulário de registo institucional.
+
+A autenticação Google não deve transformar automaticamente o utilizador em Super Admin.
+
+## 6.2 Dados institucionais
+
+Recolher os dados necessários, de acordo com o tipo de instituição:
+
+- Nome oficial.
+- Nome comercial.
+- Tipo de instituição.
+- NUIT, quando aplicável.
+- Endereço.
+- Província.
+- Distrito.
+- Localidade.
+- Contactos.
+- E-mail institucional.
+- Responsável.
+- Identificação do responsável, quando legalmente necessária.
+- Logótipo.
+- Descrição.
+- Modalidades de ensino.
+- Cursos, classes ou serviços.
+- Profissionais.
+- Beneficiários.
+- Módulos pretendidos.
+- Configurações académicas.
+- Necessidades administrativas.
+- Documentação exigida.
+
+Não solicitar dados pessoais excessivos. Recolher apenas os dados necessários para a finalidade declarada e proteger o seu acesso.
+
+## 6.3 Alvará e SIVEC
+
+Criar uma área específica para documentação legal.
+
+Se a instituição possui alvará:
+
+- Permitir anexar o documento.
+- Registar os seus dados.
+- Enviar para análise.
+
+Se não possui alvará:
+
+- Apresentar a possibilidade de iniciar ou acompanhar o processo documental SIVEC, caso exista um procedimento real e autorizado.
+- Recolher os documentos e informações necessários.
+- Apresentar o estado do processo.
+- Não emitir nem simular um alvará oficial.
+- Não declarar uma instituição legalmente licenciada apenas por estar registada no SIGAR.
+
+Distinguir sempre:
+
+1. Registo da instituição no SIGAR.
+2. Aprovação interna pelo Super Admin.
+3. Validação documental.
+4. Licenciamento ou aprovação oficial pelas entidades competentes.
+
+Não inventar integração com SIVEC ou entidades externas.
+
+## 6.4 Aprovação institucional
+
+Após a submissão:
+
+- Criar pedido com estado PENDENTE.
+- Notificar o Super Admin.
+- Permitir análise dos dados e documentos.
+- Permitir aprovar ou rejeitar com justificação.
+- Guardar histórico e responsável pela decisão.
+
+Depois da aprovação interna:
+
+- Criar a instituição com identificador único.
+- Criar a configuração inicial.
+- Associar o responsável como ADMIN_INSTITUICAO, sem privilégios globais.
+- Disponibilizar o painel institucional.
+- Permitir configurar módulos, utilizadores, inscrições e identidade visual.
+
+Não activar instituições automaticamente antes da aprovação.
+
+---
+
+# BLOCO 7 — CONFIGURAÇÃO INTELIGENTE DOS TIPOS DE INSTITUIÇÃO
+
+Criar uma configuração institucional central, editável pelo administrador.
+
+O sistema deve permitir seleccionar o tipo de instituição:
+
+- Centro Infantil.
+- Escolinha.
+- Jardim de Infância.
+- Colégio.
+- Escola Primária.
+- Escola Secundária.
+- Centro de Formação Técnico-Profissional.
+- Instituto Técnico.
+- Ensino Superior.
+- Instituição mista.
+
+Permitir seleccionar os beneficiários:
+
+- Bebés.
+- Crianças.
+- Alunos.
+- Estudantes.
+- Formandos.
+- Adultos em formação.
+
+Permitir seleccionar os profissionais:
+
+- Professor.
+- Formador.
+- Educador.
+- Director.
+- Pedagógico.
+- Secretário.
+- Financeiro.
+- Porteiro.
+- Cozinheiro.
+- Motorista.
+- Transportador.
+- Monitor.
+- Outros.
+
+## 7.1 Terminologia configurável
+
+Permitir definir a linguagem utilizada nos módulos e portais.
+
+Exemplos:
+
+- Aluno, estudante, formando, criança ou bebé.
+- Professor, formador ou educador.
+- Disciplina, curso, módulo, actividade ou área de aprendizagem.
+- Sala, turma, grupo.
+- Ano lectivo, semestre, trimestre ou período de formação.
+- Mensalidade, propina, prestação ou taxa.
+
+Permitir configurações diferentes por modalidade de ensino dentro da mesma instituição.
+
+Exemplo: um colégio com centro de formação pode utilizar «Disciplina» no ensino escolar e «Curso» na formação profissional.
+
+A terminologia apresentada deve ser configurável sem alterar a estrutura interna da base de dados.
+
+Não criar bases de dados independentes para cada tipo de instituição.
+
+## 7.2 Módulos activáveis
+
+O administrador deverá poder activar ou desactivar funcionalidades conforme as necessidades da instituição:
+
+- Matrículas.
+- Inscrições públicas.
+- Gestão de alunos.
+- Gestão de cursos e disciplinas.
+- Gestão de turmas e salas.
+- Gestão de mensalidades.
+- Tesouraria.
+- Secretaria.
+- Pedagógico.
+- Professores e formadores.
+- Portal do Encarregado.
+- Porteiro.
+- Cozinha e refeições.
+- Transporte escolar.
+- Controlo de entradas e saídas.
+- Avaliações.
+- Certificados.
+- Comunicação.
+- Outros módulos existentes no SIGAR.
+
+Activar um módulo deve disponibilizar o respectivo fluxo funcional, permissões, configurações e notificações.
+
+Não basta mostrar o nome no menu.
+
+---
+
+# BLOCO 8 — COZINHA E TRANSPORTE ESCOLAR
+
+Quando uma instituição activar estes módulos, devem existir fluxos reais.
+
+## 8.1 Cozinha
+
+Permitir:
+
+- Registar cozinheiros.
+- Gerir ementas.
+- Organizar refeições.
+- Definir horários.
+- Consultar necessidades alimentares, respeitando as permissões.
+- Registar refeições servidas.
+- Consultar relatórios.
+
+## 8.2 Transporte escolar
+
+Permitir:
+
+- Registar motoristas e transportadores.
+- Registar viaturas.
+- Criar rotas.
+- Associar crianças ou alunos às rotas.
+- Controlar entradas e saídas.
+- Registar recolha e entrega aos responsáveis autorizados.
+- Notificar os responsáveis quando o fluxo de comunicação estiver configurado.
+
+Não disponibilizar estes módulos em instituições que não os activaram.
+
+---
+
+# BLOCO 9 — BALÕES DE ORIENTAÇÃO E APRENDIZAGEM NO SIGAR
+
+Criar um sistema central de orientação contextual, disponível em todos os perfis.
+
+O objectivo é ajudar os utilizadores novos a aprender a utilizar a plataforma sem depender de formação externa ou comandos de programação.
+
+## 9.1 Funcionamento
+
+Quando uma pessoa entrar num perfil pela primeira vez, o SIGAR deverá apresentar pequenos balões de orientação.
+
+Exemplos:
+
+**Director:**
+- Como cadastrar utilizadores.
+- Como convidar professores e funcionários.
+- Como configurar inscrições.
+- Como consultar pagamentos.
+- Como aprovar comprovativos.
+- Como configurar o logótipo.
+- Como gerir módulos.
+
+**Secretaria:**
+- Como matricular alunos.
+- Como consultar inscrições.
+- Como emitir documentos.
+- Como gerir turmas.
+- Como consultar dados dos alunos.
+
+**Financeiro:**
+- Como consultar pagamentos pendentes.
+- Como aprovar comprovativos.
+- Como emitir recibos.
+- Como consultar dívidas e relatórios.
+
+**Professor/Formador/Educador:**
+- Como consultar turmas.
+- Como registar presenças.
+- Como inserir avaliações.
+- Como acompanhar alunos ou formandos.
+
+**Porteiro:**
+- Como registar entradas.
+- Como confirmar saídas.
+- Como validar autorizações.
+
+**Aluno:**
+- Como consultar mensalidades.
+- Como submeter pagamentos.
+- Como consultar recibos.
+- Como acompanhar o seu percurso.
+
+## 9.2 Regra dos três dias
+
+Os balões devem aparecer durante os primeiros três dias de utilização daquele perfil.
+
+- No primeiro dia, apresentar as orientações iniciais.
+- No segundo dia, apresentar orientações ainda não concluídas.
+- No terceiro dia, apresentar as últimas orientações necessárias.
+
+Limitar a apresentação a uma vez por dia, durante esses três dias.
+
+Não continuar a apresentar os mesmos balões indefinidamente.
+
+Se o utilizador concluir uma orientação, não repetir desnecessariamente essa orientação.
+
+## 9.3 Navegação directa
+
+Cada balão deve possuir:
+
+- Uma explicação curta.
+- Um botão «Queres fazer isto?».
+- Um botão «Ir para esta funcionalidade».
+- Um link que encaminha directamente para o módulo correspondente.
+- Uma opção para dispensar a orientação.
+
+Ao clicar, o SIGAR deve abrir o local correcto e, quando útil, realçar a funcionalidade.
+
+Exemplo:
+
+«Ainda não sabes como convidar um professor? Clica aqui para abrir a Gestão de Utilizadores e aprender a enviar um convite.»
+
+O sistema deve respeitar o perfil e as permissões. Nunca encaminhar alguém para um módulo a que não tem acesso.
+
+## 9.4 Persistência
+
+Guardar o progresso das orientações por utilizador e por perfil.
+
+Não depender exclusivamente do `localStorage`.
+
+Se a pessoa utilizar outro dispositivo, o progresso deve manter-se através da sua conta, respeitando a segurança e o isolamento institucional.
+
+---
+
+# BLOCO 10 — NOTIFICAÇÕES INSTITUCIONAIS
+
+Uniformizar o sistema de notificações.
+
+As notificações devem:
+
+- Ser reais e persistentes.
+- Identificar a instituição.
+- Identificar o destinatário autorizado.
+- Indicar a origem.
+- Apresentar data e hora.
+- Indicar se já foram lidas.
+- Conter ligação directa à acção correspondente.
+- Actualizar o estado quando a acção for concluída.
+
+Exemplos:
+
+- Novo pagamento submetido.
+- Comprovativo aguardando aprovação.
+- Pagamento aprovado.
+- Pagamento rejeitado.
+- Novo convite aceite.
+- Nova inscrição recebida.
+- Documento pendente.
+- Pedido institucional submetido.
+- Instituição aprovada ou rejeitada.
+
+Não apresentar notificações falsas nem gerar eventos apenas visuais.
+
+---
+
+# BLOCO 11 — SEGURANÇA, AUTORIZAÇÕES E ISOLAMENTO
+
+Verificar todos os fluxos com autenticação e autorização reais.
+
+Regras obrigatórias:
+
+1. Cada instituição só pode consultar e modificar os seus próprios dados.
+2. Um administrador institucional só pode gerir utilizadores da sua instituição.
+3. Um professor só pode aceder às turmas e funções autorizadas.
+4. O financeiro só pode executar operações financeiras autorizadas.
+5. O porteiro não pode consultar dados financeiros.
+6. O aluno só pode consultar os seus próprios dados e pagamentos.
+7. O Super Admin global mantém as suas funções próprias.
+8. Convites não podem conceder permissões superiores às atribuídas pelo administrador.
+9. Documentos privados não podem ser expostos publicamente.
+10. Os comprovativos devem estar protegidos por autorização.
+11. Os recibos devem ser verificáveis.
+12. Todas as operações críticas devem possuir registo de auditoria.
+
+Verificar especialmente as regras e serviços de autenticação, permissões e acesso aos dados.
+
+Não confiar apenas na ocultação de botões ou menus. A autorização deve ser validada no servidor e nas regras de acesso aplicáveis.
+
+---
+
+# BLOCO 12 — TESTES FUNCIONAIS OBRIGATÓRIOS
+
+Não considerar a implementação concluída apenas porque o projecto compila.
+
+Executar testes no ambiente isolado de trabalho, com dados de teste identificados e sem contaminar os dados reais.
+
+Testar, no mínimo:
+
+### Cenário A — Pagamentos
+1. Aluno abre o próprio portal.
+2. Clica em pagar.
+3. Abre o portal de pagamentos da instituição correcta.
+4. Selecciona mensalidade ou contribuição.
+5. Envia comprovativo.
+6. Director e Secretaria recebem notificações.
+7. Responsável abre a notificação.
+8. Aprova o pagamento.
+9. Sistema emite recibo persistente.
+10. Aluno recebe notificação.
+11. Aluno abre e imprime o recibo.
+
+### Cenário B — Identidade institucional
+1. Alterar logótipo numa instituição de teste.
+2. Abrir os diferentes portais.
+3. Confirmar o logótipo correcto.
+4. Confirmar favicon e título dos separadores.
+5. Confirmar que nenhuma outra instituição recebe o logótipo alterado.
+
+### Cenário C — Inscrições
+1. Configurar instituição de teste.
+2. Criar cursos e campos.
+3. Marcar alguns campos como obrigatórios.
+4. Deixar outros opcionais.
+5. Desactivar algumas perguntas.
+6. Publicar link.
+7. Abrir link em sessão independente.
+8. Confirmar cursos, logótipo, descrição, contactos e WhatsApp.
+9. Confirmar que apenas os campos seleccionados aparecem.
+10. Tentar submeter sem os campos obrigatórios.
+11. Confirmar que o sistema bloqueia a submissão.
+
+### Cenário D — Convites
+1. Administrador cria um utilizador.
+2. Selecciona o perfil.
+3. Gera convite.
+4. Partilha pelo WhatsApp.
+5. O convidado abre o link.
+6. Define palavra-passe.
+7. Carrega fotografia.
+8. Activa a conta.
+9. Entra apenas no portal autorizado.
+10. Confirma que o convite não pode ser reutilizado.
+
+### Cenário E — Novas instituições
+1. Utilizador inicia registo com Google.
+2. Preenche os dados institucionais.
+3. Carrega logótipo e documentos.
+4. Submete o pedido.
+5. Super Admin recebe notificação.
+6. Analisa e aprova ou rejeita.
+7. Após aprovação, instituição recebe configuração própria.
+8. Administrador entra e pode gerir utilizadores e módulos.
+
+### Cenário F — Orientação
+1. Utilizador novo entra no perfil.
+2. Recebe balão de orientação.
+3. Clica no botão.
+4. É encaminhado para o módulo correcto.
+5. Progresso fica guardado.
+6. No segundo e terceiro dia, recebe apenas as orientações ainda aplicáveis.
+7. Após o terceiro dia, as orientações iniciais deixam de aparecer.
+
+### Cenário G — Isolamento
+Utilizar duas instituições de teste distintas e confirmar que nenhuma consegue consultar ou alterar dados da outra.
+
+---
+
+# BLOCO 13 — RELATÓRIO FINAL E CRITÉRIOS DE ACEITAÇÃO
+
+No final, apresentar um relatório organizado por funcionalidade:
+
+| ID | Funcionalidade | Estado anterior | Alteração realizada | Teste executado | Resultado |
+|---|---|---|---|---|---|
+| 01 | Pagamentos | | | | |
+| 02 | Recibos | | | | |
+| 03 | Identidade institucional | | | | |
+| 04 | Inscrições públicas | | | | |
+| 05 | WhatsApp | | | | |
+| 06 | Gestão de utilizadores | | | | |
+| 07 | Convites | | | | |
+| 08 | Fotografias e crachás | | | | |
+| 09 | Registo institucional | | | | |
+| 10 | SIVEC e documentação | | | | |
+| 11 | Terminologia | | | | |
+| 12 | Módulos institucionais | | | | |
+| 13 | Cozinha e transporte | | | | |
+| 14 | Balões de orientação | | | | |
+| 15 | Notificações | | | | |
+| 16 | Segurança e isolamento | | | | |
+
+Classificar cada funcionalidade como:
+
+- IMPLEMENTADA E TESTADA.
+- IMPLEMENTADA, MAS NÃO TESTADA COMPLETAMENTE.
+- PARCIALMENTE IMPLEMENTADA.
+- NÃO IMPLEMENTADA.
+- BLOQUEADA POR DEPENDÊNCIA EXTERNA.
+
+Para cada item, indicar os ficheiros afectados, as funções alteradas, os testes e as limitações.
+
+Também apresentar:
+
+1. Problemas encontrados.
+2. Causas identificadas.
+3. Soluções implementadas.
+4. Funcionalidades que já existiam e foram preservadas.
+5. Integrações que ainda necessitam de credenciais ou serviços externos.
+6. Testes de segurança e isolamento.
+7. Estado da cópia de trabalho.
+8. Confirmação de que `/app/applet` não foi alterado.
+9. Confirmação de que não houve alterações na produção ou publicação.
+
+## CRITÉRIO FINAL
+
+O SIGAR PRO deve passar a funcionar como uma plataforma multi-instituição configurável.
+
+Uma instituição nova deve conseguir configurar a sua identidade, modalidades, terminologia, módulos, utilizadores e portais através dos próprios painéis.
+
+O administrador deve conseguir executar as operações administrativas normais sem depender do Google AI Studio.
+
+Quando uma funcionalidade estrutural for corrigida, a correcção deve beneficiar automaticamente todas as instituições compatíveis, presentes e futuras.
+
+**Não declarar o trabalho concluído por causa de uma compilação bem-sucedida. A conclusão exige testes reais dos fluxos, persistência dos dados, permissões correctas e isolamento institucional.**
+
+Executar as alterações apenas na cópia de trabalho autorizada, sem deploy, sem operações remotas e sem modificar dados reais. Se uma operação exigir acesso a produção, credenciais externas, paragem de serviços ou alteração de dados reais, interromper essa operação e apresentar o que é necessário para autorização específica.

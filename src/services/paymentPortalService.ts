@@ -9,7 +9,8 @@ import {
   deleteField,
   query,
   where,
-  writeBatch
+  writeBatch,
+  runTransaction
 } from 'firebase/firestore';
 import { db } from './firebase';
 import {
@@ -21,6 +22,11 @@ import {
   InstitutionalReceivingAccount,
   PaymentNetwork
 } from '../types';
+import {
+  isPaymentApproved,
+  isPaymentFinalized,
+  isPaymentRejected
+} from '../utils/paymentStatusUtils';
 
 export const FINANCIAL_ROLES = new Set([
   'SUPER_ADMIN',
@@ -33,6 +39,27 @@ export function hasFinancialPermission(canonicalRole?: string | null, isSuperAdm
   if (isSuperAdmin) return true;
   if (!canonicalRole) return false;
   return FINANCIAL_ROLES.has(canonicalRole.toUpperCase());
+}
+
+export function formatInstitutionReceiptPrefix(institution?: Partial<Institution> | null, institutionId?: string): string {
+  const raw = (institution?.sigla || institution?.code || institutionId || 'SIG')
+    .toString()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+  if (!raw) return 'SIG';
+  return raw.slice(0, 6);
+}
+
+export function formatSequentialReceiptNumber(params: {
+  sequenceNumber: number;
+  institution?: Partial<Institution> | null;
+  institutionId?: string;
+  year?: number;
+}): string {
+  const prefix = formatInstitutionReceiptPrefix(params.institution, params.institutionId);
+  const year = params.year || new Date().getFullYear();
+  const padded = String(Math.max(1, params.sequenceNumber)).padStart(5, '0');
+  return `REC-${prefix}-${year}-${padded}`;
 }
 
 /**
@@ -336,7 +363,7 @@ export async function saveInstitutionFinancialSettings(
 
 /**
  * Submete um comprovativo de pagamento ao Firestore cumprindo isValidOwnPaymentSubmission.
- * Garante ausência de receiptNumber, receiptId, reviewedBy, reviewedAt e serviceReleased === false.
+ * Entra como PENDING_APPROVAL, sem redução de dívida nem emissão de recibo.
  */
 export async function createPortalPaymentSubmission(record: PaymentRecord): Promise<void> {
   if (!record.id || !record.institutionId) {
@@ -346,7 +373,9 @@ export async function createPortalPaymentSubmission(record: PaymentRecord): Prom
     receiptNumber: _rn,
     receiptId: _ri,
     reviewedBy: _rb,
+    reviewedByUid: _rbu,
     reviewedAt: _ra,
+    rejectionReason: _rr,
     serviceReleasedAt: _sra,
     serviceReleaseMessage: _srm,
     ...cleanBase
@@ -354,14 +383,14 @@ export async function createPortalPaymentSubmission(record: PaymentRecord): Prom
 
   const payload = stripUndefinedDeep({
     ...cleanBase,
-    status: 'PENDENTE DE CONFIRMAÇÃO',
+    status: 'PENDING_APPROVAL',
     serviceReleased: false
   });
   await setDoc(doc(db, 'payments', record.id), payload);
 }
 
 /**
- * Reenvia comprovativo corrigido a partir do estado CORREÇÃO SOLICITADA para PENDENTE DE CONFIRMAÇÃO.
+ * Reenvia comprovativo corrigido a partir do estado CORREÇÃO SOLICITADA para PENDING_APPROVAL.
  * Remove campos de revisão anteriores para satisfazer isValidOwnPaymentResubmission.
  */
 export async function resubmitPortalPayment(
@@ -395,11 +424,12 @@ export async function resubmitPortalPayment(
     ...(updates.proofUrl ? { proofUrl: updates.proofUrl } : {}),
     ...(updates.proofFileName ? { proofFileName: updates.proofFileName } : {}),
     ...(updates.auditTrail ? { auditTrail: updates.auditTrail } : {}),
-    status: 'PENDENTE DE CONFIRMAÇÃO',
+    status: 'PENDING_APPROVAL',
     serviceReleased: false
   });
   patch.correctionNotes = deleteField();
   patch.reviewedBy = deleteField();
+  patch.reviewedByUid = deleteField();
   patch.reviewedAt = deleteField();
   patch.receiptNumber = deleteField();
   patch.receiptId = deleteField();
@@ -408,147 +438,302 @@ export async function resubmitPortalPayment(
 }
 
 /**
- * Aprova um pagamento de forma idempotente: emite no máximo um recibo oficial (`rcp-${payment.id}`)
- * e liquida a eventual Conta a Receber vinculada sem duplicar movimentos.
+ * Aprova um pagamento de forma atómica e idempotente via runTransaction:
+ * - Impede aprovação duplicada ou alteração após decisão final (APPROVED/REJECTED)
+ * - Gera número sequencial único por instituição em /receiptCounters/{institutionId}
+ * - Cria recibo imutável em /receipts/{receiptId}
+ * - Atualiza o pagamento para APPROVED e liquida eventual Conta a Receber
  */
 export async function approvePortalPaymentIdempotent(params: {
   payment: PaymentRecord;
   operatorName: string;
   operatorUid?: string;
-  receiptNumber: string;
+  institution?: Partial<Institution> | null;
+  receiptNumber?: string;
   serviceReleaseMessage: string;
   balanceBefore: number;
   balanceAfter: number;
   auditTrail: PaymentRecord['auditTrail'];
   notes?: string;
 }): Promise<{ receipt: OfficialReceiptRecord; alreadyApproved: boolean }> {
-  const { payment, operatorName, operatorUid, receiptNumber, serviceReleaseMessage, balanceBefore, balanceAfter, auditTrail, notes } = params;
+  const {
+    payment,
+    operatorName,
+    operatorUid,
+    institution,
+    receiptNumber: explicitReceiptNumber,
+    serviceReleaseMessage,
+    balanceBefore,
+    balanceAfter,
+    auditTrail,
+    notes
+  } = params;
 
   if (!payment.institutionId) {
     throw new Error('institutionId obrigatório para aprovação de pagamento.');
   }
+  if (!payment.id) {
+    throw new Error('Identificador do pagamento obrigatório.');
+  }
 
+  const instId = payment.institutionId;
   const deterministicReceiptId = payment.receiptId || `rcp-${payment.id}`;
-  const existingPaymentSnap = await getDoc(doc(db, 'payments', payment.id)).catch(() => null);
-  const existingData = existingPaymentSnap?.exists() ? (existingPaymentSnap.data() as PaymentRecord) : null;
+  const paymentRef = doc(db, 'payments', payment.id);
+  const counterRef = doc(db, 'receiptCounters', instId);
+  const receiptRef = doc(db, 'receipts', deterministicReceiptId);
+  const receivableRef = payment.contaReceberId
+    ? doc(db, 'accountsReceivable', payment.contaReceberId)
+    : null;
 
-  if (existingData && existingData.status === 'PAGO' && existingData.receiptNumber) {
-    const existingReceiptSnap = await getDoc(doc(db, 'receipts', deterministicReceiptId)).catch(() => null);
-    if (existingReceiptSnap?.exists()) {
+  return runTransaction(db, async tx => {
+    const paymentSnap = await tx.get(paymentRef);
+    const counterSnap = await tx.get(counterRef);
+    const receiptSnap = await tx.get(receiptRef);
+    const receivableSnap = receivableRef ? await tx.get(receivableRef) : null;
+
+    if (paymentSnap.exists()) {
+      const existingData = paymentSnap.data() as PaymentRecord;
+      if (isPaymentRejected(existingData.status)) {
+        throw new Error('Este pagamento já foi rejeitado definitivamente e não pode ser aprovado.');
+      }
+      if (isPaymentApproved(existingData.status) && existingData.receiptNumber) {
+        if (receiptSnap.exists()) {
+          return {
+            receipt: { ...(receiptSnap.data() as any), id: receiptSnap.id } as OfficialReceiptRecord,
+            alreadyApproved: true
+          };
+        }
+        throw new Error(`Pagamento já aprovado anteriormente (${existingData.receiptNumber}).`);
+      }
+    }
+
+    if (receiptSnap.exists()) {
       return {
-        receipt: { ...(existingReceiptSnap.data() as any), id: existingReceiptSnap.id } as OfficialReceiptRecord,
+        receipt: { ...(receiptSnap.data() as any), id: receiptSnap.id } as OfficialReceiptRecord,
         alreadyApproved: true
       };
     }
-  }
 
-  const now = new Date().toISOString();
-  const today = now.split('T')[0];
+    const prevSeq = counterSnap.exists() ? Number(counterSnap.data()?.lastSequence || 0) : 0;
+    const nextSequence = prevSeq + 1;
+    const year = new Date().getFullYear();
+    const generatedReceiptNumber =
+      explicitReceiptNumber ||
+      formatSequentialReceiptNumber({
+        sequenceNumber: nextSequence,
+        institution,
+        institutionId: instId,
+        year
+      });
 
-  const receiptRecord: OfficialReceiptRecord = stripUndefinedDeep({
-    id: deterministicReceiptId,
-    institutionId: payment.institutionId,
-    paymentId: payment.id,
-    ...(payment.contaReceberId ? { contaReceberId: payment.contaReceberId } : {}),
-    receiptNumber,
-    studentId: payment.studentId,
-    studentName: payment.studentName,
-    studentCode: payment.studentCode,
-    ...(payment.studentUserId ? { studentUserId: payment.studentUserId } : {}),
-    ...(payment.guardianUserId ? { guardianUserId: payment.guardianUserId } : {}),
-    ...(payment.guardianUids ? { guardianUids: payment.guardianUids } : {}),
-    ...(payment.guardianEmail ? { guardianEmail: payment.guardianEmail } : {}),
-    serviceItem: payment.serviceItem || 'outros',
-    ...(payment.serviceDescription ? { serviceDescription: payment.serviceDescription } : {}),
-    amount: payment.amount,
-    network: payment.network,
-    transactionCode: payment.transactionCode,
-    issuedAt: now,
-    issuedBy: operatorName,
-    ...(operatorUid ? { issuedByUid: operatorUid } : {}),
-    qrVerificationCode: `SIVERC-REC-${payment.id.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 12)}`,
-    reprintCount: 0,
-    status: 'Emitido' as const
+    const now = new Date().toISOString();
+    const today = now.split('T')[0];
+
+    const instAddress = [institution?.address, institution?.city, institution?.province]
+      .filter(Boolean)
+      .join(', ');
+
+    const receiptRecord: OfficialReceiptRecord = stripUndefinedDeep({
+      id: deterministicReceiptId,
+      institutionId: instId,
+      paymentId: payment.id,
+      ...(payment.contaReceberId ? { contaReceberId: payment.contaReceberId } : {}),
+      receiptNumber: generatedReceiptNumber,
+      sequenceNumber: nextSequence,
+      studentId: payment.studentId,
+      studentName: payment.studentName,
+      studentCode: payment.studentCode,
+      ...(payment.studentUserId ? { studentUserId: payment.studentUserId } : {}),
+      ...(payment.guardianUserId ? { guardianUserId: payment.guardianUserId } : {}),
+      ...(payment.guardianUids ? { guardianUids: payment.guardianUids } : {}),
+      ...(payment.guardianEmail ? { guardianEmail: payment.guardianEmail } : {}),
+      ...(payment.courseName ? { courseName: payment.courseName } : {}),
+      ...(institution?.name ? { institutionName: institution.name } : {}),
+      ...(institution?.nuit ? { institutionNuit: institution.nuit } : {}),
+      ...(instAddress ? { institutionAddress: instAddress } : {}),
+      ...(institution?.phone ? { institutionPhone: institution.phone } : {}),
+      serviceItem: payment.serviceItem || 'outros',
+      ...(payment.serviceDescription ? { serviceDescription: payment.serviceDescription } : {}),
+      amount: payment.amount,
+      network: payment.network,
+      transactionCode: payment.transactionCode,
+      paymentDate: payment.date,
+      paymentTime: payment.time,
+      issuedAt: now,
+      issuedBy: operatorName,
+      ...(operatorUid ? { issuedByUid: operatorUid } : {}),
+      qrVerificationCode: `SIVERC-REC-${generatedReceiptNumber.replace(/[^a-zA-Z0-9-]/g, '').toUpperCase()}`,
+      reprintCount: 0,
+      status: 'Emitido' as const
+    });
+
+    const finalizedAuditTrail = auditTrail.map(entry => ({
+      ...entry,
+      details: entry.details.replace(/REC-PENDENTE/g, generatedReceiptNumber)
+    }));
+
+    const counterPayload = stripUndefinedDeep({
+      institutionId: instId,
+      year,
+      lastSequence: nextSequence,
+      lastReceiptNumber: generatedReceiptNumber,
+      updatedAt: now,
+      ...(operatorUid ? { updatedByUid: operatorUid } : {})
+    });
+
+    if (counterSnap.exists()) {
+      tx.update(counterRef, counterPayload);
+    } else {
+      tx.set(counterRef, counterPayload);
+    }
+
+    const paymentUpdatePayload = stripUndefinedDeep({
+      institutionId: instId,
+      status: 'APPROVED',
+      reviewedBy: operatorName,
+      ...(operatorUid ? { reviewedByUid: operatorUid } : {}),
+      reviewedAt: now,
+      receiptNumber: generatedReceiptNumber,
+      receiptId: deterministicReceiptId,
+      serviceReleased: true,
+      serviceReleasedAt: now,
+      serviceReleaseMessage,
+      balanceBefore,
+      balanceAfter,
+      ...(notes ? { adminNotes: notes } : {}),
+      auditTrail: finalizedAuditTrail
+    });
+
+    if (paymentSnap.exists()) {
+      tx.update(paymentRef, paymentUpdatePayload);
+    } else {
+      tx.set(
+        paymentRef,
+        stripUndefinedDeep({
+          ...payment,
+          ...paymentUpdatePayload
+        })
+      );
+    }
+
+    tx.set(receiptRef, receiptRecord);
+
+    if (receivableRef) {
+      if (receivableSnap?.exists()) {
+        tx.update(
+          receivableRef,
+          stripUndefinedDeep({
+            institutionId: instId,
+            status: 'pago',
+            paidAmount: payment.amount,
+            paymentDate: today,
+            paymentMethod: payment.network,
+            receiptNumber: generatedReceiptNumber,
+            receiptId: deterministicReceiptId,
+            paymentRecordId: payment.id,
+            updatedAt: now
+          })
+        );
+      } else {
+        tx.set(
+          receivableRef,
+          stripUndefinedDeep({
+            institutionId: instId,
+            status: 'pago',
+            paidAmount: payment.amount,
+            paymentDate: today,
+            paymentMethod: payment.network,
+            receiptNumber: generatedReceiptNumber,
+            receiptId: deterministicReceiptId,
+            paymentRecordId: payment.id,
+            updatedAt: now
+          }),
+          { merge: true }
+        );
+      }
+    }
+
+    return { receipt: receiptRecord, alreadyApproved: false };
   });
-
-  const batch = writeBatch(db);
-
-  const paymentUpdatePayload = stripUndefinedDeep({
-    institutionId: payment.institutionId,
-    status: 'PAGO',
-    reviewedBy: operatorName,
-    reviewedAt: now,
-    receiptNumber,
-    receiptId: deterministicReceiptId,
-    serviceReleased: true,
-    serviceReleasedAt: now,
-    serviceReleaseMessage,
-    balanceBefore,
-    balanceAfter,
-    ...(notes ? { adminNotes: notes } : {}),
-    auditTrail
-  });
-  batch.set(doc(db, 'payments', payment.id), paymentUpdatePayload, { merge: true });
-  batch.set(doc(db, 'receipts', deterministicReceiptId), receiptRecord, { merge: true });
-
-  if (payment.contaReceberId) {
-    batch.set(
-      doc(db, 'accountsReceivable', payment.contaReceberId),
-      stripUndefinedDeep({
-        institutionId: payment.institutionId,
-        status: 'pago',
-        paidAmount: payment.amount,
-        paymentDate: today,
-        paymentMethod: payment.network,
-        receiptNumber,
-        receiptId: deterministicReceiptId,
-        paymentRecordId: payment.id,
-        updatedAt: now
-      }),
-      { merge: true }
-    );
-  }
-
-  await batch.commit();
-  return { receipt: receiptRecord, alreadyApproved: false };
 }
 
 export async function rejectPortalPayment(
   payment: PaymentRecord,
   rejectionReason: string,
   operatorName: string,
-  auditTrail: PaymentRecord['auditTrail']
+  auditTrail: PaymentRecord['auditTrail'],
+  operatorUid?: string
 ): Promise<void> {
-  if (!payment.id || !payment.institutionId) return;
-  await updateDoc(
-    doc(db, 'payments', payment.id),
-    stripUndefinedDeep({
-      status: 'REJEITADO',
-      reviewedBy: operatorName,
-      reviewedAt: new Date().toISOString(),
-      rejectionReason,
-      auditTrail
-    })
-  );
+  if (!payment.id || !payment.institutionId) {
+    throw new Error('Identificador de pagamento e instituição obrigatórios.');
+  }
+  const cleanReason = (rejectionReason || '').trim();
+  if (cleanReason.length < 3) {
+    throw new Error('É obrigatório informar o motivo formal da rejeição (mínimo 3 caracteres).');
+  }
+
+  const paymentRef = doc(db, 'payments', payment.id);
+  const now = new Date().toISOString();
+
+  await runTransaction(db, async tx => {
+    const snap = await tx.get(paymentRef);
+    if (snap.exists()) {
+      const existing = snap.data() as PaymentRecord;
+      if (isPaymentFinalized(existing.status)) {
+        throw new Error('Pagamento já possui decisão definitiva e não pode ser alterado.');
+      }
+    }
+
+    tx.update(
+      paymentRef,
+      stripUndefinedDeep({
+        status: 'REJECTED',
+        reviewedBy: operatorName,
+        ...(operatorUid ? { reviewedByUid: operatorUid } : {}),
+        reviewedAt: now,
+        rejectionReason: cleanReason,
+        serviceReleased: false,
+        auditTrail
+      })
+    );
+  });
 }
 
 export async function requestCorrectionPortalPayment(
   payment: PaymentRecord,
   correctionNotes: string,
   operatorName: string,
-  auditTrail: PaymentRecord['auditTrail']
+  auditTrail: PaymentRecord['auditTrail'],
+  operatorUid?: string
 ): Promise<void> {
   if (!payment.id || !payment.institutionId) return;
-  await updateDoc(
-    doc(db, 'payments', payment.id),
-    stripUndefinedDeep({
-      status: 'CORREÇÃO SOLICITADA',
-      reviewedBy: operatorName,
-      reviewedAt: new Date().toISOString(),
-      correctionNotes,
-      auditTrail
-    })
-  );
+  const cleanNotes = (correctionNotes || '').trim();
+  if (cleanNotes.length < 3) {
+    throw new Error('Informe as instruções de correção para o formando.');
+  }
+
+  const paymentRef = doc(db, 'payments', payment.id);
+  await runTransaction(db, async tx => {
+    const snap = await tx.get(paymentRef);
+    if (snap.exists()) {
+      const existing = snap.data() as PaymentRecord;
+      if (isPaymentFinalized(existing.status)) {
+        throw new Error('Pagamento já possui decisão definitiva e não pode voltar para correção.');
+      }
+    }
+    tx.update(
+      paymentRef,
+      stripUndefinedDeep({
+        status: 'CORREÇÃO SOLICITADA',
+        reviewedBy: operatorName,
+        ...(operatorUid ? { reviewedByUid: operatorUid } : {}),
+        reviewedAt: new Date().toISOString(),
+        correctionNotes: cleanNotes,
+        serviceReleased: false,
+        auditTrail
+      })
+    );
+  });
 }
 
 export async function incrementReceiptReprint(
@@ -559,6 +744,8 @@ export async function incrementReceiptReprint(
 ): Promise<void> {
   if (!payment.id || !payment.institutionId) return;
   const now = new Date().toISOString();
+  // Recibos em /receipts são estritamente imutáveis (allow update, delete: if false).
+  // A auditoria de reimpressão é registada apenas no documento /payments correspondente.
   await updateDoc(
     doc(db, 'payments', payment.id),
     stripUndefinedDeep({
@@ -568,13 +755,6 @@ export async function incrementReceiptReprint(
       auditTrail
     })
   ).catch(err => console.warn('[PaymentPortalService] Nota ao registar reimpressão em payments:', err));
-
-  if (payment.receiptId) {
-    await updateDoc(
-      doc(db, 'receipts', payment.receiptId),
-      { reprintCount: nextCount }
-    ).catch(err => console.warn('[PaymentPortalService] Nota ao registar reimpressão em receipts:', err));
-  }
 }
 
 export async function createContaReceberInFirestore(conta: ContaReceber): Promise<void> {

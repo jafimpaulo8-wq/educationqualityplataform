@@ -151,13 +151,13 @@ import {
   INITIAL_DASHBOARD_TASKS,
   INITIAL_NOTICES,
   INITIAL_REGISTRATIONS,
-  DEFAULT_ONLINE_REGISTRATION_CONFIG,
   INITIAL_CALCULATION_FORMULAS,
   INITIAL_EVALUATIONS,
   INITIAL_INTERNSHIPS,
   INITIAL_PAUTA_HOMOLOGATIONS,
   CERTIFICATES_DATA
 } from '../data/mockData';
+import { createEmptyOnlineRegistrationConfig } from '../utils/registrationConfigUtils';
 import {
   INITIAL_INSTITUTION_WHATSAPP_CONFIG,
   INITIAL_WHATSAPP_TEMPLATES,
@@ -212,7 +212,7 @@ import {
   saveUserPreferences,
   checkIsSuperAdmin
 } from '../services/firestoreService';
-import { syncPublicInstitutionMetadata } from '../services/publicInstitutionService';
+import { isPublicRegistrationPath, syncPublicInstitutionMetadata } from '../services/publicInstitutionService';
 import {
   hasFinancialPermission,
   fetchOwnStudentRecordsForPortal,
@@ -786,12 +786,42 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const path = window.location.pathname;
       const hash = window.location.hash;
       if (path.includes('/pagamentos') || hash.includes('/pagamentos')) return 'portal_pagamentos';
-      if (path.includes('/inscricao') || path.includes('/candidatura') || hash.includes('/inscricoes')) return 'inscricao_publica';
+      if (isPublicRegistrationPath(path, hash) || path.includes('/inscricao') || path.includes('/candidatura')) {
+        return 'inscricao_publica';
+      }
       if (path.includes('/verify')) return 'public_verify';
     }
     return 'public_portal';
   });
   const [routeParams, setRouteParams] = useState<Record<string, any>>({});
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const syncRouteFromLocation = () => {
+      const searchParams = new URLSearchParams(window.location.search);
+      const urlRoute = searchParams.get('route');
+      if (urlRoute) {
+        setCurrentRoute(urlRoute as AppRoute);
+        return;
+      }
+      const path = window.location.pathname;
+      const hash = window.location.hash;
+      if (path.includes('/pagamentos') || hash.includes('/pagamentos')) {
+        setCurrentRoute('portal_pagamentos');
+      } else if (isPublicRegistrationPath(path, hash) || path.includes('/inscricao') || path.includes('/candidatura')) {
+        setCurrentRoute('inscricao_publica');
+      } else if (path.includes('/verify')) {
+        setCurrentRoute('public_verify');
+      }
+    };
+    window.addEventListener('hashchange', syncRouteFromLocation);
+    window.addEventListener('popstate', syncRouteFromLocation);
+    return () => {
+      window.removeEventListener('hashchange', syncRouteFromLocation);
+      window.removeEventListener('popstate', syncRouteFromLocation);
+    };
+  }, []);
+
   const [activeStudentPortalTab, setActiveStudentPortalTab] = useState<string>('inicio');
   const [publicPortalIdentity, setPublicPortalIdentity] = useState<{
     officialName?: string;
@@ -1962,9 +1992,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })
     : [];
 
-  // Online Registration Configuration for the active institution
-  const onlineRegistrationConfig: OnlineRegistrationConfig = 
-    activeInstitution.onlineRegistrationConfig || DEFAULT_ONLINE_REGISTRATION_CONFIG;
+  // Online Registration Configuration for the active institution (strictly isolated, never falls back to CFTPM)
+  const onlineRegistrationConfig: OnlineRegistrationConfig = useMemo(() => {
+    if (activeInstitution?.onlineRegistrationConfig) {
+      return activeInstitution.onlineRegistrationConfig;
+    }
+    return createEmptyOnlineRegistrationConfig(activeInstitution);
+  }, [activeInstitution]);
 
   // Students belonging strictly to activeInstitution and activeBranch (if selected)
   const students = scopedInstId
@@ -2230,7 +2264,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         } else {
           url.searchParams.set('route', route);
         }
-        if (params.inst) url.searchParams.set('inst', params.inst);
+        if (params.inst) {
+          url.searchParams.set('inst', params.inst);
+        } else if (route !== 'inscricao_publica' && route !== 'portal_pagamentos') {
+          url.searchParams.delete('inst');
+        }
         if (params.course) url.searchParams.set('course', params.course);
         window.history.pushState(null, '', url.toString());
       }
@@ -2333,14 +2371,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateInstitution = (instId: string, updates: Partial<Institution>) => {
-    let updatedObj: Institution | null = null;
-    setAllInstitutions(prev => prev.map(inst => {
-      if (inst.id === instId) {
-        updatedObj = { ...inst, ...updates };
-        return updatedObj;
-      }
-      return inst;
-    }));
+    const baseInst =
+      allInstitutions.find(inst => inst.id === instId) ||
+      (activeInstitution?.id === instId ? activeInstitution : null);
+
+    const updatedObj: Institution | null = baseInst
+      ? {
+          ...baseInst,
+          ...updates,
+          financialSettings: updates.financialSettings
+            ? { ...(baseInst.financialSettings || {}), ...updates.financialSettings }
+            : baseInst.financialSettings
+        }
+      : null;
+
+    setAllInstitutions(prev =>
+      prev.map(inst => {
+        if (inst.id === instId) {
+          return {
+            ...inst,
+            ...updates,
+            financialSettings: updates.financialSettings
+              ? { ...(inst.financialSettings || {}), ...updates.financialSettings }
+              : inst.financialSettings
+          };
+        }
+        return inst;
+      })
+    );
 
     if (updatedObj) {
       saveInstitutionToFirestore(updatedObj).catch(err => console.warn('Firestore sync institution update:', err));
@@ -2798,24 +2856,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Online Registration & Candidates Workflow
   const updateOnlineRegistrationConfig = (configUpdates: Partial<OnlineRegistrationConfig>) => {
-    setAllInstitutions(prev => prev.map(inst => {
-      if (inst.id === activeInstitution.id) {
-        const currentCfg = inst.onlineRegistrationConfig || DEFAULT_ONLINE_REGISTRATION_CONFIG;
-        const updatedConfig = {
-          ...currentCfg,
-          ...configUpdates
-        };
-        return {
-          ...inst,
-          onlineRegistrationConfig: updatedConfig
-        };
-      }
-      return inst;
-    }));
+    const baseInst = activeInstitution;
+    if (!baseInst?.id) return;
+
+    const currentCfg = baseInst.onlineRegistrationConfig || createEmptyOnlineRegistrationConfig(baseInst);
+    const updatedConfig: OnlineRegistrationConfig = {
+      ...currentCfg,
+      ...configUpdates,
+      institutionId: baseInst.id
+    };
+
+    const updatedInst: Institution = {
+      ...baseInst,
+      onlineRegistrationConfig: updatedConfig,
+      ...(configUpdates.contactPhone !== undefined ? { phone: configUpdates.contactPhone } : {}),
+      ...(configUpdates.contactWhatsapp !== undefined ? { whatsapp: configUpdates.contactWhatsapp } : {}),
+      ...(configUpdates.contactEmail !== undefined ? { email: configUpdates.contactEmail } : {})
+    };
+
+    setAllInstitutions(prev =>
+      prev.map(inst => (inst.id === baseInst.id ? updatedInst : inst))
+    );
+
+    saveInstitutionToFirestore(updatedInst).catch(err => console.warn('Firestore sync online registration config:', err));
+    syncPublicInstitutionMetadata(updatedInst).catch(err => console.warn('Public institution config sync note:', err));
 
     addNotification({
       title: 'Configuração de Inscrições Atualizada',
-      message: 'Parâmetros da página pública de inscrições salvos com sucesso.',
+      message: 'Parâmetros da página pública de inscrições salvos e sincronizados com sucesso.',
       type: 'system'
     });
     soundManager.playSuccess();

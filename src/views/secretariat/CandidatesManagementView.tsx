@@ -54,6 +54,8 @@ import { ConfirmationModal } from '../../components/common/ConfirmationModal';
 import { RecordHistoryModal } from '../../components/common/RecordHistoryModal';
 import { RecordDetailsModal, DetailField } from '../../components/common/RecordDetailsModal';
 import { StudentInvitationModal } from '../../components/students/StudentInvitationModal';
+import { resolveInstitutionSlug } from '../../services/publicInstitutionService';
+import { normalizeFieldRequirement } from '../../utils/registrationConfigUtils';
 
 function formatDateValue(val: any): string {
   if (!val) return '';
@@ -149,7 +151,7 @@ export const CandidatesManagementView: React.FC = () => {
     regime: 'Pós-Laboral' as 'Laboral' | 'Pós-Laboral' | 'Online' | 'Híbrido' | 'Sábado',
     shift: 'Noite',
     paymentStatus: 'Pago' as 'Pago' | 'Pendente',
-    paymentAmount: 1500,
+    paymentAmount: 0,
     paymentMethod: 'Dinheiro',
     analysisNotes: ''
   });
@@ -187,9 +189,17 @@ export const CandidatesManagementView: React.FC = () => {
   const [cfgConfirmationTemplate, setCfgConfirmationTemplate] = useState(onlineRegistrationConfig.confirmationMessageTemplate || '');
   const [cfgRequiredFields, setCfgRequiredFields] = useState(onlineRegistrationConfig.requiredFields);
   const [cfgRequiredDocs, setCfgRequiredDocs] = useState<string[]>(onlineRegistrationConfig.requiredDocuments || []);
+  const [cfgDocumentRequirements, setCfgDocumentRequirements] = useState<Record<string, any>>(
+    onlineRegistrationConfig.documentRequirements || {}
+  );
   const [cfgNewDocInput, setCfgNewDocInput] = useState('');
   const [cfgCourses, setCfgCourses] = useState<OnlineCourseConfig[]>(onlineRegistrationConfig.coursesConfig || []);
   const [cfgQuestions, setCfgQuestions] = useState(onlineRegistrationConfig.customQuestions || []);
+  const [cfgContactPhone, setCfgContactPhone] = useState(onlineRegistrationConfig.contactPhone ?? activeInstitution.phone ?? '');
+  const [cfgContactWhatsapp, setCfgContactWhatsapp] = useState(onlineRegistrationConfig.contactWhatsapp ?? activeInstitution.whatsapp ?? '');
+  const [cfgContactEmail, setCfgContactEmail] = useState(onlineRegistrationConfig.contactEmail ?? activeInstitution.email ?? '');
+  const [cfgTermsText, setCfgTermsText] = useState(onlineRegistrationConfig.termsAndConditions || '');
+  const [cfgPrivacyText, setCfgPrivacyText] = useState(onlineRegistrationConfig.privacyPolicy || '');
 
   useEffect(() => {
     setCfgIsOpen(onlineRegistrationConfig.isOpen);
@@ -202,8 +212,14 @@ export const CandidatesManagementView: React.FC = () => {
     setCfgConfirmationTemplate(onlineRegistrationConfig.confirmationMessageTemplate || '');
     setCfgRequiredFields(onlineRegistrationConfig.requiredFields);
     setCfgRequiredDocs(onlineRegistrationConfig.requiredDocuments || []);
+    setCfgDocumentRequirements(onlineRegistrationConfig.documentRequirements || {});
     setCfgCourses(onlineRegistrationConfig.coursesConfig || []);
     setCfgQuestions(onlineRegistrationConfig.customQuestions || []);
+    setCfgContactPhone(onlineRegistrationConfig.contactPhone ?? activeInstitution.phone ?? '');
+    setCfgContactWhatsapp(onlineRegistrationConfig.contactWhatsapp ?? activeInstitution.whatsapp ?? '');
+    setCfgContactEmail(onlineRegistrationConfig.contactEmail ?? activeInstitution.email ?? '');
+    setCfgTermsText(onlineRegistrationConfig.termsAndConditions || '');
+    setCfgPrivacyText(onlineRegistrationConfig.privacyPolicy || '');
     setSelectedCandidate(null);
   }, [activeInstitution.id, onlineRegistrationConfig]);
   
@@ -258,7 +274,7 @@ export const CandidatesManagementView: React.FC = () => {
   const rejectedCandidates = applications.filter(a => a.status === 'Rejeitada').length;
   const totalPaidRevenue = applications
     .filter(a => a.paymentStatus === 'Pago')
-    .reduce((sum, a) => sum + (a.paymentAmount || 1500), 0);
+    .reduce((sum, a) => sum + (a.paymentAmount ?? 0), 0);
 
   // Available classes for conversion matching the candidate's course
   const candidateClasses = useMemo(() => {
@@ -605,6 +621,7 @@ export const CandidatesManagementView: React.FC = () => {
   const handleSaveConfig = () => {
     const updatedConfig: OnlineRegistrationConfig = {
       ...onlineRegistrationConfig,
+      institutionId: activeInstitution.id,
       isOpen: cfgIsOpen,
       title: cfgTitle,
       description: cfgDescription,
@@ -615,8 +632,14 @@ export const CandidatesManagementView: React.FC = () => {
       confirmationMessageTemplate: cfgConfirmationTemplate,
       requiredFields: cfgRequiredFields,
       requiredDocuments: cfgRequiredDocs,
+      documentRequirements: cfgDocumentRequirements,
       coursesConfig: cfgCourses,
-      customQuestions: cfgQuestions
+      customQuestions: cfgQuestions,
+      contactPhone: cfgContactPhone.trim(),
+      contactWhatsapp: cfgContactWhatsapp.trim(),
+      contactEmail: cfgContactEmail.trim(),
+      termsAndConditions: cfgTermsText.trim() || undefined,
+      privacyPolicy: cfgPrivacyText.trim() || undefined
     };
 
     updateOnlineRegistrationConfig(updatedConfig);
@@ -624,15 +647,22 @@ export const CandidatesManagementView: React.FC = () => {
 
   // Add Document to Config
   const handleAddRequiredDoc = () => {
-    if (!cfgNewDocInput.trim()) return;
-    if (cfgRequiredDocs.includes(cfgNewDocInput.trim())) return;
-    setCfgRequiredDocs([...cfgRequiredDocs, cfgNewDocInput.trim()]);
+    const cleaned = cfgNewDocInput.trim();
+    if (!cleaned) return;
+    if (cfgRequiredDocs.includes(cleaned)) return;
+    setCfgRequiredDocs([...cfgRequiredDocs, cleaned]);
+    setCfgDocumentRequirements(prev => ({ ...prev, [cleaned]: prev[cleaned] ?? 'obrigatorio' }));
     setCfgNewDocInput('');
   };
 
   // Remove Document from Config
   const handleRemoveRequiredDoc = (docName: string) => {
     setCfgRequiredDocs(cfgRequiredDocs.filter(d => d !== docName));
+    setCfgDocumentRequirements(prev => {
+      const next = { ...prev };
+      delete next[docName];
+      return next;
+    });
   };
 
   // Add Question to Config
@@ -720,7 +750,7 @@ export const CandidatesManagementView: React.FC = () => {
           </button>
 
           <button
-            onClick={() => navigate('inscricao_publica')}
+            onClick={() => navigate('inscricao_publica', { inst: resolveInstitutionSlug(activeInstitution) })}
             className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700/80 text-xs font-semibold text-sky-400 flex items-center gap-1.5 transition-all cursor-pointer shadow-sm hover:border-sky-500/40"
             title="Abrir página pública de candidatura como um candidato"
           >
@@ -1052,7 +1082,7 @@ export const CandidatesManagementView: React.FC = () => {
                                 : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
                             }`}>
                               <span className={`w-1.5 h-1.5 rounded-full ${candidate.paymentStatus === 'Pago' ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
-                              {candidate.paymentStatus === 'Pago' ? `${(candidate.paymentAmount || 1500).toLocaleString()} MT` : 'Pendente'}
+                              {candidate.paymentStatus === 'Pago' ? `${(candidate.paymentAmount ?? 0).toLocaleString()} MT` : 'Pendente'}
                             </span>
                           </td>
 
@@ -1364,21 +1394,39 @@ export const CandidatesManagementView: React.FC = () => {
               </p>
 
               <div className="flex flex-wrap gap-2">
-                {cfgRequiredDocs.map(doc => (
-                  <span 
-                    key={doc}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 font-medium"
-                  >
-                    <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    {doc}
-                    <button
-                      onClick={() => handleRemoveRequiredDoc(doc)}
-                      className="text-slate-500 hover:text-rose-400 ml-1 p-0.5 transition-colors cursor-pointer"
+                {cfgRequiredDocs.map(doc => {
+                  const docReq = normalizeFieldRequirement(cfgDocumentRequirements[doc], 'obrigatorio');
+                  return (
+                    <span
+                      key={doc}
+                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 font-medium"
                     >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                ))}
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>{doc}</span>
+                      <button
+                        type="button"
+                        onClick={() => setCfgDocumentRequirements(prev => ({
+                          ...prev,
+                          [doc]: docReq === 'obrigatorio' ? 'opcional' : 'obrigatorio'
+                        }))}
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
+                          docReq === 'obrigatorio'
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                            : 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
+                        }`}
+                      >
+                        {docReq === 'obrigatorio' ? 'Obrigatório' : 'Opcional'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveRequiredDoc(doc)}
+                        className="text-slate-500 hover:text-rose-400 ml-0.5 p-0.5 transition-colors cursor-pointer"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  );
+                })}
               </div>
 
               <div className="flex gap-2 max-w-md">
@@ -1485,24 +1533,109 @@ export const CandidatesManagementView: React.FC = () => {
               </div>
             </div>
 
-            {/* Mandatory Personal Fields Checklist */}
+            {/* Mandatory / Optional / Hidden Fields Selector */}
             <div className="space-y-3 pt-4 border-t border-slate-800">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                Campos Pessoais Obrigatórios do Candidato
+                Campos do Formulário do Candidato (Obrigatório / Opcional / Oculto)
               </h3>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 text-xs">
-                {Object.entries(cfgRequiredFields).map(([key, value]) => (
-                  <label key={key} className="flex items-center gap-2 text-slate-300 cursor-pointer p-2 rounded-lg bg-slate-950 border border-slate-800/80">
-                    <input
-                      type="checkbox"
-                      checked={value === true || value === 'obrigatorio'}
-                      onChange={e => setCfgRequiredFields({ ...cfgRequiredFields, [key]: e.target.checked })}
-                      className="rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-0 cursor-pointer"
-                    />
-                    <span className="capitalize">{key.replace(/([A-Z])/g, ' $1')}</span>
-                  </label>
-                ))}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+                {[
+                  { key: 'phone', label: 'Telefone Principal' },
+                  { key: 'email', label: 'E-mail' },
+                  { key: 'documentNumber', label: 'Número de Documento' },
+                  { key: 'birthDate', label: 'Data de Nascimento' },
+                  { key: 'gender', label: 'Género' },
+                  { key: 'guardianName', label: 'Nome do Encarregado' },
+                  { key: 'guardianPhone', label: 'Telefone do Encarregado' },
+                  { key: 'guardianRelationship', label: 'Grau de Parentesco' },
+                  { key: 'authorizedPickupPersons', label: 'Pessoas Autorizadas' },
+                  { key: 'address', label: 'Endereço / Bairro' },
+                  { key: 'province', label: 'Província' },
+                  { key: 'city', label: 'Cidade / Distrito' },
+                  { key: 'nuit', label: 'NUIT' },
+                  { key: 'previousSchool', label: 'Escola Anterior' }
+                ].map(({ key, label }) => {
+                  const statusStr = normalizeFieldRequirement((cfgRequiredFields as any)?.[key], 'opcional');
+                  return (
+                    <div key={key} className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-950 border border-slate-800/80">
+                      <span className="text-slate-200 font-medium truncate">{label}</span>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {(['obrigatorio', 'opcional', 'oculto'] as const).map(opt => (
+                          <button
+                            key={opt}
+                            type="button"
+                            onClick={() => setCfgRequiredFields({ ...cfgRequiredFields, [key]: opt })}
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
+                              statusStr === opt
+                                ? opt === 'obrigatorio'
+                                  ? 'bg-emerald-600 text-white'
+                                  : opt === 'opcional'
+                                    ? 'bg-sky-600 text-white'
+                                    : 'bg-slate-700 text-slate-200'
+                                : 'bg-slate-900 text-slate-500 hover:text-slate-300'
+                            }`}
+                          >
+                            {opt === 'obrigatorio' ? 'Obrig.' : opt === 'opcional' ? 'Opcional' : 'Oculto'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Institutional Public Contacts & Terms */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-slate-800">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300">Telefone Público de Atendimento</label>
+                <input
+                  type="text"
+                  value={cfgContactPhone}
+                  onChange={e => setCfgContactPhone(e.target.value)}
+                  className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white font-mono"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300">WhatsApp Público da Instituição</label>
+                <input
+                  type="text"
+                  value={cfgContactWhatsapp}
+                  onChange={e => setCfgContactWhatsapp(e.target.value)}
+                  className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white font-mono"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300">E-mail de Admissões</label>
+                <input
+                  type="email"
+                  value={cfgContactEmail}
+                  onChange={e => setCfgContactEmail(e.target.value)}
+                  className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white"
+                />
+              </div>
+              <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-300">Termos &amp; Regulamento da Instituição</label>
+                  <textarea
+                    rows={2}
+                    value={cfgTermsText}
+                    onChange={e => setCfgTermsText(e.target.value)}
+                    placeholder="Regras oficiais apresentadas no portal público..."
+                    className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-300">Política de Privacidade</label>
+                  <textarea
+                    rows={2}
+                    value={cfgPrivacyText}
+                    onChange={e => setCfgPrivacyText(e.target.value)}
+                    placeholder="Política de proteção de dados desta instituição..."
+                    className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white"
+                  />
+                </div>
               </div>
             </div>
 

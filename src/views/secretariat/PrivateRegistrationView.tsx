@@ -43,6 +43,7 @@ import {
   getOrCreateActivePrivateInvite, 
   revokeAndRegeneratePrivateInvite 
 } from '../../services/privateInviteService';
+import { resolveInstitutionSlug } from '../../services/publicInstitutionService';
 
 export const PrivateRegistrationView: React.FC = () => {
   const { 
@@ -410,7 +411,7 @@ export const PrivateRegistrationView: React.FC = () => {
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2.5">
           <button
-            onClick={() => navigate('inscricao_publica')}
+            onClick={() => navigate('inscricao_publica', { inst: resolveInstitutionSlug(activeInstitution) })}
             className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700/80 text-xs font-semibold text-sky-400 hover:text-sky-300 flex items-center gap-1.5 transition-all cursor-pointer shadow-sm hover:border-sky-500/40"
             title="Aceder ao portal de inscrição pública online"
           >

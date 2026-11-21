@@ -319,6 +319,7 @@ export interface OnlineRegistrationCustomQuestion {
   type: 'text' | 'select' | 'boolean';
   options?: string[];
   required: boolean;
+  active?: boolean;
 }
 
 export type FieldRequirementStatus = 'obrigatorio' | 'opcional' | 'oculto' | boolean;
@@ -352,10 +353,16 @@ export interface OnlineRegistrationConfig {
   semester: string;     // Ex: "2º Semestre"
   requiredFields: OnlineRegistrationRequiredFields;
   requiredDocuments: string[];
+  documentRequirements?: Record<string, FieldRequirementStatus>;
   customQuestions: OnlineRegistrationCustomQuestion[];
   coursesConfig: OnlineCourseConfig[];
   autoApproveOnPayment: boolean;
   confirmationMessageTemplate: string;
+  termsAndConditions?: string;
+  privacyPolicy?: string;
+  contactPhone?: string;
+  contactWhatsapp?: string;
+  contactEmail?: string;
 }
 
 export type CourseCategory = 
@@ -1349,6 +1356,10 @@ export interface RegistrationApplication {
   gender: 'Masculino' | 'Feminino' | 'Outro';
   guardianName?: string;
   guardianPhone?: string;
+  guardianRelationship?: string;
+  authorizedPickupPersons?: string;
+  nuit?: string;
+  previousSchool?: string;
   courseId: string;
   courseName: string;
   regime: string;
@@ -1411,13 +1422,24 @@ export interface LiveNotification {
   id: string;
   institutionId?: string;
   branchId?: string;
+  recipientUid?: string;
+  userId?: string;
+  targetUids?: string[];
+  targetRoles?: string[];
+  createdByUid?: string;
+  createdAt?: string;
+  readByUids?: string[];
+  readAt?: string;
   title: string;
   message: string;
   type: 'payment' | 'registration' | 'certificate' | 'system' | 'birthday' | 'academic' | 'warning' | 'alert' | 'task' | 'announcement' | string;
   timestamp: string;
   read: boolean;
+  actionType?: string;
   actionText?: string;
   actionRoute?: AppRoute;
+  actionTab?: string;
+  relatedEntityId?: string;
   metadata?: {
     code?: string;
     amount?: number;
@@ -1425,6 +1447,10 @@ export interface LiveNotification {
     phone?: string;
     taskId?: string;
     announcementId?: string;
+    paymentId?: string;
+    receiptId?: string;
+    receiptNumber?: string;
+    studentId?: string;
   };
 }
 

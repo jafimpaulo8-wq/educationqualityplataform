@@ -102,6 +102,7 @@ import { PublicPortalLanding } from './components/public/PublicPortalLanding';
 import { SigarOnboardingTour } from './components/onboarding/SigarOnboardingTour';
 import { AccessDeniedView } from './components/security/AccessDeniedView';
 import { isRouteAllowed } from './security/routeSecurity';
+import { isPublicRegistrationPath } from './services/publicInstitutionService';
 import { Loader2, Sparkles, Lock, ArrowLeft, LogOut } from 'lucide-react';
 
 import { 
@@ -228,10 +229,9 @@ const MainAppContent: React.FC = () => {
     );
   }
 
-  // If browsing the dedicated Online Registration Public Page or institution-specific URL (/instituicao/:slug/inscricoes or #instituicoes/:slug/inscricoes)
-  const isInstitutionInscricoes = 
-    ((pathname.includes('/instituicao') || pathname.includes('/instituicoes') || hash.includes('instituicao') || hash.includes('instituicoes')) 
-      && (pathname.includes('/inscricoes') || hash.includes('/inscricoes'))) ||
+  // If browsing the dedicated Online Registration Public Page (/i/:slug, #i/:slug, /instituicoes/:slug/inscricoes or #instituicoes/:slug/inscricoes)
+  const isInstitutionInscricoes =
+    isPublicRegistrationPath(pathname, hash) ||
     currentRoute === 'inscricao_publica';
 
   if (isInstitutionInscricoes) {
@@ -268,7 +268,12 @@ const MainAppContent: React.FC = () => {
           <PublicPortalLanding
             onOpenAuthModal={(mode) => handleOpenAuth(mode || 'google')}
             onOpenPublicVerify={() => navigate('public_verify')}
-            onOpenOnlineRegistration={(courseName) => navigate('inscricao_publica')}
+            onOpenOnlineRegistration={(courseName, instSlug) =>
+            navigate('inscricao_publica', {
+              ...(instSlug ? { inst: instSlug } : {}),
+              ...(courseName ? { course: courseName } : {})
+            })
+          }
             onOpenRegisterInstitution={() => handleOpenAuth('new_inst' as any)}
             onOpenHelp={() => handleOpenAuth('google')}
           />

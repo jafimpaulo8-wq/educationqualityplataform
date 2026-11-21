@@ -43,7 +43,7 @@ async function runCase(name: string, fn: () => Promise<void>) {
 }
 
 async function main() {
-  const rules = readFileSync(process.env.RULES_FILE || 'firestore.rules.novo', 'utf8');
+  const rules = readFileSync(process.env.RULES_FILE || 'firestore.rules', 'utf8');
 
   const testEnv: RulesTestEnvironment = await initializeTestEnvironment({
     projectId: 'siverc-94da3',

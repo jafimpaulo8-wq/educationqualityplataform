@@ -28,16 +28,25 @@ import {
   Institution, 
   OnlineRegistrationConfig, 
   OnlineCourseConfig, 
+  OnlineRegistrationCustomQuestion,
   FieldRequirementStatus,
   OnlineRegistrationRequiredFields
 } from '../../types';
 import { useToast } from '../../context/ToastContext';
 import { soundManager } from '../../utils/audio';
 import { getPublicRegistrationUrl, normalizeSlug } from '../../services/publicInstitutionService';
+import {
+  createEmptyOnlineRegistrationConfig,
+  normalizeFieldRequirement
+} from '../../utils/registrationConfigUtils';
 
 interface OnlineRegistrationSettingsPanelProps {
   institution: Institution;
-  onSave: (updatedConfig: OnlineRegistrationConfig, updatedSlug?: string) => Promise<void> | void;
+  onSave: (
+    updatedConfig: OnlineRegistrationConfig,
+    updatedSlug?: string,
+    institutionUpdates?: Partial<Institution>
+  ) => Promise<void> | void;
 }
 
 export const OnlineRegistrationSettingsPanel: React.FC<OnlineRegistrationSettingsPanelProps> = ({
@@ -46,38 +55,7 @@ export const OnlineRegistrationSettingsPanel: React.FC<OnlineRegistrationSetting
 }) => {
   const { success, error: toastError, info } = useToast();
 
-  const initialConfig = institution.onlineRegistrationConfig || {
-    institutionId: institution.id,
-    isOpen: true,
-    title: `Inscrições Abertas — ${institution.name}`,
-    description: `Candidaturas abertas para o ano letivo. Submeta a sua candidatura digital com comodidade e segurança.`,
-    startDate: new Date().toISOString().split('T')[0],
-    endDate: '2026-12-31',
-    academicYear: '2026',
-    semester: 'Ano Completo',
-    requiredFields: {
-      email: 'opcional',
-      phone: 'obrigatorio',
-      documentNumber: 'obrigatorio',
-      birthDate: 'obrigatorio',
-      gender: 'obrigatorio',
-      province: 'obrigatorio',
-      city: 'obrigatorio',
-      address: 'obrigatorio',
-      guardianName: institution.type === 'centro_infantil' ? 'obrigatorio' : 'opcional',
-      guardianPhone: institution.type === 'centro_infantil' ? 'obrigatorio' : 'opcional',
-      guardianRelationship: institution.type === 'centro_infantil' ? 'obrigatorio' : 'oculto',
-      authorizedPickupPersons: institution.type === 'centro_infantil' ? 'obrigatorio' : 'oculto'
-    },
-    requiredDocuments: [
-      'Documento de Identificação Oficial (BI / Passaporte / Cédula)',
-      'Fotografia recente tipo passe'
-    ],
-    customQuestions: [],
-    coursesConfig: [],
-    autoApproveOnPayment: false,
-    confirmationMessageTemplate: 'Agradecemos a sua candidatura! A nossa equipa analisará os dados submetidos e entrará em contacto.'
-  };
+  const initialConfig = institution.onlineRegistrationConfig || createEmptyOnlineRegistrationConfig(institution);
 
   const [activeSection, setActiveSection] = useState<number>(1);
   const [saving, setSaving] = useState(false);
@@ -87,8 +65,8 @@ export const OnlineRegistrationSettingsPanel: React.FC<OnlineRegistrationSetting
   const [isOpen, setIsOpen] = useState(initialConfig.isOpen ?? true);
   const [title, setTitle] = useState(initialConfig.title || '');
   const [description, setDescription] = useState(initialConfig.description || '');
-  const [academicYear, setAcademicYear] = useState(initialConfig.academicYear || '2026');
-  const [semester, setSemester] = useState(initialConfig.semester || 'Ano Completo');
+  const [academicYear, setAcademicYear] = useState(initialConfig.academicYear || String(new Date().getFullYear()));
+  const [semester, setSemester] = useState(initialConfig.semester || '');
   const [startDate, setStartDate] = useState(initialConfig.startDate || '');
   const [endDate, setEndDate] = useState(initialConfig.endDate || '');
 
@@ -96,7 +74,7 @@ export const OnlineRegistrationSettingsPanel: React.FC<OnlineRegistrationSetting
   const defaultSlug = institution.slug || normalizeSlug(institution.name) || institution.id;
   const [slug, setSlug] = useState(defaultSlug);
 
-  // 2. Campos do Formulário
+  // 2. Campos do Formulário e Perguntas
   const [fieldRequirements, setFieldRequirements] = useState<OnlineRegistrationRequiredFields>({
     email: initialConfig.requiredFields?.email ?? 'opcional',
     phone: initialConfig.requiredFields?.phone ?? 'obrigatorio',
@@ -106,54 +84,68 @@ export const OnlineRegistrationSettingsPanel: React.FC<OnlineRegistrationSetting
     province: initialConfig.requiredFields?.province ?? 'obrigatorio',
     city: initialConfig.requiredFields?.city ?? 'obrigatorio',
     address: initialConfig.requiredFields?.address ?? 'obrigatorio',
-    guardianName: initialConfig.requiredFields?.guardianName ?? 'obrigatorio',
-    guardianPhone: initialConfig.requiredFields?.guardianPhone ?? 'obrigatorio',
+    guardianName: initialConfig.requiredFields?.guardianName ?? 'opcional',
+    guardianPhone: initialConfig.requiredFields?.guardianPhone ?? 'opcional',
     guardianRelationship: initialConfig.requiredFields?.guardianRelationship ?? (institution.type === 'centro_infantil' ? 'obrigatorio' : 'oculto'),
     authorizedPickupPersons: initialConfig.requiredFields?.authorizedPickupPersons ?? (institution.type === 'centro_infantil' ? 'obrigatorio' : 'oculto'),
     nuit: initialConfig.requiredFields?.nuit ?? 'opcional',
     previousSchool: initialConfig.requiredFields?.previousSchool ?? 'opcional'
   });
 
+  const [customQuestions, setCustomQuestions] = useState<OnlineRegistrationCustomQuestion[]>(
+    initialConfig.customQuestions || []
+  );
+  const [newQuestionText, setNewQuestionText] = useState('');
+  const [newQuestionType, setNewQuestionType] = useState<'text' | 'select' | 'boolean'>('text');
+  const [newQuestionOptions, setNewQuestionOptions] = useState('');
+  const [newQuestionRequired, setNewQuestionRequired] = useState(true);
+
   // 3. Cursos / Salas
   const [courses, setCourses] = useState<OnlineCourseConfig[]>(initialConfig.coursesConfig || []);
   const [newCourseName, setNewCourseName] = useState('');
   const [newCourseCategory, setNewCourseCategory] = useState(institution.type === 'centro_infantil' ? 'Educação Infantil' : 'Formação');
-  const [newCoursePrice, setNewCoursePrice] = useState(1000);
-  const [newCourseMonthly, setNewCourseMonthly] = useState(3000);
-  const [newCourseVacancies, setNewCourseVacancies] = useState(20);
+  const [newCoursePrice, setNewCoursePrice] = useState(0);
+  const [newCourseMonthly, setNewCourseMonthly] = useState(0);
+  const [newCourseDuration, setNewCourseDuration] = useState('');
+  const [newCourseVacancies, setNewCourseVacancies] = useState(25);
 
   // 4. Documentos Exigidos
   const [documents, setDocuments] = useState<string[]>(initialConfig.requiredDocuments || []);
+  const [documentRequirements, setDocumentRequirements] = useState<Record<string, FieldRequirementStatus>>(
+    initialConfig.documentRequirements || {}
+  );
   const [newDocText, setNewDocText] = useState('');
 
   // 5. Métodos de Pagamento
-  const [mpesaNumber, setMpesaNumber] = useState(institution.financialSettings?.mpesaNumber || institution.phone || '');
+  const [mpesaNumber, setMpesaNumber] = useState(institution.financialSettings?.mpesaNumber || '');
   const [emolaNumber, setEmolaNumber] = useState(institution.financialSettings?.emolaNumber || '');
   const [bankInfo, setBankInfo] = useState(institution.financialSettings?.bankInfo || '');
 
   // 6. Termos e Privacidade
   const [termsText, setTermsText] = useState(
+    initialConfig.termsAndConditions ||
     `1. A submissão da candidatura na ${institution.name} constitui manifestação de interesse e não confere garantia automática de admissão.\n2. A homologação da matrícula depende da validação física dos documentos originais pela Secretaria.\n3. A taxa de inscrição não é reembolsável após análise do processo.`
   );
   const [privacyText, setPrivacyText] = useState(
+    initialConfig.privacyPolicy ||
     `A ${institution.name} garante a salvaguarda e o tratamento confidencial dos dados recolhidos para fins exclusivamente de matrícula académica e segurança escolar, nos termos da legislação moçambicana.`
   );
 
   // 7. Contactos e Avisos
-  const [contactPhone, setContactPhone] = useState(institution.phone || '');
-  const [contactWhatsapp, setContactWhatsapp] = useState(institution.whatsapp || institution.phone || '');
-  const [contactEmail, setContactEmail] = useState(institution.email || '');
+  const [contactPhone, setContactPhone] = useState(initialConfig.contactPhone ?? institution.phone ?? '');
+  const [contactWhatsapp, setContactWhatsapp] = useState(initialConfig.contactWhatsapp ?? institution.whatsapp ?? '');
+  const [contactEmail, setContactEmail] = useState(initialConfig.contactEmail ?? institution.email ?? '');
   const [confirmationTemplate, setConfirmationTemplate] = useState(
-    initialConfig.confirmationMessageTemplate || 
-    `Agradecemos a sua candidatura na ${institution.name}! A nossa equipa entrará em contacto via WhatsApp ou telefone para agendamento e formalização da matrícula.`
+    initialConfig.confirmationMessageTemplate ||
+    `Agradecemos a sua candidatura na ${institution.name}! A nossa equipa entrará em contacto para agendamento e formalização da matrícula.`
   );
 
   useEffect(() => {
     setIsOpen(initialConfig.isOpen ?? true);
     setTitle(initialConfig.title || '');
     setDescription(initialConfig.description || '');
-    setAcademicYear(initialConfig.academicYear || '2026');
-    setSemester(initialConfig.semester || 'Ano Completo');
+    setAcademicYear(initialConfig.academicYear || String(new Date().getFullYear()));
+    setSemester(initialConfig.semester || '');
     setStartDate(initialConfig.startDate || '');
     setEndDate(initialConfig.endDate || '');
     setSlug(institution.slug || normalizeSlug(institution.name) || institution.id);
@@ -166,30 +158,34 @@ export const OnlineRegistrationSettingsPanel: React.FC<OnlineRegistrationSetting
       province: initialConfig.requiredFields?.province ?? 'obrigatorio',
       city: initialConfig.requiredFields?.city ?? 'obrigatorio',
       address: initialConfig.requiredFields?.address ?? 'obrigatorio',
-      guardianName: initialConfig.requiredFields?.guardianName ?? 'obrigatorio',
-      guardianPhone: initialConfig.requiredFields?.guardianPhone ?? 'obrigatorio',
+      guardianName: initialConfig.requiredFields?.guardianName ?? 'opcional',
+      guardianPhone: initialConfig.requiredFields?.guardianPhone ?? 'opcional',
       guardianRelationship: initialConfig.requiredFields?.guardianRelationship ?? (institution.type === 'centro_infantil' ? 'obrigatorio' : 'oculto'),
       authorizedPickupPersons: initialConfig.requiredFields?.authorizedPickupPersons ?? (institution.type === 'centro_infantil' ? 'obrigatorio' : 'oculto'),
       nuit: initialConfig.requiredFields?.nuit ?? 'opcional',
       previousSchool: initialConfig.requiredFields?.previousSchool ?? 'opcional'
     });
+    setCustomQuestions(initialConfig.customQuestions || []);
     setCourses(initialConfig.coursesConfig || []);
     setDocuments(initialConfig.requiredDocuments || []);
-    setMpesaNumber(institution.financialSettings?.mpesaNumber || institution.phone || '');
+    setDocumentRequirements(initialConfig.documentRequirements || {});
+    setMpesaNumber(institution.financialSettings?.mpesaNumber || '');
     setEmolaNumber(institution.financialSettings?.emolaNumber || '');
     setBankInfo(institution.financialSettings?.bankInfo || '');
     setTermsText(
+      initialConfig.termsAndConditions ||
       `1. A submissão da candidatura na ${institution.name} constitui manifestação de interesse e não confere garantia automática de admissão.\n2. A homologação da matrícula depende da validação física dos documentos originais pela Secretaria.\n3. A taxa de inscrição não é reembolsável após análise do processo.`
     );
     setPrivacyText(
+      initialConfig.privacyPolicy ||
       `A ${institution.name} garante a salvaguarda e o tratamento confidencial dos dados recolhidos para fins exclusivamente de matrícula académica e segurança escolar, nos termos da legislação moçambicana.`
     );
-    setContactPhone(institution.phone || '');
-    setContactWhatsapp(institution.whatsapp || institution.phone || '');
-    setContactEmail(institution.email || '');
+    setContactPhone(initialConfig.contactPhone ?? institution.phone ?? '');
+    setContactWhatsapp(initialConfig.contactWhatsapp ?? institution.whatsapp ?? '');
+    setContactEmail(initialConfig.contactEmail ?? institution.email ?? '');
     setConfirmationTemplate(
       initialConfig.confirmationMessageTemplate ||
-      `Agradecemos a sua candidatura na ${institution.name}! A nossa equipa entrará em contacto via WhatsApp ou telefone para agendamento e formalização da matrícula.`
+      `Agradecemos a sua candidatura na ${institution.name}! A nossa equipa entrará em contacto para agendamento e formalização da matrícula.`
     );
   }, [institution.id, initialConfig]);
 
@@ -300,19 +296,24 @@ export const OnlineRegistrationSettingsPanel: React.FC<OnlineRegistrationSetting
       courseName: newCourseName.trim(),
       category: newCourseCategory,
       active: true,
-      price: Number(newCoursePrice) || 1000,
-      monthlyFee: Number(newCourseMonthly) || 3000,
-      duration: institution.type === 'centro_infantil' ? 'Ano Letivo' : '6 Meses',
+      price: Math.max(0, Number(newCoursePrice) || 0),
+      monthlyFee: Math.max(0, Number(newCourseMonthly) || 0),
+      duration: newCourseDuration.trim() || (institution.type === 'centro_infantil' ? 'Ano Letivo' : '6 Meses'),
       requirements: ['Inscrição formalizada', 'Documentos entregues'],
-      vacancies: Number(newCourseVacancies) || 20,
+      vacancies: Math.max(1, Number(newCourseVacancies) || 20),
       filledVacancies: 0,
       regimes: ['Laboral'],
-      shifts: ['Manhã', 'Tarde', 'Integral']
+      shifts: institution.type === 'centro_infantil' ? ['Manhã', 'Tarde', 'Integral'] : ['Manhã', 'Tarde', 'Noite']
     };
 
     setCourses([...courses, newC]);
     setNewCourseName('');
+    setNewCourseDuration('');
     soundManager.playClick();
+  };
+
+  const handleUpdateCourse = (courseId: string, field: keyof OnlineCourseConfig, value: any) => {
+    setCourses(prev => prev.map(c => (c.courseId === courseId ? { ...c, [field]: value } : c)));
   };
 
   const handleRemoveCourse = (courseId: string) => {
@@ -322,9 +323,11 @@ export const OnlineRegistrationSettingsPanel: React.FC<OnlineRegistrationSetting
 
   const handleAddDocument = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newDocText.trim()) return;
-    if (!documents.includes(newDocText.trim())) {
-      setDocuments([...documents, newDocText.trim()]);
+    const cleaned = newDocText.trim();
+    if (!cleaned) return;
+    if (!documents.includes(cleaned)) {
+      setDocuments([...documents, cleaned]);
+      setDocumentRequirements(prev => ({ ...prev, [cleaned]: prev[cleaned] ?? 'obrigatorio' }));
     }
     setNewDocText('');
     soundManager.playClick();
@@ -332,6 +335,35 @@ export const OnlineRegistrationSettingsPanel: React.FC<OnlineRegistrationSetting
 
   const handleRemoveDocument = (docName: string) => {
     setDocuments(documents.filter(d => d !== docName));
+    setDocumentRequirements(prev => {
+      const next = { ...prev };
+      delete next[docName];
+      return next;
+    });
+    soundManager.playClick();
+  };
+
+  const handleAddCustomQuestion = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newQuestionText.trim()) return;
+    const newQ: OnlineRegistrationCustomQuestion = {
+      id: `q-${Date.now()}`,
+      question: newQuestionText.trim(),
+      type: newQuestionType,
+      options:
+        newQuestionType === 'select'
+          ? newQuestionOptions
+              .split(',')
+              .map(o => o.trim())
+              .filter(Boolean)
+          : undefined,
+      required: newQuestionRequired,
+      active: true
+    };
+    setCustomQuestions([...customQuestions, newQ]);
+    setNewQuestionText('');
+    setNewQuestionOptions('');
+    setNewQuestionRequired(true);
     soundManager.playClick();
   };
 
@@ -350,14 +382,36 @@ export const OnlineRegistrationSettingsPanel: React.FC<OnlineRegistrationSetting
         semester,
         requiredFields: fieldRequirements,
         requiredDocuments: documents,
-        customQuestions: initialConfig.customQuestions || [],
+        documentRequirements,
+        customQuestions,
         coursesConfig: courses,
         autoApproveOnPayment: false,
-        confirmationMessageTemplate: confirmationTemplate
+        confirmationMessageTemplate: confirmationTemplate.trim(),
+        termsAndConditions: termsText.trim(),
+        privacyPolicy: privacyText.trim(),
+        contactPhone: contactPhone.trim(),
+        contactWhatsapp: contactWhatsapp.trim(),
+        contactEmail: contactEmail.trim()
       };
 
       const cleanSlug = normalizeSlug(slug) || defaultSlug;
-      await onSave(updatedConfig, cleanSlug);
+      const institutionUpdates: Partial<Institution> = {
+        phone: contactPhone.trim() || institution.phone,
+        whatsapp: contactWhatsapp.trim(),
+        email: contactEmail.trim() || institution.email,
+        financialSettings: {
+          fineAmount: institution.financialSettings?.fineAmount ?? 0,
+          interestRateDaily: institution.financialSettings?.interestRateDaily ?? 0,
+          dueDay: institution.financialSettings?.dueDay ?? 10,
+          pixKey: institution.financialSettings?.pixKey || '',
+          ...(institution.financialSettings || {}),
+          mpesaNumber: mpesaNumber.trim(),
+          emolaNumber: emolaNumber.trim(),
+          bankInfo: bankInfo.trim()
+        }
+      };
+
+      await onSave(updatedConfig, cleanSlug, institutionUpdates);
 
       soundManager.playSuccess();
       success('Configuração Salva', 'Os parâmetros do portal público foram atualizados e sincronizados com sucesso.');
@@ -681,6 +735,109 @@ export const OnlineRegistrationSettingsPanel: React.FC<OnlineRegistrationSetting
                 );
               })}
             </div>
+
+            {/* Perguntas Adicionais Personalizadas */}
+            <div className="pt-4 border-t border-slate-800 space-y-4">
+              <div>
+                <h4 className="text-xs font-bold text-white flex items-center gap-2">
+                  <HelpCircle className="w-4 h-4 text-sky-400" />
+                  Perguntas Adicionais da Instituição
+                </h4>
+                <p className="text-[11px] text-slate-400">
+                  Configure questões específicas do processo de admissão (obrigatórias, opcionais ou ocultas).
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                {customQuestions.map(q => (
+                  <div key={q.id} className="p-3 rounded-xl border border-slate-800 bg-slate-950/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                    <div className="min-w-0 flex-1">
+                      <p className={`font-semibold truncate ${q.active === false ? 'text-slate-500 line-through' : 'text-white'}`}>
+                        {q.question}
+                      </p>
+                      <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
+                        <span className="font-mono text-sky-400 uppercase">{q.type}</span>
+                        <span>•</span>
+                        <span>{q.required ? 'Obrigatória' : 'Opcional'}</span>
+                        {q.options && q.options.length > 0 && <span>• Opções: {q.options.join(', ')}</span>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setCustomQuestions(prev => prev.map(item => item.id === q.id ? { ...item, required: !item.required } : item))}
+                        className={`px-2 py-1 rounded-md text-[10px] font-bold cursor-pointer ${
+                          q.required ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-300'
+                        }`}
+                      >
+                        {q.required ? 'Obrigatória' : 'Opcional'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCustomQuestions(prev => prev.map(item => item.id === q.id ? { ...item, active: item.active === false } : item))}
+                        className="px-2 py-1 rounded-md text-[10px] font-semibold bg-slate-900 border border-slate-700 text-slate-300 hover:text-white cursor-pointer"
+                      >
+                        {q.active === false ? 'Ativar' : 'Ocultar'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCustomQuestions(prev => prev.filter(item => item.id !== q.id))}
+                        className="p-1 rounded-md text-slate-500 hover:text-rose-400 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <form onSubmit={handleAddCustomQuestion} className="p-3.5 rounded-xl border border-dashed border-slate-800 bg-slate-950/30 space-y-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <input
+                    type="text"
+                    value={newQuestionText}
+                    onChange={e => setNewQuestionText(e.target.value)}
+                    placeholder="Nova pergunta personalizada..."
+                    className="sm:col-span-2 px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-white text-xs"
+                  />
+                  <select
+                    value={newQuestionType}
+                    onChange={e => setNewQuestionType(e.target.value as any)}
+                    className="px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-white text-xs"
+                  >
+                    <option value="text">Texto livre</option>
+                    <option value="boolean">Sim / Não</option>
+                    <option value="select">Lista de opções</option>
+                  </select>
+                </div>
+                {newQuestionType === 'select' && (
+                  <input
+                    type="text"
+                    value={newQuestionOptions}
+                    onChange={e => setNewQuestionOptions(e.target.value)}
+                    placeholder="Opções separadas por vírgula..."
+                    className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-white text-xs"
+                  />
+                )}
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={newQuestionRequired}
+                      onChange={e => setNewQuestionRequired(e.target.checked)}
+                    />
+                    Resposta obrigatória
+                  </label>
+                  <button
+                    type="submit"
+                    className="px-3.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Adicionar Pergunta
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         )}
 
@@ -700,9 +857,9 @@ export const OnlineRegistrationSettingsPanel: React.FC<OnlineRegistrationSetting
             {/* Lista Existente */}
             <div className="space-y-3">
               {courses.map((course) => (
-                <div key={course.courseId} className="p-4 rounded-xl border border-slate-800 bg-slate-950/70 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
+                <div key={course.courseId} className="p-4 rounded-xl border border-slate-800 bg-slate-950/70 space-y-3">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-bold text-xs text-white">{course.courseName}</span>
                       <span className="px-2 py-0.5 rounded-md bg-blue-950 text-blue-300 border border-blue-800 text-[10px]">
                         {course.category}
@@ -713,27 +870,66 @@ export const OnlineRegistrationSettingsPanel: React.FC<OnlineRegistrationSetting
                         {course.active !== false ? 'Ativo' : 'Inativo'}
                       </span>
                     </div>
-                    <p className="text-[11px] text-slate-400">
-                      Taxa de Inscrição: <strong className="text-emerald-400">{course.price?.toLocaleString()} MT</strong> • Mensalidade: <strong className="text-white">{course.monthlyFee?.toLocaleString()} MT</strong> • Vagas: <strong className="text-sky-400">{course.vacancies}</strong>
-                    </p>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setCourses(courses.map(c => c.courseId === course.courseId ? { ...c, active: c.active === false } : c))}
+                        className="px-3 py-1.5 rounded-lg border border-slate-800 bg-slate-900 text-slate-300 hover:text-white text-xs cursor-pointer"
+                      >
+                        {course.active !== false ? 'Desativar' : 'Ativar'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveCourse(course.courseId)}
+                        className="p-1.5 rounded-lg border border-rose-900/40 bg-rose-950/30 text-rose-400 hover:text-rose-200 cursor-pointer"
+                        title="Remover Curso"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setCourses(courses.map(c => c.courseId === course.courseId ? { ...c, active: !c.active } : c))}
-                      className="px-3 py-1.5 rounded-lg border border-slate-800 bg-slate-900 text-slate-300 hover:text-white text-xs cursor-pointer"
-                    >
-                      {course.active !== false ? 'Desativar' : 'Ativar'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveCourse(course.courseId)}
-                      className="p-1.5 rounded-lg border border-rose-900/40 bg-rose-950/30 text-rose-400 hover:text-rose-200 cursor-pointer"
-                      title="Remover Curso"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                    <div>
+                      <span className="text-slate-400 block mb-0.5">Taxa Inscrição (MT)</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={course.price ?? 0}
+                        onChange={e => handleUpdateCourse(course.courseId, 'price', Math.max(0, Number(e.target.value)))}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-white font-mono text-xs"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block mb-0.5">Mensalidade (MT)</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={course.monthlyFee ?? 0}
+                        onChange={e => handleUpdateCourse(course.courseId, 'monthlyFee', Math.max(0, Number(e.target.value)))}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-white font-mono text-xs"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block mb-0.5">Duração / Faixa</span>
+                      <input
+                        type="text"
+                        value={course.duration || ''}
+                        onChange={e => handleUpdateCourse(course.courseId, 'duration', e.target.value)}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-white text-xs"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block mb-0.5">Vagas</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={course.vacancies ?? 20}
+                        onChange={e => handleUpdateCourse(course.courseId, 'vacancies', Math.max(1, Number(e.target.value)))}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-white font-mono text-xs"
+                      />
+                    </div>
                   </div>
                 </div>
               ))}
@@ -742,7 +938,7 @@ export const OnlineRegistrationSettingsPanel: React.FC<OnlineRegistrationSetting
             {/* Adicionar Curso / Sala */}
             <form onSubmit={handleAddCourse} className="p-4 rounded-xl border border-dashed border-slate-800 bg-slate-950/30 space-y-3">
               <span className="text-xs font-bold text-slate-300 block">Adicionar Nova Oferta (Sala ou Curso)</span>
-              <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-6 gap-2">
                 <input
                   type="text"
                   required
@@ -753,6 +949,7 @@ export const OnlineRegistrationSettingsPanel: React.FC<OnlineRegistrationSetting
                 />
                 <input
                   type="number"
+                  min={0}
                   placeholder="Taxa Inscrição (MT)"
                   value={newCoursePrice}
                   onChange={(e) => setNewCoursePrice(Number(e.target.value))}
@@ -760,9 +957,17 @@ export const OnlineRegistrationSettingsPanel: React.FC<OnlineRegistrationSetting
                 />
                 <input
                   type="number"
+                  min={0}
                   placeholder="Mensalidade (MT)"
                   value={newCourseMonthly}
                   onChange={(e) => setNewCourseMonthly(Number(e.target.value))}
+                  className="px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-white text-xs focus:border-blue-500 focus:outline-hidden"
+                />
+                <input
+                  type="text"
+                  placeholder="Duração (ex: 6 Meses)"
+                  value={newCourseDuration}
+                  onChange={(e) => setNewCourseDuration(e.target.value)}
                   className="px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-white text-xs focus:border-blue-500 focus:outline-hidden"
                 />
                 <button
@@ -786,26 +991,49 @@ export const OnlineRegistrationSettingsPanel: React.FC<OnlineRegistrationSetting
                 4. Documentos Exigidos aos Candidatos
               </h3>
               <p className="text-xs text-slate-400">
-                Lista de documentos que a Secretaria exige para conferência e validação da matrícula.
+                Defina os documentos desta instituição e se cada anexo é Obrigatório ou Opcional no portal público.
               </p>
             </div>
 
             <div className="space-y-2">
-              {documents.map((docItem, idx) => (
-                <div key={idx} className="p-3 rounded-xl border border-slate-800 bg-slate-950/60 flex items-center justify-between gap-3">
-                  <span className="text-xs font-medium text-slate-200 flex items-center gap-2">
-                    <FileText className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                    {docItem}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveDocument(docItem)}
-                    className="p-1 rounded-md text-slate-500 hover:text-rose-400 transition-colors cursor-pointer"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
+              {documents.map((docItem, idx) => {
+                const reqLevel = normalizeFieldRequirement(documentRequirements[docItem], 'obrigatorio');
+                return (
+                  <div key={idx} className="p-3 rounded-xl border border-slate-800 bg-slate-950/60 flex items-center justify-between gap-3">
+                    <span className="text-xs font-medium text-slate-200 flex items-center gap-2 min-w-0 truncate">
+                      <FileText className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span className="truncate">{docItem}</span>
+                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setDocumentRequirements(prev => ({ ...prev, [docItem]: 'obrigatorio' }))}
+                        className={`px-2 py-1 rounded-md text-[10px] font-bold cursor-pointer ${
+                          reqLevel === 'obrigatorio' ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-400'
+                        }`}
+                      >
+                        Obrigatório
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDocumentRequirements(prev => ({ ...prev, [docItem]: 'opcional' }))}
+                        className={`px-2 py-1 rounded-md text-[10px] font-bold cursor-pointer ${
+                          reqLevel === 'opcional' ? 'bg-sky-600 text-white' : 'bg-slate-900 text-slate-400'
+                        }`}
+                      >
+                        Opcional
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveDocument(docItem)}
+                        className="p-1 rounded-md text-slate-500 hover:text-rose-400 transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
             <form onSubmit={handleAddDocument} className="flex gap-2">
@@ -1000,7 +1228,7 @@ export const OnlineRegistrationSettingsPanel: React.FC<OnlineRegistrationSetting
                 Identificador de URL Oficial (Slug da Instituição)
               </label>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-mono text-slate-500 select-none">#instituicoes/</span>
+                <span className="text-xs font-mono text-slate-500 select-none">#i/</span>
                 <input
                   type="text"
                   value={slug}
@@ -1008,10 +1236,10 @@ export const OnlineRegistrationSettingsPanel: React.FC<OnlineRegistrationSetting
                   placeholder="ex: nome-da-instituicao"
                   className="flex-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-mono font-bold focus:border-indigo-500 focus:outline-hidden"
                 />
-                <span className="text-xs font-mono text-slate-500 select-none">/inscricoes</span>
               </div>
               <p className="text-[11px] text-slate-400">
-                Este slug identifica inequivocamente a sua instituição no SIGAR PRO.
+                Este slug identifica inequivocamente a sua instituição no SIGAR PRO (também compatível com{' '}
+                <code className="text-slate-300">#instituicoes/{slug}/inscricoes</code> e <code className="text-slate-300">/i/{slug}</code>).
               </p>
             </div>
 

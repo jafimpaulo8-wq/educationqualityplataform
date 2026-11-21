@@ -67,6 +67,7 @@ import {
   ContaReceber,
   OfficialReceiptRecord,
   InstitutionalReceivingAccount,
+  FinancialSettings,
   RECEIVABLE_CATEGORY_CONFIG
 } from '../../types';
 import { toCanonicalRole } from '../../types/rbac';
@@ -630,15 +631,15 @@ export const IndependentPaymentPortalView: React.FC = () => {
       await saveReceivingAccount(authorizedInstId, newAcc);
 
       // Espelhar no objeto privado financialSettings (apenas para acesso autorizado financeiro)
-      const currentSettings = authorizedInstModel?.financialSettings || {
-        currency: 'MT',
-        currencySymbol: 'MT',
-        taxRate: 0,
-        paymentMethods: [],
+      const currentSettings: FinancialSettings = authorizedInstModel?.financialSettings || {
+        fineAmount: 0,
+        interestRateDaily: 0,
+        bankInfo: '',
         pixKey: '',
-        dueDay: 10
+        dueDay: 10,
+        paymentMethods: []
       };
-      const patchSettings = { ...currentSettings };
+      const patchSettings: FinancialSettings = { ...currentSettings };
       if (newAccChannel === 'M-Pesa') {
         patchSettings.mpesaNumber = newAccNumber.trim();
         patchSettings.mpesaHolderName = newAccHolder.trim();

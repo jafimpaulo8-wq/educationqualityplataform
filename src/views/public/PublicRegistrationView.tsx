@@ -1,77 +1,68 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { 
-  GraduationCap, 
-  CheckCircle2, 
-  Clock, 
-  Calendar, 
-  FileText, 
-  CreditCard, 
-  ShieldCheck, 
-  Upload, 
-  ArrowRight, 
-  ArrowLeft, 
-  Check, 
-  Printer, 
-  Share2, 
-  MessageCircle, 
-  Search, 
-  Sparkles, 
-  QrCode, 
-  AlertTriangle, 
-  School, 
-  Phone, 
-  Mail, 
-  MapPin, 
-  User, 
-  HelpCircle, 
+import {
+  GraduationCap,
+  CheckCircle2,
+  Clock,
+  Calendar,
+  FileText,
+  CreditCard,
+  ShieldCheck,
+  Upload,
+  ArrowRight,
+  ArrowLeft,
+  Check,
+  Printer,
+  MessageCircle,
+  Search,
+  Sparkles,
+  QrCode,
+  AlertTriangle,
+  School,
+  User,
+  HelpCircle,
   RotateCcw,
   XCircle,
   BookOpen,
   Camera,
-  HeartHandshake,
-  Users
+  HeartHandshake
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useApp } from '../../context/AppContext';
+import { useToast } from '../../context/ToastContext';
 import { soundManager } from '../../utils/audio';
 import { PROVINCES_MOZAMBIQUE } from '../../data/mockData';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { RegistrationApplication, PublicInstitution, OnlineCourseConfig } from '../../types';
-import { 
-  resolvePublicInstitutionBySlug, 
-  compressImageToBase64 
+import {
+  extractSlugFromLocation,
+  resolvePublicInstitutionBySlug,
+  compressImageToBase64
 } from '../../services/publicInstitutionService';
+import {
+  createEmptyOnlineRegistrationConfig,
+  getConfiguredDocuments,
+  isQuestionVisible,
+  normalizeFieldRequirement,
+  NormalizedRequirement,
+  sanitizeFirestoreData,
+  validateAndFormatInternationalPhone,
+  validateFullRegistration,
+  validateRegistrationStep
+} from '../../utils/registrationConfigUtils';
+
+export { validateAndFormatInternationalPhone };
 
 /**
  * Extrai o slug institucional a partir da URL (hash, pathname ou search query).
  */
 function extractSlugFromBrowser(): string {
   if (typeof window === 'undefined') return '';
-  const hash = window.location.hash || '';
-  const pathname = window.location.pathname || '';
-  const search = window.location.search || '';
-
-  // 1. Hash match: #instituicoes/:slug/inscricoes ou #instituicao/:slug/inscricoes
-  const hashMatch = hash.match(/instituico?e?s\/([^/?#]+)/i);
-  if (hashMatch && hashMatch[1]) {
-    return hashMatch[1].trim();
-  }
-
-  // 2. Pathname match: /instituicoes/:slug/inscricoes ou /instituicao/:slug/inscricoes
-  const pathMatch = pathname.match(/\/instituico?e?s\/([^/?#]+)/i);
-  if (pathMatch && pathMatch[1]) {
-    return pathMatch[1].trim();
-  }
-
-  // 3. Search query: ?inst=..., ?slug=..., ?institutionId=...
-  const params = new URLSearchParams(search);
-  const qSlug = params.get('slug') || params.get('inst') || params.get('institutionId') || params.get('institution');
-  if (qSlug) {
-    return qSlug.trim();
-  }
-
-  return '';
+  return extractSlugFromLocation(
+    window.location.pathname,
+    window.location.hash,
+    window.location.search
+  );
 }
 
 /**
@@ -87,40 +78,6 @@ export function maskCandidateName(fullName: string): string {
   const first = parts[0];
   const last = parts[parts.length - 1];
   return `${first.slice(0, 2)}•••••• ${last}`;
-}
-
-/**
- * Valida e formata o telefone para formato internacional Moçambicano (ex.: 258841234567).
- * Se o número não for válido ou não existir, retorna null (permitindo ocultar botões de ação).
- */
-export function validateAndFormatInternationalPhone(rawPhone: string | null | undefined): string | null {
-  if (!rawPhone) return null;
-  const digits = rawPhone.replace(/\D/g, '');
-  if (!digits) return null;
-
-  // Caso 1: Já inclui código do país 258 (ex: 258841234567, total 12 dígitos)
-  if (digits.startsWith('258') && digits.length === 12) {
-    const nationalPrefix = digits.slice(3, 5);
-    if (['82', '83', '84', '85', '86', '87'].includes(nationalPrefix)) {
-      return digits;
-    }
-    return digits;
-  }
-
-  // Caso 2: Formato nacional de 9 dígitos (ex: 841234567, 853181189)
-  if (digits.length === 9) {
-    const nationalPrefix = digits.slice(0, 2);
-    if (['82', '83', '84', '85', '86', '87'].includes(nationalPrefix)) {
-      return `258${digits}`;
-    }
-  }
-
-  // Caso 3: Fixo moçambicano (8 dígitos iniciando com 2)
-  if (digits.length === 8 && digits.startsWith('2')) {
-    return `258${digits}`;
-  }
-
-  return null;
 }
 
 /**
@@ -142,48 +99,102 @@ export function formatFirestoreTimestamp(val: any): string {
 }
 
 export const PublicRegistrationView: React.FC = () => {
-  const { 
+  const {
     allInstitutions,
-    addApplication, 
+    addApplication,
     applications,
     navigate,
     openWhatsAppMessage,
     setPublicPortalIdentity,
     themeMode
   } = useApp();
+  const { error: toastError } = useToast();
 
   const isLight = themeMode === 'branco';
+
+  // URL slug sincronizado dinamicamente com hash/popstate
+  const [urlSlug, setUrlSlug] = useState<string>(() => extractSlugFromBrowser());
+
+  useEffect(() => {
+    const syncSlug = () => {
+      setUrlSlug(extractSlugFromBrowser());
+    };
+    window.addEventListener('hashchange', syncSlug);
+    window.addEventListener('popstate', syncSlug);
+    return () => {
+      window.removeEventListener('hashchange', syncSlug);
+      window.removeEventListener('popstate', syncSlug);
+    };
+  }, []);
 
   // Resolução Assíncrona e Isolada da Instituição Pública
   const [resolvedPublicInst, setResolvedPublicInst] = useState<PublicInstitution | null>(null);
   const [isLoadingInst, setIsLoadingInst] = useState<boolean>(true);
   const [slugNotFound, setSlugNotFound] = useState<boolean>(false);
 
-  // Número de WhatsApp validado e formatado internacionalmente da instituição do portal aberto (ou null se sem número)
-  const validatedWhatsAppNumber = useMemo(() => {
-    if (!resolvedPublicInst) return null;
-    return validateAndFormatInternationalPhone(resolvedPublicInst.whatsapp) ||
-           validateAndFormatInternationalPhone(resolvedPublicInst.phone);
-  }, [resolvedPublicInst]);
+  // Active Main View Tab & Step State
+  const [activeTab, setActiveTab] = useState<'formulario' | 'consultar'>('formulario');
+  const [currentStep, setCurrentStep] = useState(1);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submittedCandidate, setSubmittedCandidate] = useState<RegistrationApplication | null>(null);
+  const [stepErrors, setStepErrors] = useState<string[]>([]);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  // Efeito de resolução de tenant sem vazamento
+  // Limpar todo o estado do formulário ao mudar de slug/instituição (zero contaminação cruzada)
+  useEffect(() => {
+    setSubmittedCandidate(null);
+    setCurrentStep(1);
+    setSelectedCourseId('');
+    setFullName('');
+    setDocumentNumber('');
+    setNuit('');
+    setBirthDate('');
+    setGender('');
+    setPhone('');
+    setGuardianPhone('');
+    setEmail('');
+    setProvince('');
+    setCity('');
+    setAddress('');
+    setGuardianName('');
+    setGuardianRelationship('');
+    setAuthorizedPickupPersons('');
+    setPreviousSchool('');
+    setCandidatePhotoUrl('');
+    setCustomAnswers({});
+    setUploadedDocs({});
+    setPaymentTxCode('');
+    setMpesaNumber('');
+    setPaymentReferenceSubmitted(false);
+    setTermsAccepted(false);
+    setPrivacyAccepted(false);
+    setStepErrors([]);
+    setFieldErrors({});
+    setLookedUpApplication(null);
+    setLookupAttempted(false);
+    setSearchCode('');
+  }, [urlSlug]);
+
+  // Efeito de resolução de tenant sem fallback para outra instituição
   useEffect(() => {
     let isCancelled = false;
-    const rawSlug = extractSlugFromBrowser();
 
-    if (!rawSlug) {
+    if (!urlSlug) {
+      setResolvedPublicInst(null);
       setSlugNotFound(true);
       setIsLoadingInst(false);
       return;
     }
 
-    resolvePublicInstitutionBySlug(rawSlug, allInstitutions)
+    setIsLoadingInst(true);
+    resolvePublicInstitutionBySlug(urlSlug, allInstitutions)
       .then(result => {
         if (isCancelled) return;
         if (result) {
           setResolvedPublicInst(result);
           setSlugNotFound(false);
         } else {
+          setResolvedPublicInst(null);
           setSlugNotFound(true);
         }
         setIsLoadingInst(false);
@@ -191,6 +202,7 @@ export const PublicRegistrationView: React.FC = () => {
       .catch(err => {
         console.warn('Erro ao resolver instituição pública:', err);
         if (!isCancelled) {
+          setResolvedPublicInst(null);
           setSlugNotFound(true);
           setIsLoadingInst(false);
         }
@@ -199,13 +211,17 @@ export const PublicRegistrationView: React.FC = () => {
     return () => {
       isCancelled = true;
     };
-  }, [allInstitutions]);
+  }, [urlSlug, allInstitutions]);
 
   useEffect(() => {
     if (resolvedPublicInst && !slugNotFound) {
       setPublicPortalIdentity({
         officialName: resolvedPublicInst.name,
         logoUrl: resolvedPublicInst.logoUrl,
+        emblemUrl: resolvedPublicInst.emblemUrl,
+        faviconUrl: resolvedPublicInst.faviconUrl || resolvedPublicInst.logoUrl || resolvedPublicInst.emblemUrl,
+        institutionId: resolvedPublicInst.institutionId,
+        slug: resolvedPublicInst.slug
       });
     } else {
       setPublicPortalIdentity(null);
@@ -215,47 +231,50 @@ export const PublicRegistrationView: React.FC = () => {
     };
   }, [resolvedPublicInst, slugNotFound, setPublicPortalIdentity]);
 
-  // Identificação do tipo institucional para adaptação da UI
+  // Identificação do tipo institucional para rótulos contextuais
   const isChildCenter = useMemo(() => {
     if (!resolvedPublicInst) return false;
     const type = (resolvedPublicInst.type || '').toLowerCase();
-    const id = (resolvedPublicInst.institutionId || resolvedPublicInst.id || '').toLowerCase();
-    const name = (resolvedPublicInst.name || '').toLowerCase();
-    return type === 'centro_infantil' || id.includes('ceu-azul') || name.includes('infantil') || name.includes('creche') || name.includes('jardim');
+    return type === 'centro_infantil';
   }, [resolvedPublicInst]);
 
-  const isSchool = useMemo(() => {
-    if (!resolvedPublicInst) return false;
-    const type = (resolvedPublicInst.type || '').toLowerCase();
-    return type === 'escola' || type === 'escola_primaria' || type === 'escola_secundaria';
-  }, [resolvedPublicInst]);
-
-  // Configuração efetiva da instituição pública resolvida
+  // Configuração efetiva estritamente da instituição resolvida (sem valores de outra instituição)
   const effectiveConfig = useMemo(() => {
-    return resolvedPublicInst?.onlineRegistrationConfig || {
-      institutionId: '',
-      isOpen: true,
-      title: 'Inscrições Online',
-      description: 'Preencha o formulário para submeter a sua candidatura oficial.',
-      startDate: '2026-01-01',
-      endDate: '2026-12-31',
-      academicYear: '2026',
-      semester: '1º Semestre',
-      confirmationMessageTemplate: 'Inscrição submetida com sucesso.',
-      requiredFields: {},
-      requiredDocuments: [],
-      coursesConfig: [],
-      customQuestions: []
-    };
+    if (resolvedPublicInst?.onlineRegistrationConfig) {
+      return resolvedPublicInst.onlineRegistrationConfig;
+    }
+    return createEmptyOnlineRegistrationConfig(
+      resolvedPublicInst
+        ? {
+            id: resolvedPublicInst.institutionId,
+            name: resolvedPublicInst.name,
+            type: resolvedPublicInst.type as any,
+            phone: resolvedPublicInst.phone,
+            whatsapp: resolvedPublicInst.whatsapp,
+            email: resolvedPublicInst.email
+          }
+        : null
+    );
   }, [resolvedPublicInst]);
 
-  // Active Main View Tab: 'formulario' | 'consultar'
-  const [activeTab, setActiveTab] = useState<'formulario' | 'consultar'>('formulario');
+  // Número de WhatsApp validado e formatado internacionalmente (oculto se inexistente ou inválido)
+  const validatedWhatsAppNumber = useMemo(() => {
+    if (!resolvedPublicInst) return null;
+    return (
+      validateAndFormatInternationalPhone(effectiveConfig.contactWhatsapp) ||
+      validateAndFormatInternationalPhone(resolvedPublicInst.whatsapp) ||
+      validateAndFormatInternationalPhone(effectiveConfig.contactPhone) ||
+      validateAndFormatInternationalPhone(resolvedPublicInst.phone)
+    );
+  }, [resolvedPublicInst, effectiveConfig]);
 
-  // Form Step State (1: Curso/Sala, 2: Dados Pessoais, 3: Questionário, 4: Documentos, 5: Pagamento & Submissão)
-  const [currentStep, setCurrentStep] = useState(1);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submittedCandidate, setSubmittedCandidate] = useState<RegistrationApplication | null>(null);
+  // Helper de obrigatoriedade de campo (obrigatorio | opcional | oculto)
+  const reqOf = (
+    key: string,
+    fallback: NormalizedRequirement = 'opcional'
+  ): NormalizedRequirement => {
+    return normalizeFieldRequirement(effectiveConfig.requiredFields?.[key], fallback);
+  };
 
   // Modo Privado / Convite Direto
   const [isPrivateMode] = useState(() => {
@@ -285,8 +304,10 @@ export const PublicRegistrationView: React.FC = () => {
   const [selectedCourseId, setSelectedCourseId] = useState<string>('');
 
   useEffect(() => {
-    if (activeCourses.length > 0 && !selectedCourseId) {
+    if (activeCourses.length > 0 && !activeCourses.some(c => c.courseId === selectedCourseId)) {
       setSelectedCourseId(activeCourses[0].courseId);
+    } else if (activeCourses.length === 0) {
+      setSelectedCourseId('');
     }
   }, [activeCourses, selectedCourseId]);
 
@@ -294,26 +315,51 @@ export const PublicRegistrationView: React.FC = () => {
     return activeCourses.find(c => c.courseId === selectedCourseId) || activeCourses[0];
   }, [activeCourses, selectedCourseId]);
 
-  const [regime, setRegime] = useState<'Laboral' | 'Pós-Laboral' | 'Online'>('Laboral');
-  const [shift, setShift] = useState<'Manhã' | 'Tarde' | 'Noite'>('Manhã');
+  const availableRegimes = useMemo(() => {
+    if (selectedCourse?.regimes && selectedCourse.regimes.length > 0) {
+      return selectedCourse.regimes;
+    }
+    return isChildCenter ? ['Laboral'] : ['Laboral', 'Pós-Laboral', 'Online'];
+  }, [selectedCourse, isChildCenter]);
 
-  // Campos Pessoais (Adaptados: Criança ou Jovem/Adulto)
+  const availableShifts = useMemo(() => {
+    if (selectedCourse?.shifts && selectedCourse.shifts.length > 0) {
+      return selectedCourse.shifts;
+    }
+    return isChildCenter ? ['Manhã', 'Tarde', 'Integral'] : ['Manhã', 'Tarde', 'Noite'];
+  }, [selectedCourse, isChildCenter]);
+
+  const [regime, setRegime] = useState<string>('Laboral');
+  const [shift, setShift] = useState<string>('Manhã');
+
+  useEffect(() => {
+    if (availableRegimes.length > 0 && !availableRegimes.includes(regime as any)) {
+      setRegime(availableRegimes[0]);
+    }
+    if (availableShifts.length > 0 && !availableShifts.includes(shift)) {
+      setShift(availableShifts[0]);
+    }
+  }, [availableRegimes, availableShifts, regime, shift]);
+
+  // Campos Pessoais (sem valores hardcoded falsos)
   const [fullName, setFullName] = useState('');
-  const [documentType, setDocumentType] = useState<'BI' | 'Passaporte' | 'DIRE' | 'Cédula'>('BI');
+  const [documentType, setDocumentType] = useState<'BI' | 'Passaporte' | 'DIRE' | 'Cédula'>(() =>
+    isChildCenter ? 'Cédula' : 'BI'
+  );
   const [documentNumber, setDocumentNumber] = useState('');
   const [nuit, setNuit] = useState('');
-  const [birthDate, setBirthDate] = useState('2021-04-12');
-  const [gender, setGender] = useState<'Masculino' | 'Feminino' | 'Outro'>('Masculino');
+  const [birthDate, setBirthDate] = useState('');
+  const [gender, setGender] = useState<string>('');
   const [phone, setPhone] = useState('');
-  const [guardianAltPhone, setGuardianAltPhone] = useState('');
+  const [guardianPhone, setGuardianPhone] = useState('');
   const [email, setEmail] = useState('');
-  const [province, setProvince] = useState('Nampula');
-  const [city, setCity] = useState('Nacala');
+  const [province, setProvince] = useState('');
+  const [city, setCity] = useState('');
   const [address, setAddress] = useState('');
-  
-  // Encarregados & Pessoas autorizadas (Obrigatório em Centro Infantil)
+
+  // Encarregados & Pessoas autorizadas
   const [guardianName, setGuardianName] = useState('');
-  const [guardianRelationship, setGuardianRelationship] = useState('Mãe');
+  const [guardianRelationship, setGuardianRelationship] = useState('');
   const [authorizedPickupPersons, setAuthorizedPickupPersons] = useState('');
   const [previousSchool, setPreviousSchool] = useState('');
 
@@ -322,18 +368,25 @@ export const PublicRegistrationView: React.FC = () => {
   const [isCompressingPhoto, setIsCompressingPhoto] = useState(false);
 
   // Questionário customizado
+  const visibleQuestions = useMemo(() => {
+    return (effectiveConfig.customQuestions || []).filter(isQuestionVisible);
+  }, [effectiveConfig]);
   const [customAnswers, setCustomAnswers] = useState<Record<string, string>>({});
 
-  // Documentos anexados (seleção real de arquivo PDF/JPG/PNG)
+  // Documentos configurados pela instituição
+  const configuredDocuments = useMemo(() => {
+    return getConfiguredDocuments(effectiveConfig);
+  }, [effectiveConfig]);
+
   const [uploadedDocs, setUploadedDocs] = useState<
     Record<string, { fileName: string; fileSize: string; mimeType?: string; dataUrl?: string; uploadedAt: string }>
   >({});
   const docFileInputRef = useRef<HTMLInputElement>(null);
   const [pendingDocTitle, setPendingDocTitle] = useState<string | null>(null);
 
-  // Pagamento (com referência submetida pelo candidato para conferência da Tesouraria)
+  // Pagamento
   const [paymentMethod, setPaymentMethod] = useState<'M-Pesa' | 'e-Mola' | 'BIM' | 'Presencial'>('M-Pesa');
-  const [mpesaNumber, setMpesaNumber] = useState('84');
+  const [mpesaNumber, setMpesaNumber] = useState('');
   const [paymentTxCode, setPaymentTxCode] = useState('');
   const [paymentReferenceSubmitted, setPaymentReferenceSubmitted] = useState(false);
 
@@ -342,8 +395,74 @@ export const PublicRegistrationView: React.FC = () => {
   const [lookedUpApplication, setLookedUpApplication] = useState<RegistrationApplication | null>(null);
   const [lookupAttempted, setLookupAttempted] = useState(false);
 
-  // Estado das Inscrições
   const isOpen = effectiveConfig.isOpen !== false;
+  const coursePrice = typeof selectedCourse?.price === 'number' ? selectedCourse.price : 0;
+
+  const currentFormInput = {
+    selectedCourseId: selectedCourse?.courseId || selectedCourseId,
+    fullName,
+    documentNumber,
+    birthDate,
+    gender,
+    phone,
+    email,
+    province,
+    city,
+    address,
+    guardianName,
+    guardianPhone,
+    guardianRelationship,
+    authorizedPickupPersons,
+    nuit,
+    previousSchool,
+    customAnswers,
+    uploadedDocs,
+    termsAccepted,
+    privacyAccepted
+  };
+
+  const showStepValidationErrors = (errors: string[], fErrors: Record<string, string>) => {
+    setStepErrors(errors);
+    setFieldErrors(fErrors);
+    soundManager.playNotification();
+    if (errors.length > 0) {
+      toastError('Verifique os dados obrigatórios', errors[0]);
+    }
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 180, behavior: 'smooth' });
+    }
+  };
+
+  const goToNextStep = (fromStep: number) => {
+    const check = validateRegistrationStep(fromStep, currentFormInput, effectiveConfig, activeCourses);
+    if (!check.valid) {
+      showStepValidationErrors(check.errors, check.fieldErrors);
+      return;
+    }
+    setStepErrors([]);
+    setFieldErrors({});
+    setCurrentStep(fromStep + 1);
+    soundManager.playClick();
+  };
+
+  const handleStepperClick = (targetStep: number) => {
+    if (targetStep <= currentStep) {
+      setStepErrors([]);
+      setCurrentStep(targetStep);
+      return;
+    }
+    for (let s = currentStep; s < targetStep; s++) {
+      const check = validateRegistrationStep(s, currentFormInput, effectiveConfig, activeCourses);
+      if (!check.valid) {
+        setCurrentStep(s);
+        showStepValidationErrors(check.errors, check.fieldErrors);
+        return;
+      }
+    }
+    setStepErrors([]);
+    setFieldErrors({});
+    setCurrentStep(targetStep);
+  };
 
   // Handler para upload e compressão da foto tipo passe (<= 150 KB)
   const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -357,7 +476,7 @@ export const PublicRegistrationView: React.FC = () => {
       soundManager.playSuccess();
     } catch (err) {
       console.warn('Falha na compressão da imagem:', err);
-      alert('Não foi possível processar a imagem. Tente uma foto menor em formato JPG ou PNG.');
+      toastError('Erro na fotografia', 'Não foi possível processar a imagem. Tente uma foto JPG ou PNG menor.');
     } finally {
       setIsCompressingPhoto(false);
     }
@@ -365,6 +484,13 @@ export const PublicRegistrationView: React.FC = () => {
 
   const handleAnswerChange = (qId: string, answer: string) => {
     setCustomAnswers(prev => ({ ...prev, [qId]: answer }));
+    if (fieldErrors[`q_${qId}`]) {
+      setFieldErrors(prev => {
+        const copy = { ...prev };
+        delete copy[`q_${qId}`];
+        return copy;
+      });
+    }
   };
 
   const formatFileSize = (bytes: number): string => {
@@ -373,7 +499,6 @@ export const PublicRegistrationView: React.FC = () => {
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   };
 
-  // Dispara seletor real de ficheiro (PDF / Imagem)
   const handleUploadDoc = (docTitle: string) => {
     soundManager.playClick();
     setPendingDocTitle(docTitle);
@@ -392,12 +517,12 @@ export const PublicRegistrationView: React.FC = () => {
     const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
     const isPdfByExt = file.name.toLowerCase().endsWith('.pdf');
     if (!allowedTypes.includes(file.type) && !isPdfByExt) {
-      alert('Formato inválido. Selecione apenas ficheiros PDF, JPG, PNG ou WEBP.');
+      toastError('Formato inválido', 'Selecione apenas ficheiros PDF, JPG, PNG ou WEBP.');
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      alert('O ficheiro excede o limite de 5 MB. Reduza o tamanho antes de anexar.');
+      toastError('Ficheiro demasiado grande', 'O ficheiro excede o limite de 5 MB.');
       return;
     }
 
@@ -434,7 +559,7 @@ export const PublicRegistrationView: React.FC = () => {
   const handleSubmitPaymentReference = () => {
     const cleaned = paymentTxCode.trim();
     if (cleaned.length < 4) {
-      alert('Insira o código de confirmação da transação (mínimo 4 caracteres) para enviar à tesouraria.');
+      toastError('Código inválido', 'Insira o código de confirmação da transação (mínimo 4 caracteres).');
       return;
     }
     soundManager.playSuccess();
@@ -442,188 +567,179 @@ export const PublicRegistrationView: React.FC = () => {
   };
 
   // Submissão Oficial com Prevenção de Duplo Clique e Validação Estrita
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
 
     if (!resolvedPublicInst) {
-      alert('Instituição inválida. Por favor recarregue a página com o link correto.');
+      toastError('Instituição inválida', 'Aceda através do endereço oficial da instituição.');
       return;
     }
 
-    if (!fullName.trim()) {
-      alert(isChildCenter ? 'Por favor, informe o Nome Completo da Criança.' : 'Por favor, informe o seu Nome Completo.');
+    const fullValidation = validateFullRegistration(currentFormInput, effectiveConfig, activeCourses);
+    if (!fullValidation.valid) {
+      setCurrentStep(fullValidation.firstInvalidStep || 1);
+      showStepValidationErrors(fullValidation.errors, fullValidation.fieldErrors);
       return;
     }
 
-    if (!birthDate) {
-      alert('Por favor, informe a Data de Nascimento.');
-      return;
-    }
-
-    if (isChildCenter) {
-      if (!guardianName.trim()) {
-        alert('O Nome do Encarregado de Educação é obrigatório para centros infantis.');
-        return;
-      }
-      if (!phone.trim()) {
-        alert('O Contacto Telefónico do Encarregado de Educação é obrigatório.');
-        return;
-      }
-    } else {
-      if (!documentNumber.trim()) {
-        alert('Por favor, informe o Número do Documento (BI / DIRE / Passaporte).');
-        return;
-      }
-      if (!phone.trim()) {
-        alert('Por favor, informe o Contacto Telefónico principal.');
-        return;
-      }
-    }
-
-    if (!termsAccepted || !privacyAccepted) {
-      alert('É obrigatório aceitar o Regulamento e a Política de Privacidade para submeter a candidatura.');
-      return;
-    }
-
+    setStepErrors([]);
+    setFieldErrors({});
     setIsSubmitting(true);
     soundManager.playClick();
 
-    setTimeout(async () => {
-      try {
-        const documentsList = (Object.entries(uploadedDocs) as [string, { fileName: string; fileSize: string; mimeType?: string; dataUrl?: string; uploadedAt: string }][]).map(([docType, fileInfo], idx) => ({
+    try {
+      const documentsList = (
+        Object.entries(uploadedDocs) as [
+          string,
+          { fileName: string; fileSize: string; mimeType?: string; dataUrl?: string; uploadedAt: string }
+        ][]
+      ).map(([docType, fileInfo], idx) =>
+        sanitizeFirestoreData({
           id: `cand-doc-${Date.now()}-${idx}`,
           name: docType,
           type: fileInfo.mimeType || docType,
           fileName: fileInfo.fileName,
           fileSize: fileInfo.fileSize,
-          url: fileInfo.dataUrl || '#',
+          url: fileInfo.dataUrl || '',
           verified: false,
           uploadedAt: fileInfo.uploadedAt
-        }));
+        })
+      );
 
-        const customAnswersArray = (effectiveConfig.customQuestions || []).map(q => ({
-          questionId: q.id,
-          question: q.question,
-          answer: customAnswers[q.id] || (q.type === 'boolean' ? 'Não' : 'Não informado')
-        }));
+      const customAnswersArray = visibleQuestions.map(q => ({
+        questionId: q.id,
+        question: q.question,
+        answer: (customAnswers[q.id] || '').trim()
+      }));
 
-        const randomSeq = Math.floor(1000 + Math.random() * 9000);
-        const prefix = (resolvedPublicInst.code || 'CAND').replace(/[^a-zA-Z0-9]/g, '');
-        const applicationCode = `${prefix}-2026-${randomSeq}`;
-        const applicationId = `reg-${Date.now()}`;
-        const portalSlug = resolvedPublicInst.slug;
-        const normalizedTxCode = paymentTxCode.trim().toUpperCase();
+      const randomSeq = Math.floor(1000 + Math.random() * 9000);
+      const prefix = (resolvedPublicInst.code || 'CAND').replace(/[^a-zA-Z0-9]/g, '');
+      const year = effectiveConfig.academicYear?.match(/\d{4}/)?.[0] || String(new Date().getFullYear());
+      const applicationCode = `${prefix}-${year}-${randomSeq}`;
+      const applicationId = `reg-${Date.now()}`;
+      const portalSlug = resolvedPublicInst.slug;
+      const normalizedTxCode = paymentTxCode.trim().toUpperCase();
 
-        // 1. Candidatura Completa (sem matricula, studentId nem approved; pagamento sempre Pendente até conferência)
-        const candidatePayload: any = {
-          id: applicationId,
-          code: applicationCode,
-          slug: portalSlug, // Slug do portal aberto
-          institutionId: resolvedPublicInst.institutionId,
-          branchId: resolvedPublicInst.branches?.[0]?.id || 'branch-main',
-          status: 'submetida', // Status inicial oficial
-          fullName: fullName.trim(),
-          documentType,
-          documentNumber: documentNumber.trim() || 'CERT-PENDENTE',
-          birthDate,
-          gender: gender as any,
-          phone: phone.trim(),
-          email: email.trim() || `${phone.replace(/\D/g, '')}@candidato.mz`,
-          province,
-          city,
-          address: address.trim(),
-          guardianName: guardianName.trim() || (isChildCenter ? 'Encarregado Declarado' : undefined),
-          guardianPhone: (guardianAltPhone.trim() || phone.trim()) || undefined,
-          courseId: selectedCourse?.courseId || selectedCourseId || 'geral',
-          courseName: selectedCourse?.courseName || (isChildCenter ? 'Sala de Cuidados e Educação' : 'Ensino Regular'),
-          regime,
-          shift,
-          photoUrl: candidatePhotoUrl || '',
-          paymentStatus: 'Pendente',
-          paymentAmount: selectedCourse?.price || 1500,
-          paymentMethod,
-          paymentReference: normalizedTxCode || `PEND-${applicationCode}`,
-          documents: documentsList,
-          customAnswers: customAnswersArray,
-          termsAccepted: true,
-          termsAcceptedAt: new Date().toISOString(),
-          privacyAccepted: true,
-          isPrivateApplication: !!isPrivateMode,
-          privateInviteToken: privateTokenParam || undefined
-          // CRITICAL: Na criação não incluir matricula, studentId nem approved
-        };
+      // Construir payload apenas com campos visíveis/fornecidos (sem valores fictícios nem undefined)
+      const candidatePayload: any = sanitizeFirestoreData({
+        id: applicationId,
+        code: applicationCode,
+        slug: portalSlug,
+        institutionId: resolvedPublicInst.institutionId,
+        branchId: resolvedPublicInst.branches?.[0]?.id || 'branch-main',
+        status: 'submetida',
+        fullName: fullName.trim(),
+        documentType,
+        ...(reqOf('documentNumber', 'opcional') !== 'oculto' && documentNumber.trim()
+          ? { documentNumber: documentNumber.trim() }
+          : { documentNumber: '' }),
+        ...(reqOf('birthDate', 'opcional') !== 'oculto' && birthDate ? { birthDate } : { birthDate: '' }),
+        ...(reqOf('gender', 'opcional') !== 'oculto' && gender ? { gender } : { gender: 'Outro' }),
+        ...(reqOf('phone', 'obrigatorio') !== 'oculto' && phone.trim() ? { phone: phone.trim() } : { phone: '' }),
+        ...(reqOf('email', 'opcional') !== 'oculto' && email.trim() ? { email: email.trim() } : { email: '' }),
+        ...(reqOf('province', 'opcional') !== 'oculto' && province ? { province } : { province: '' }),
+        ...(reqOf('city', 'opcional') !== 'oculto' && city.trim() ? { city: city.trim() } : { city: '' }),
+        ...(reqOf('address', 'opcional') !== 'oculto' && address.trim() ? { address: address.trim() } : {}),
+        ...(reqOf('guardianName', 'opcional') !== 'oculto' && guardianName.trim()
+          ? { guardianName: guardianName.trim() }
+          : {}),
+        ...(reqOf('guardianPhone', 'opcional') !== 'oculto' && guardianPhone.trim()
+          ? { guardianPhone: guardianPhone.trim() }
+          : {}),
+        ...(reqOf('guardianRelationship', 'oculto') !== 'oculto' && guardianRelationship
+          ? { guardianRelationship }
+          : {}),
+        ...(reqOf('authorizedPickupPersons', 'oculto') !== 'oculto' && authorizedPickupPersons.trim()
+          ? { authorizedPickupPersons: authorizedPickupPersons.trim() }
+          : {}),
+        ...(reqOf('nuit', 'opcional') !== 'oculto' && nuit.trim() ? { nuit: nuit.trim() } : {}),
+        ...(reqOf('previousSchool', 'opcional') !== 'oculto' && previousSchool.trim()
+          ? { previousSchool: previousSchool.trim() }
+          : {}),
+        courseId: selectedCourse!.courseId,
+        courseName: selectedCourse!.courseName,
+        regime,
+        shift,
+        photoUrl: candidatePhotoUrl || '',
+        paymentStatus: 'Pendente',
+        paymentAmount: coursePrice,
+        paymentMethod,
+        paymentReference: normalizedTxCode || `PEND-${applicationCode}`,
+        ...(mpesaNumber.trim() ? { payerPhone: mpesaNumber.trim() } : {}),
+        documents: documentsList,
+        customAnswers: customAnswersArray,
+        termsAccepted: true,
+        termsAcceptedAt: new Date().toISOString(),
+        privacyAccepted: true,
+        isPrivateApplication: !!isPrivateMode,
+        ...(privateTokenParam ? { privateInviteToken: privateTokenParam } : {})
+      });
 
-        // 2. Acompanhamento Seguro (applicationTracking/{token}) SEM DADOS PESSOAIS (BI, telefone, morada, email, fotografia)
-        const trackingPayload = {
-          token: applicationCode,
-          code: applicationCode,
-          applicationId,
-          slug: portalSlug,
-          institutionId: resolvedPublicInst.institutionId,
-          status: 'submetida',
-          courseId: selectedCourse?.courseId || selectedCourseId || 'geral',
-          courseName: selectedCourse?.courseName || (isChildCenter ? 'Sala de Cuidados e Educação' : 'Ensino Regular'),
-          paymentStatus: 'Pendente',
-          paymentAmount: selectedCourse?.price || 1500,
-          regime,
-          shift,
-          documentsCount: documentsList.length,
-          maskedName: maskCandidateName(fullName.trim())
-        };
+      // Tracking seguro (sem PII)
+      const trackingPayload = sanitizeFirestoreData({
+        token: applicationCode,
+        code: applicationCode,
+        applicationId,
+        slug: portalSlug,
+        institutionId: resolvedPublicInst.institutionId,
+        status: 'submetida',
+        courseId: selectedCourse!.courseId,
+        courseName: selectedCourse!.courseName,
+        paymentStatus: 'Pendente',
+        paymentAmount: coursePrice,
+        regime,
+        shift,
+        documentsCount: documentsList.length,
+        maskedName: maskCandidateName(fullName.trim())
+      });
 
-        // 3. Persistência no Firestore
-        // a) institutions/{id}/applications/{appId}
-        try {
-          await setDoc(doc(db, 'institutions', resolvedPublicInst.institutionId, 'applications', applicationId), {
-            ...candidatePayload,
-            createdAt: serverTimestamp()
-          });
-        } catch (e) {
-          console.warn('[Firestore] institutions/{id}/applications sync:', e);
-        }
+      // 3. Persistência no Firestore
+      await setDoc(doc(db, 'institutions', resolvedPublicInst.institutionId, 'applications', applicationId), {
+        ...candidatePayload,
+        createdAt: serverTimestamp()
+      });
 
-        // b) applicationTracking/{token}
-        try {
-          await setDoc(doc(db, 'applicationTracking', applicationCode), {
-            ...trackingPayload,
-            createdAt: serverTimestamp()
-          });
-        } catch (e) {
-          console.warn('[Firestore] applicationTracking/{token} sync:', e);
-        }
-
-        // c) applications/{appId} (para compatibilidade das views internas)
-        try {
-          await setDoc(doc(db, 'applications', applicationId), {
-            ...candidatePayload,
-            createdAt: serverTimestamp()
-          });
-        } catch (e) {
-          console.warn('[Firestore] applications/{appId} sync:', e);
-        }
-
-        // 4. Integração local (preservando id/code sem duplicar gravação no Firestore)
-        const createdLocal = addApplication({
-          ...candidatePayload,
-          createdAt: new Date().toLocaleString('pt-MZ'),
-          skipFirestoreSync: true
+      try {
+        await setDoc(doc(db, 'applicationTracking', applicationCode), {
+          ...trackingPayload,
+          createdAt: serverTimestamp()
         });
-        setSubmittedCandidate(createdLocal);
-
-        confetti({
-          particleCount: 150,
-          spread: 90,
-          origin: { y: 0.6 }
-        });
-        soundManager.playSuccess();
-      } catch (err) {
-        console.error('Erro na submissão de candidatura:', err);
-        alert('Ocorreu um erro ao submeter a candidatura. Verifique os dados e tente novamente.');
-      } finally {
-        setIsSubmitting(false);
+      } catch (e) {
+        console.warn('[Firestore] applicationTracking/{token} sync:', e);
       }
-    }, 600);
+
+      try {
+        await setDoc(doc(db, 'applications', applicationId), {
+          ...candidatePayload,
+          createdAt: serverTimestamp()
+        });
+      } catch (e) {
+        console.warn('[Firestore] applications/{appId} sync:', e);
+      }
+
+      const createdLocal = addApplication({
+        ...candidatePayload,
+        createdAt: new Date().toLocaleString('pt-MZ'),
+        skipFirestoreSync: true
+      });
+      setSubmittedCandidate(createdLocal);
+
+      confetti({
+        particleCount: 150,
+        spread: 90,
+        origin: { y: 0.6 }
+      });
+      soundManager.playSuccess();
+    } catch (err: any) {
+      console.error('Erro na submissão de candidatura:', err);
+      toastError(
+        'Não foi possível submeter a candidatura',
+        err?.message || 'Verifique os campos obrigatórios configurados pela instituição e tente novamente.'
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Pesquisa de Candidatura com Anonimização Estrita de PII
@@ -633,7 +749,6 @@ export const PublicRegistrationView: React.FC = () => {
     setLookupAttempted(true);
     const q = searchCode.trim().toLowerCase();
 
-    // 1. Tentar consultar no Firestore em applicationTracking/{token}
     try {
       const trackingRef = doc(db, 'applicationTracking', searchCode.trim().toUpperCase());
       const trackingSnap = await getDoc(trackingRef);
@@ -672,14 +787,14 @@ export const PublicRegistrationView: React.FC = () => {
       console.warn('Consulta applicationTracking:', e);
     }
 
-    // 2. Fallback para memória filtrada exclusivamente dentro da instituição resolvida
     const found = applications.find(app => {
-      const matchInst = app.institutionId === resolvedPublicInst.institutionId || app.institutionId === resolvedPublicInst.id;
+      const matchInst =
+        app.institutionId === resolvedPublicInst.institutionId || app.institutionId === resolvedPublicInst.id;
       if (!matchInst) return false;
       return (
-        app.code.toLowerCase() === q || 
-        app.documentNumber.toLowerCase() === q ||
-        app.phone.replace(/\D/g, '').includes(q.replace(/\D/g, ''))
+        app.code.toLowerCase() === q ||
+        (app.documentNumber && app.documentNumber.toLowerCase() === q) ||
+        (app.phone && q.replace(/\D/g, '').length >= 6 && app.phone.replace(/\D/g, '').includes(q.replace(/\D/g, '')))
       );
     });
 
@@ -694,9 +809,11 @@ export const PublicRegistrationView: React.FC = () => {
   // 1. Tela de Carregamento da Instituição
   if (isLoadingInst) {
     return (
-      <div className={`min-h-screen flex flex-col items-center justify-center p-6 text-center select-none font-sans ${
-        isLight ? 'bg-slate-50 text-slate-900' : 'bg-slate-950 text-white'
-      }`}>
+      <div
+        className={`min-h-screen flex flex-col items-center justify-center p-6 text-center select-none font-sans ${
+          isLight ? 'bg-slate-50 text-slate-900' : 'bg-slate-950 text-white'
+        }`}
+      >
         <div className="w-14 h-14 rounded-2xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center mb-4">
           <GraduationCap className="w-7 h-7 text-sky-400 animate-pulse" />
         </div>
@@ -706,12 +823,14 @@ export const PublicRegistrationView: React.FC = () => {
     );
   }
 
-  // 2. Tela de Link Inválido (Regra Mandatória 1: Sem vazamento, sem redirecionar para admin)
+  // 2. Tela de Link Inválido (Zero fallback cruzado)
   if (slugNotFound || !resolvedPublicInst) {
     return (
-      <div className={`min-h-screen flex flex-col items-center justify-center p-6 text-center select-none font-sans ${
-        isLight ? 'bg-slate-100 text-slate-900' : 'bg-slate-950 text-slate-100'
-      }`}>
+      <div
+        className={`min-h-screen flex flex-col items-center justify-center p-6 text-center select-none font-sans ${
+          isLight ? 'bg-slate-100 text-slate-900' : 'bg-slate-950 text-slate-100'
+        }`}
+      >
         <div className="max-w-md w-full bg-slate-900/95 border border-slate-800 rounded-3xl p-8 shadow-2xl space-y-5 text-center">
           <div className="w-16 h-16 rounded-2xl bg-slate-800/80 border border-slate-700 flex items-center justify-center mx-auto text-sky-400">
             <School className="w-8 h-8" />
@@ -722,18 +841,23 @@ export const PublicRegistrationView: React.FC = () => {
             </span>
             <h2 className="text-xl font-bold text-white tracking-tight">Portal de Candidaturas</h2>
           </div>
-          
+
           <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs sm:text-sm font-semibold leading-relaxed">
-            Link inválido. Solicita o endereço correcto à instituição.
+            Instituição não encontrada ou endereço inválido. Solicite o link correcto (#i/slug) à sua instituição.
           </div>
 
           <p className="text-xs text-slate-400 leading-relaxed">
-            Cada instituição de ensino e formação credenciada no SIGAR PRO possui um endereço próprio e isolado para recepção de candidaturas.
+            Cada instituição credenciada no SIGAR PRO possui um endereço próprio e isolado para recepção de candidaturas.
           </p>
 
           <div className="pt-2">
             <button
-              onClick={() => navigate('public_portal')}
+              onClick={() => {
+                if (typeof window !== 'undefined' && (window.location.hash || window.location.pathname !== '/')) {
+                  window.history.pushState(null, '', '/');
+                }
+                navigate('public_portal');
+              }}
               className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold cursor-pointer transition-all flex items-center justify-center gap-1.5 mx-auto"
             >
               <ArrowLeft className="w-4 h-4" />
@@ -745,22 +869,44 @@ export const PublicRegistrationView: React.FC = () => {
     );
   }
 
+  const showGuardianSection =
+    reqOf('guardianName', 'opcional') !== 'oculto' ||
+    reqOf('guardianPhone', 'opcional') !== 'oculto' ||
+    reqOf('guardianRelationship', 'oculto') !== 'oculto' ||
+    reqOf('authorizedPickupPersons', 'oculto') !== 'oculto';
+
+  const resolvedTermsText =
+    effectiveConfig.termsAndConditions ||
+    resolvedPublicInst.termsAndConditions ||
+    `1. A submissão da candidatura na ${resolvedPublicInst.name} constitui manifestação oficial de interesse e não assegura admissão automática sem parecer da secretaria.\n2. Os candidatos e encarregados comprometem-se com a veracidade dos dados submetidos.`;
+
+  const resolvedPrivacyText =
+    effectiveConfig.privacyPolicy ||
+    resolvedPublicInst.privacyPolicy ||
+    `Os dados recolhidos pela ${resolvedPublicInst.name} destinam-se estritamente à gestão académica oficial no SIGAR PRO.`;
+
   // 3. Renderização Principal do Portal Institucional Isolado
   return (
-    <div className={`min-h-screen font-sans transition-colors ${
-      isLight 
-        ? 'bg-slate-50 text-slate-900 selection:bg-emerald-600 selection:text-white' 
-        : 'bg-slate-950 text-slate-100 selection:bg-emerald-500 selection:text-slate-950'
-    }`}>
+    <div
+      className={`min-h-screen font-sans transition-colors ${
+        isLight
+          ? 'bg-slate-50 text-slate-900 selection:bg-emerald-600 selection:text-white'
+          : 'bg-slate-950 text-slate-100 selection:bg-emerald-500 selection:text-slate-950'
+      }`}
+    >
       {/* Top Portal Banner & Institution Branding */}
-      <header className={`border-b sticky top-0 z-40 backdrop-blur-md transition-colors ${
-        isLight ? 'border-slate-200 bg-white/95' : 'border-slate-800/80 bg-slate-900/80'
-      }`}>
+      <header
+        className={`border-b sticky top-0 z-40 backdrop-blur-md transition-colors ${
+          isLight ? 'border-slate-200 bg-white/95' : 'border-slate-800/80 bg-slate-900/80'
+        }`}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-xl border flex items-center justify-center font-bold overflow-hidden ${
-              isLight ? 'bg-emerald-50 border-emerald-200 text-emerald-600' : 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400'
-            }`}>
+            <div
+              className={`w-10 h-10 rounded-xl border flex items-center justify-center font-bold overflow-hidden ${
+                isLight ? 'bg-emerald-50 border-emerald-200 text-emerald-600' : 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400'
+              }`}
+            >
               {resolvedPublicInst.logoUrl ? (
                 <img src={resolvedPublicInst.logoUrl} alt={resolvedPublicInst.name} className="w-full h-full object-cover" />
               ) : (
@@ -769,27 +915,39 @@ export const PublicRegistrationView: React.FC = () => {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className={`font-bold text-sm sm:text-base tracking-tight truncate max-w-[200px] sm:max-w-md ${
-                  isLight ? 'text-slate-900' : 'text-white'
-                }`}>
+                <h1
+                  className={`font-bold text-sm sm:text-base tracking-tight truncate max-w-[200px] sm:max-w-md ${
+                    isLight ? 'text-slate-900' : 'text-white'
+                  }`}
+                >
                   {resolvedPublicInst.name}
                 </h1>
-                <span className={`hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                  isLight ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                }`}>
+                <span
+                  className={`hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                    isLight
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                  }`}
+                >
                   <ShieldCheck className="w-3 h-3" />
                   Portal Oficial
                 </span>
               </div>
               <p className={`text-[11px] hidden sm:block ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                {resolvedPublicInst.city ? `${resolvedPublicInst.city}, ${resolvedPublicInst.province}` : 'Inscrições Online Oficiais'}
+                {resolvedPublicInst.city
+                  ? `${resolvedPublicInst.city}${resolvedPublicInst.province ? `, ${resolvedPublicInst.province}` : ''}`
+                  : 'Inscrições Online Oficiais'}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
             <button
-              onClick={() => { setActiveTab('formulario'); soundManager.playClick(); }}
+              type="button"
+              onClick={() => {
+                setActiveTab('formulario');
+                soundManager.playClick();
+              }}
               className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                 activeTab === 'formulario'
                   ? 'bg-emerald-500 text-slate-950 font-bold shadow-md shadow-emerald-500/20'
@@ -799,7 +957,11 @@ export const PublicRegistrationView: React.FC = () => {
               Fazer Inscrição
             </button>
             <button
-              onClick={() => { setActiveTab('consultar'); soundManager.playClick(); }}
+              type="button"
+              onClick={() => {
+                setActiveTab('consultar');
+                soundManager.playClick();
+              }}
               className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
                 activeTab === 'consultar'
                   ? 'bg-emerald-500 text-slate-950 font-bold shadow-md shadow-emerald-500/20'
@@ -819,37 +981,53 @@ export const PublicRegistrationView: React.FC = () => {
         <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-emerald-950/40 via-slate-900 to-slate-950 border border-emerald-500/30 p-6 sm:p-8 shadow-2xl">
           <div className="relative z-10 max-w-2xl space-y-3">
             <div className="flex flex-wrap items-center gap-2">
-              <span className={`px-3 py-1 rounded-full text-xs font-bold border flex items-center gap-1.5 ${
-                isOpen 
-                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' 
-                  : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
-              }`}>
+              <span
+                className={`px-3 py-1 rounded-full text-xs font-bold border flex items-center gap-1.5 ${
+                  isOpen
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                    : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                }`}
+              >
                 <span className={`w-2 h-2 rounded-full ${isOpen ? 'bg-emerald-400 animate-ping' : 'bg-rose-400'}`}></span>
                 {isOpen ? 'Inscrições Abertas' : 'Inscrições Encerradas'}
               </span>
-              <span className="px-3 py-1 rounded-full text-xs font-medium bg-slate-800/80 text-slate-300 border border-slate-700">
-                Ano Letivo {effectiveConfig.academicYear} • {effectiveConfig.semester}
-              </span>
+              {(effectiveConfig.academicYear || effectiveConfig.semester) && (
+                <span className="px-3 py-1 rounded-full text-xs font-medium bg-slate-800/80 text-slate-300 border border-slate-700">
+                  {[effectiveConfig.academicYear ? `Ano Letivo ${effectiveConfig.academicYear}` : '', effectiveConfig.semester]
+                    .filter(Boolean)
+                    .join(' • ')}
+                </span>
+              )}
             </div>
 
             <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-              {effectiveConfig.title || `Inscrições Abertas — ${resolvedPublicInst.name}`}
+              {effectiveConfig.title || `Inscrições Online — ${resolvedPublicInst.name}`}
             </h2>
             <p className="text-sm text-slate-300 leading-relaxed">
-              {effectiveConfig.description || (isChildCenter
-                ? 'Garanta o desenvolvimento e o acolhimento seguro da sua criança com instalações modernas e educadores dedicados.'
-                : 'Preencha o formulário eletrônico e submeta a sua candidatura oficial para homologação da secretaria.')}
+              {effectiveConfig.description || `Portal oficial de candidaturas da instituição ${resolvedPublicInst.name}.`}
             </p>
 
             <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400 pt-2">
-              <div className="flex items-center gap-1.5">
-                <Calendar className="w-4 h-4 text-emerald-400" />
-                <span>Período: {effectiveConfig.startDate} até {effectiveConfig.endDate}</span>
-              </div>
+              {(effectiveConfig.startDate || effectiveConfig.endDate) && (
+                <div className="flex items-center gap-1.5">
+                  <Calendar className="w-4 h-4 text-emerald-400" />
+                  <span>
+                    Período: {effectiveConfig.startDate || 'Aberto'}
+                    {effectiveConfig.endDate ? ` até ${effectiveConfig.endDate}` : ''}
+                  </span>
+                </div>
+              )}
               <div className="flex items-center gap-1.5">
                 <GraduationCap className="w-4 h-4 text-emerald-400" />
-                <span>{activeCourses.length} {isChildCenter ? 'Salas/Grupos Disponíveis' : 'Cursos/Classes'}</span>
+                <span>
+                  {activeCourses.length} {isChildCenter ? 'Salas/Grupos Disponíveis' : 'Cursos/Classes'}
+                </span>
               </div>
+              {(effectiveConfig.contactPhone || resolvedPublicInst.phone) && (
+                <div className="flex items-center gap-1.5">
+                  <PhoneCallBadge phone={effectiveConfig.contactPhone || resolvedPublicInst.phone} />
+                </div>
+              )}
             </div>
           </div>
 
@@ -867,7 +1045,11 @@ export const PublicRegistrationView: React.FC = () => {
                 </div>
                 <h3 className="text-2xl font-bold text-white">Inscrição Submetida com Sucesso!</h3>
                 <p className="text-xs text-slate-300 max-w-md mx-auto">
-                  A candidatura foi registrada no sistema acadêmico do {resolvedPublicInst.name} e já está sob análise da secretaria.
+                  {(effectiveConfig.confirmationMessageTemplate ||
+                    `A candidatura foi registrada no sistema académico da ${resolvedPublicInst.name} e aguarda análise da secretaria.`)
+                    .replace('{NOME}', submittedCandidate.fullName)
+                    .replace('{CURSO}', submittedCandidate.courseName)
+                    .replace('{CODIGO}', submittedCandidate.code)}
                 </p>
               </div>
 
@@ -879,16 +1061,16 @@ export const PublicRegistrationView: React.FC = () => {
                       Comprovativo Oficial de Inscrição
                     </span>
                     <h4 className="text-lg font-bold text-white">{submittedCandidate.fullName}</h4>
-                    <p className="text-xs text-slate-400">
-                      {submittedCandidate.documentType}: {submittedCandidate.documentNumber}
-                    </p>
+                    {submittedCandidate.documentNumber && (
+                      <p className="text-xs text-slate-400">
+                        {submittedCandidate.documentType}: {submittedCandidate.documentNumber}
+                      </p>
+                    )}
                   </div>
 
                   <div className="text-left sm:text-right">
                     <span className="text-xs text-slate-400 block">Número da Inscrição</span>
-                    <span className="font-mono text-xl font-bold text-emerald-400">
-                      {submittedCandidate.code}
-                    </span>
+                    <span className="font-mono text-xl font-bold text-emerald-400">{submittedCandidate.code}</span>
                   </div>
                 </div>
 
@@ -898,20 +1080,24 @@ export const PublicRegistrationView: React.FC = () => {
                     <span className="font-semibold text-white">{submittedCandidate.courseName}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block text-[10px]">Turno & Regime</span>
-                    <span>{submittedCandidate.regime} • {submittedCandidate.shift || 'Manhã'}</span>
+                    <span className="text-slate-500 block text-[10px]">Turno &amp; Regime</span>
+                    <span>
+                      {submittedCandidate.regime} • {submittedCandidate.shift || 'Manhã'}
+                    </span>
                   </div>
                   <div>
                     <span className="text-slate-500 block text-[10px]">Estado da Candidatura</span>
                     <span className="font-semibold text-amber-400 flex items-center gap-1">
                       <Clock className="w-3 h-3" />
-                      Pendente (Em Análise)
+                      Submetida (Em Análise)
                     </span>
                   </div>
                   <div>
                     <span className="text-slate-500 block text-[10px]">Taxa de Inscrição</span>
                     <span className="font-semibold text-white">
-                      {(submittedCandidate.paymentAmount || 1500).toLocaleString()} MT ({submittedCandidate.paymentStatus})
+                      {(submittedCandidate.paymentAmount ?? 0) > 0
+                        ? `${(submittedCandidate.paymentAmount ?? 0).toLocaleString()} MT (${submittedCandidate.paymentStatus})`
+                        : `Isento / 0 MT`}
                     </span>
                   </div>
                   <div>
@@ -924,16 +1110,15 @@ export const PublicRegistrationView: React.FC = () => {
                   </div>
                 </div>
 
-                {/* QR Code & Digital Verification Token */}
                 <div className="pt-4 border-t border-slate-800 flex items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
                     <div className="w-14 h-14 bg-white p-1 rounded-xl flex items-center justify-center shrink-0">
                       <QrCode className="w-full h-full text-slate-950" />
                     </div>
                     <div>
-                      <span className="text-[10px] font-bold text-slate-400 block">Autenticação Digital SIVERC</span>
+                      <span className="text-[10px] font-bold text-slate-400 block">Autenticação Digital SIVEC</span>
                       <span className="font-mono text-xs text-emerald-400">
-                        SIVERC-CAND-{submittedCandidate.code.replace(/[^0-9]/g, '')}
+                        SIVEC-CAND-{submittedCandidate.code.replace(/[^0-9]/g, '')}
                       </span>
                       <span className="text-[10px] text-slate-500 block">Válido para consulta institucional</span>
                     </div>
@@ -941,44 +1126,35 @@ export const PublicRegistrationView: React.FC = () => {
 
                   <div className="flex items-center gap-2">
                     <button
+                      type="button"
                       onClick={() => window.print()}
                       className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
                     >
                       <Printer className="w-3.5 h-3.5" />
                       Imprimir
                     </button>
-                    {submittedCandidate.phone && (
+                    {validatedWhatsAppNumber && (
                       <button
-                        onClick={() => openWhatsAppMessage(
-                          submittedCandidate.phone,
-                          `Olá! Segue a confirmação da sua inscrição no ${resolvedPublicInst.name}:\n\nCandidato: ${submittedCandidate.fullName}\nCódigo: ${submittedCandidate.code}\nOpção: ${submittedCandidate.courseName}\n\nAguarde a conferência dos seus documentos pela secretaria.`
-                        )}
+                        type="button"
+                        onClick={() =>
+                          openWhatsAppMessage(
+                            validatedWhatsAppNumber,
+                            `Olá ${resolvedPublicInst.name}! Acabei de submeter a candidatura:\n\nCandidato: ${submittedCandidate.fullName}\nCódigo: ${submittedCandidate.code}\nOpção: ${submittedCandidate.courseName}`
+                          )
+                        }
                         className="px-3 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
                       >
                         <MessageCircle className="w-3.5 h-3.5" />
-                        WhatsApp
+                        WhatsApp Secretaria
                       </button>
                     )}
                   </div>
                 </div>
               </div>
 
-              {/* Next Steps Guidance */}
-              <div className="p-4 rounded-2xl bg-emerald-950/30 border border-emerald-800/40 text-xs text-emerald-200/90 space-y-2">
-                <h5 className="font-bold text-emerald-300 flex items-center gap-2">
-                  <Sparkles className="w-4 h-4" />
-                  Próximos Passos:
-                </h5>
-                <ul className="space-y-1 text-[11px] list-disc list-inside">
-                  <li>Guarde o seu código oficial de inscrição: <strong>{submittedCandidate.code}</strong>.</li>
-                  <li>A secretaria acadêmica analisará os documentos em até 48 horas úteis.</li>
-                  <li>Após deferimento, receberá notificação por SMS/WhatsApp para confirmação de matrícula.</li>
-                  <li>Pode acompanhar o estado na aba <strong>Consultar Estado</strong> a qualquer momento.</li>
-                </ul>
-              </div>
-
               <div className="flex items-center justify-center pt-2">
                 <button
+                  type="button"
                   onClick={() => {
                     setSubmittedCandidate(null);
                     setCurrentStep(1);
@@ -998,10 +1174,12 @@ export const PublicRegistrationView: React.FC = () => {
               </div>
               <h3 className="text-xl font-bold text-white">Inscrições Online Encerradas</h3>
               <p className="text-xs text-slate-400 max-w-md mx-auto">
-                O período de inscrições para este ciclo letivo está no momento suspenso ou fora do prazo regulamentar. Para esclarecimentos, contate a secretaria do {resolvedPublicInst.name}.
+                O período de inscrições para este ciclo letivo está suspenso. Para esclarecimentos, contacte a secretaria da{' '}
+                {resolvedPublicInst.name}.
               </p>
               <div className="pt-2">
                 <button
+                  type="button"
                   onClick={() => setActiveTab('consultar')}
                   className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs cursor-pointer transition-all shadow-md"
                 >
@@ -1011,7 +1189,7 @@ export const PublicRegistrationView: React.FC = () => {
             </div>
           ) : (
             /* Interactive Registration Form */
-            <form onSubmit={handleSubmit} className="p-6 sm:p-8 rounded-3xl bg-slate-900 border border-slate-800 space-y-8 shadow-2xl">
+            <form onSubmit={handleSubmit} noValidate className="p-6 sm:p-8 rounded-3xl bg-slate-900 border border-slate-800 space-y-8 shadow-2xl">
               {/* Stepper Header */}
               <div className="grid grid-cols-5 gap-2 border-b border-slate-800 pb-6">
                 {[
@@ -1024,7 +1202,7 @@ export const PublicRegistrationView: React.FC = () => {
                   <button
                     key={item.step}
                     type="button"
-                    onClick={() => setCurrentStep(item.step)}
+                    onClick={() => handleStepperClick(item.step)}
                     className={`flex flex-col items-center text-center group cursor-pointer transition-all ${
                       currentStep === item.step
                         ? 'text-emerald-400 font-bold'
@@ -1033,19 +1211,36 @@ export const PublicRegistrationView: React.FC = () => {
                         : 'text-slate-600'
                     }`}
                   >
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs mb-1.5 transition-all ${
-                      currentStep === item.step
-                        ? 'bg-emerald-500 text-slate-950 font-bold ring-4 ring-emerald-500/20'
-                        : currentStep > item.step
-                        ? 'bg-emerald-950 text-emerald-300 border border-emerald-700'
-                        : 'bg-slate-800 text-slate-500 border border-slate-700'
-                    }`}>
+                    <div
+                      className={`w-8 h-8 rounded-full flex items-center justify-center text-xs mb-1.5 transition-all ${
+                        currentStep === item.step
+                          ? 'bg-emerald-500 text-slate-950 font-bold ring-4 ring-emerald-500/20'
+                          : currentStep > item.step
+                          ? 'bg-emerald-950 text-emerald-300 border border-emerald-700'
+                          : 'bg-slate-800 text-slate-500 border border-slate-700'
+                      }`}
+                    >
                       {currentStep > item.step ? <Check className="w-4 h-4" /> : item.step}
                     </div>
                     <span className="text-[11px] truncate max-w-full">{item.label}</span>
                   </button>
                 ))}
               </div>
+
+              {/* Validation Alert Banner */}
+              {stepErrors.length > 0 && (
+                <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-200 text-xs space-y-1.5">
+                  <div className="font-bold flex items-center gap-2 text-rose-300">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <span>Corrija os seguintes pontos antes de prosseguir:</span>
+                  </div>
+                  <ul className="list-disc list-inside space-y-0.5 text-[11px]">
+                    {stepErrors.map((err, i) => (
+                      <li key={i}>{err}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               {/* STEP 1: Curso / Sala */}
               {currentStep === 1 && (
@@ -1056,147 +1251,169 @@ export const PublicRegistrationView: React.FC = () => {
                       1. {isChildCenter ? 'Selecione a Sala / Grupo' : 'Selecione o Curso ou Classe Desejada'}
                     </h3>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      {isChildCenter 
-                        ? 'Selecione o grupo pedagógico adequado à faixa etária da criança.' 
-                        : 'Confira os valores, requisitos de ingresso e vagas disponíveis.'}
+                      {isChildCenter
+                        ? 'Selecione o grupo pedagógico adequado à faixa etária da criança.'
+                        : 'Confira os valores, requisitos de ingresso e vagas disponíveis desta instituição.'}
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {activeCourses.map(course => {
-                      const isSelected = selectedCourseId === course.courseId;
-                      const filledPct = Math.min(100, Math.round(((course.filledVacancies || 0) / (course.vacancies || 1)) * 100));
+                  {activeCourses.length === 0 ? (
+                    <div className="p-8 rounded-2xl bg-slate-950 border border-slate-800 text-center space-y-2">
+                      <p className="text-sm font-semibold text-white">
+                        Nenhuma oferta formativa configurada neste momento
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        A administração da {resolvedPublicInst.name} ainda não publicou cursos ou salas disponíveis para inscrição online.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {activeCourses.map(course => {
+                          const isSelected = selectedCourseId === course.courseId;
+                          const filledPct = Math.min(
+                            100,
+                            Math.round(((course.filledVacancies || 0) / (course.vacancies || 1)) * 100)
+                          );
 
-                      return (
-                        <div
-                          key={course.courseId}
-                          onClick={() => setSelectedCourseId(course.courseId)}
-                          className={`p-5 rounded-2xl border transition-all cursor-pointer relative flex flex-col justify-between ${
-                            isSelected
-                              ? 'bg-emerald-950/30 border-emerald-500 shadow-lg shadow-emerald-500/10'
-                              : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
-                          }`}
-                        >
-                          <div className="space-y-3">
-                            <div className="flex items-start justify-between gap-2">
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 uppercase">
-                                {course.category || (isChildCenter ? 'Educação Infantil' : 'Formação')}
-                              </span>
-                              {isSelected && (
-                                <span className="w-5 h-5 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center">
-                                  <Check className="w-3 h-3 stroke-[3]" />
-                                </span>
-                              )}
-                            </div>
+                          return (
+                            <div
+                              key={course.courseId}
+                              onClick={() => setSelectedCourseId(course.courseId)}
+                              className={`p-5 rounded-2xl border transition-all cursor-pointer relative flex flex-col justify-between ${
+                                isSelected
+                                  ? 'bg-emerald-950/30 border-emerald-500 shadow-lg shadow-emerald-500/10'
+                                  : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                              }`}
+                            >
+                              <div className="space-y-3">
+                                <div className="flex items-start justify-between gap-2">
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 uppercase">
+                                    {course.category || (isChildCenter ? 'Educação Infantil' : 'Oferta Formativa')}
+                                  </span>
+                                  {isSelected && (
+                                    <span className="w-5 h-5 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center">
+                                      <Check className="w-3 h-3 stroke-[3]" />
+                                    </span>
+                                  )}
+                                </div>
 
-                            <div>
-                              <h4 className="font-bold text-white text-sm">{course.courseName}</h4>
-                              <p className="text-xs text-slate-400 mt-1">Duração / Faixa: <strong className="text-slate-200">{course.duration}</strong></p>
-                            </div>
+                                <div>
+                                  <h4 className="font-bold text-white text-sm">{course.courseName}</h4>
+                                  {course.duration && (
+                                    <p className="text-xs text-slate-400 mt-1">
+                                      Duração / Faixa: <strong className="text-slate-200">{course.duration}</strong>
+                                    </p>
+                                  )}
+                                </div>
 
-                            {/* Preço e Propina */}
-                            <div className="p-3 rounded-xl bg-slate-900 border border-slate-800/80 space-y-1 text-xs">
-                              <div className="flex justify-between">
-                                <span className="text-slate-400">Taxa de Inscrição:</span>
-                                <span className="font-bold text-emerald-400 font-mono">{course.price.toLocaleString()} MT</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-slate-400">Propina Mensal:</span>
-                                <span className="font-medium text-slate-200 font-mono">{course.monthlyFee.toLocaleString()} MT/mês</span>
-                              </div>
-                            </div>
-
-                            {/* Requirements */}
-                            {course.requirements && course.requirements.length > 0 && (
-                              <div className="space-y-1 text-[11px] text-slate-300">
-                                <span className="text-slate-500 block text-[10px] font-bold uppercase">Requisitos:</span>
-                                {course.requirements.map((req, rIdx) => (
-                                  <div key={rIdx} className="flex items-center gap-1.5">
-                                    <Check className="w-3 h-3 text-emerald-400 shrink-0" />
-                                    <span className="truncate">{req}</span>
+                                <div className="p-3 rounded-xl bg-slate-900 border border-slate-800/80 space-y-1 text-xs">
+                                  <div className="flex justify-between">
+                                    <span className="text-slate-400">Taxa de Inscrição:</span>
+                                    <span className="font-bold text-emerald-400 font-mono">
+                                      {(course.price ?? 0) > 0 ? `${course.price.toLocaleString()} MT` : 'Gratuito'}
+                                    </span>
                                   </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
+                                  {(course.monthlyFee ?? 0) > 0 && (
+                                    <div className="flex justify-between">
+                                      <span className="text-slate-400">Propina Mensal:</span>
+                                      <span className="font-medium text-slate-200 font-mono">
+                                        {course.monthlyFee!.toLocaleString()} MT/mês
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
 
-                          {/* Vacancy Progress */}
-                          <div className="mt-4 pt-3 border-t border-slate-800/80 space-y-2">
-                            <div className="flex justify-between text-[10px] text-slate-400">
-                              <span>Vagas Totais: {course.vacancies}</span>
-                              <span className={filledPct > 85 ? 'text-amber-400 font-bold' : 'text-emerald-400 font-bold'}>
-                                {Math.max(0, course.vacancies - (course.filledVacancies || 0))} disponíveis
-                              </span>
-                            </div>
-                            <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                              <div 
-                                className={`h-full rounded-full ${filledPct > 85 ? 'bg-amber-400' : 'bg-emerald-500'}`}
-                                style={{ width: `${filledPct}%` }}
-                              ></div>
-                            </div>
-                            {/* Botão Saber mais (visível apenas se a instituição tiver WhatsApp validado) */}
-                            {validatedWhatsAppNumber && (
-                              <div className="pt-2 flex justify-end">
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const msg = encodeURIComponent(
-                                      `Olá ${resolvedPublicInst.name}! Gostaria de saber mais informações sobre o curso/sala "${course.courseName}".`
-                                    );
-                                    window.open(`https://wa.me/${validatedWhatsAppNumber}?text=${msg}`, '_blank');
-                                  }}
-                                  className="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-                                  title="Saber mais via WhatsApp oficial da instituição"
-                                >
-                                  <MessageCircle className="w-3.5 h-3.5 text-emerald-400" />
-                                  <span>Saber mais</span>
-                                </button>
+                                {course.requirements && course.requirements.length > 0 && (
+                                  <div className="space-y-1 text-[11px] text-slate-300">
+                                    <span className="text-slate-500 block text-[10px] font-bold uppercase">Requisitos:</span>
+                                    {course.requirements.map((req, rIdx) => (
+                                      <div key={rIdx} className="flex items-center gap-1.5">
+                                        <Check className="w-3 h-3 text-emerald-400 shrink-0" />
+                                        <span className="truncate">{req}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
-                            )}
-                          </div>
+
+                              <div className="mt-4 pt-3 border-t border-slate-800/80 space-y-2">
+                                <div className="flex justify-between text-[10px] text-slate-400">
+                                  <span>Vagas Totais: {course.vacancies}</span>
+                                  <span className={filledPct > 85 ? 'text-amber-400 font-bold' : 'text-emerald-400 font-bold'}>
+                                    {Math.max(0, course.vacancies - (course.filledVacancies || 0))} disponíveis
+                                  </span>
+                                </div>
+                                <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                  <div
+                                    className={`h-full rounded-full ${filledPct > 85 ? 'bg-amber-400' : 'bg-emerald-500'}`}
+                                    style={{ width: `${filledPct}%` }}
+                                  ></div>
+                                </div>
+                                {validatedWhatsAppNumber && (
+                                  <div className="pt-2 flex justify-end">
+                                    <button
+                                      type="button"
+                                      onClick={e => {
+                                        e.stopPropagation();
+                                        const msg = encodeURIComponent(
+                                          `Olá ${resolvedPublicInst.name}! Gostaria de saber mais informações sobre "${course.courseName}".`
+                                        );
+                                        window.open(`https://wa.me/${validatedWhatsAppNumber}?text=${msg}`, '_blank');
+                                      }}
+                                      className="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                                    >
+                                      <MessageCircle className="w-3.5 h-3.5 text-emerald-400" />
+                                      <span>Saber mais</span>
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-semibold text-slate-300">Regime Pretendido</label>
+                          <select
+                            value={regime}
+                            onChange={e => setRegime(e.target.value)}
+                            className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer"
+                          >
+                            {availableRegimes.map(r => (
+                              <option key={r} value={r}>
+                                {r}
+                              </option>
+                            ))}
+                          </select>
                         </div>
-                      );
-                    })}
-                  </div>
 
-                  {/* Regime & Turno */}
-                  <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-slate-300">Regime Pretendido</label>
-                      <select
-                        value={regime}
-                        onChange={e => setRegime(e.target.value as any)}
-                        className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer"
-                      >
-                        <option value="Laboral">Laboral (Segunda a Sexta, Período Diurno)</option>
-                        {!isChildCenter && <option value="Pós-Laboral">Pós-Laboral (Noite ou Finais de Semana)</option>}
-                        {!isChildCenter && <option value="Online">Online / Híbrido</option>}
-                      </select>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-slate-300">Turno de Preferência</label>
-                      <select
-                        value={shift}
-                        onChange={e => setShift(e.target.value as any)}
-                        className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer"
-                      >
-                        <option value="Manhã">Manhã (07h30 - 12h30)</option>
-                        <option value="Tarde">Tarde (13h00 - 17h30)</option>
-                        {!isChildCenter && <option value="Noite">Noite (18h00 - 21h30)</option>}
-                      </select>
-                    </div>
-                  </div>
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-semibold text-slate-300">Turno de Preferência</label>
+                          <select
+                            value={shift}
+                            onChange={e => setShift(e.target.value)}
+                            className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer"
+                          >
+                            {availableShifts.map(s => (
+                              <option key={s} value={s}>
+                                {s}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </>
+                  )}
 
                   <div className="flex justify-end pt-4">
                     <button
                       type="button"
-                      onClick={() => {
-                        setCurrentStep(2);
-                        soundManager.playClick();
-                      }}
-                      className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-2 cursor-pointer transition-all shadow-md shadow-emerald-500/20"
+                      disabled={activeCourses.length === 0}
+                      onClick={() => goToNextStep(1)}
+                      className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-2 cursor-pointer transition-all shadow-md shadow-emerald-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       Avançar para Identificação
                       <ArrowRight className="w-4 h-4" />
@@ -1205,7 +1422,7 @@ export const PublicRegistrationView: React.FC = () => {
                 </div>
               )}
 
-              {/* STEP 2: Identificação Adaptativa por Tipo de Instituição */}
+              {/* STEP 2: Identificação Dinâmica (Obrigatório / Opcional / Oculto) */}
               {currentStep === 2 && (
                 <div className="space-y-6 animate-in fade-in duration-200">
                   <div>
@@ -1214,13 +1431,11 @@ export const PublicRegistrationView: React.FC = () => {
                       2. {isChildCenter ? 'Identificação da Criança e Encarregados' : 'Identificação do Candidato'}
                     </h3>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      {isChildCenter 
-                        ? 'Preencha os dados da criança e os contactos dos pais ou encarregados de educação responsáveis.' 
-                        : 'Insira os dados exatamente como constam no seu documento de identificação oficial.'}
+                      Campos assinalados com <span className="text-rose-400 font-bold">*</span> são exigidos pela instituição.
                     </p>
                   </div>
 
-                  {/* Fotografia tipo passe da Criança ou Candidato (Comprimida <= 150 KB no Spark) */}
+                  {/* Fotografia tipo passe */}
                   <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col sm:flex-row items-center gap-4">
                     <div className="w-20 h-20 rounded-2xl bg-slate-900 border border-slate-700 flex items-center justify-center overflow-hidden shrink-0 relative">
                       {candidatePhotoUrl ? (
@@ -1239,7 +1454,7 @@ export const PublicRegistrationView: React.FC = () => {
                         {isChildCenter ? 'Fotografia tipo passe da Criança (Opcional)' : 'Fotografia tipo passe do Candidato (Opcional)'}
                       </h4>
                       <p className="text-[11px] text-slate-400">
-                        A imagem é comprimida automaticamente no seu navegador para até 150 KB para caber com segurança no plano Spark.
+                        A imagem é comprimida automaticamente no seu navegador para até 150 KB.
                       </p>
                       <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 cursor-pointer transition-all border border-slate-700 mt-1">
                         <Upload className="w-3.5 h-3.5 text-emerald-400" />
@@ -1253,292 +1468,395 @@ export const PublicRegistrationView: React.FC = () => {
                     {/* Nome Completo */}
                     <div className="sm:col-span-2 space-y-1.5">
                       <label className="text-xs font-semibold text-slate-300">
-                        {isChildCenter ? 'Nome Completo da Criança' : 'Nome Completo do Candidato'} <span className="text-rose-400">*</span>
+                        {isChildCenter ? 'Nome Completo da Criança' : 'Nome Completo do Candidato'}{' '}
+                        <span className="text-rose-400">*</span>
                       </label>
                       <input
                         type="text"
-                        required
                         value={fullName}
                         onChange={e => setFullName(e.target.value)}
-                        placeholder={isChildCenter ? 'Ex: Kevin Paulo Rupia' : 'Ex: Carlos Ernesto Munguambe'}
-                        className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
+                        placeholder={isChildCenter ? 'Nome completo da criança' : 'Nome completo conforme documento'}
+                        className={`w-full px-3.5 py-2.5 bg-slate-950 border rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 ${
+                          fieldErrors.fullName ? 'border-rose-500' : 'border-slate-800'
+                        }`}
                       />
                     </div>
 
                     {/* Género */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-slate-300">Género <span className="text-rose-400">*</span></label>
-                      <select
-                        value={gender}
-                        onChange={e => setGender(e.target.value as any)}
-                        className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer"
-                      >
-                        <option value="Masculino">Masculino</option>
-                        <option value="Feminino">Feminino</option>
-                      </select>
-                    </div>
+                    {reqOf('gender', 'opcional') !== 'oculto' && (
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-slate-300">
+                          Género{' '}
+                          {reqOf('gender', 'opcional') === 'obrigatorio' ? (
+                            <span className="text-rose-400">*</span>
+                          ) : (
+                            <span className="text-slate-500 font-normal">(Opcional)</span>
+                          )}
+                        </label>
+                        <select
+                          value={gender}
+                          onChange={e => setGender(e.target.value)}
+                          className={`w-full px-3.5 py-2.5 bg-slate-950 border rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer ${
+                            fieldErrors.gender ? 'border-rose-500' : 'border-slate-800'
+                          }`}
+                        >
+                          <option value="">Selecionar...</option>
+                          <option value="Masculino">Masculino</option>
+                          <option value="Feminino">Feminino</option>
+                          <option value="Outro">Outro</option>
+                        </select>
+                      </div>
+                    )}
 
                     {/* Data de Nascimento */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-slate-300">
-                        Data de Nascimento <span className="text-rose-400">*</span>
-                      </label>
-                      <input
-                        type="date"
-                        required
-                        value={birthDate}
-                        onChange={e => setBirthDate(e.target.value)}
-                        className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                      />
-                    </div>
+                    {reqOf('birthDate', 'opcional') !== 'oculto' && (
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-slate-300">
+                          Data de Nascimento{' '}
+                          {reqOf('birthDate', 'opcional') === 'obrigatorio' ? (
+                            <span className="text-rose-400">*</span>
+                          ) : (
+                            <span className="text-slate-500 font-normal">(Opcional)</span>
+                          )}
+                        </label>
+                        <input
+                          type="date"
+                          value={birthDate}
+                          onChange={e => setBirthDate(e.target.value)}
+                          className={`w-full px-3.5 py-2.5 bg-slate-950 border rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 ${
+                            fieldErrors.birthDate ? 'border-rose-500' : 'border-slate-800'
+                          }`}
+                        />
+                      </div>
+                    )}
 
-                    {/* Tipo de Documento */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-slate-300">
-                        {isChildCenter ? 'Tipo de Registo / Documento' : 'Tipo de Documento'}
-                      </label>
-                      <select
-                        value={documentType}
-                        onChange={e => setDocumentType(e.target.value as any)}
-                        className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer"
-                      >
-                        {isChildCenter ? (
-                          <>
+                    {/* Documento de Identificação */}
+                    {reqOf('documentNumber', 'opcional') !== 'oculto' && (
+                      <>
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-semibold text-slate-300">
+                            {isChildCenter ? 'Tipo de Registo / Documento' : 'Tipo de Documento'}
+                          </label>
+                          <select
+                            value={documentType}
+                            onChange={e => setDocumentType(e.target.value as any)}
+                            className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer"
+                          >
                             <option value="Cédula">Cédula de Nascimento</option>
-                            <option value="BI">Bilhete de Identidade (BI)</option>
-                            <option value="Passaporte">Passaporte</option>
-                          </>
-                        ) : (
-                          <>
                             <option value="BI">Bilhete de Identidade (BI)</option>
                             <option value="DIRE">DIRE</option>
                             <option value="Passaporte">Passaporte</option>
-                          </>
-                        )}
-                      </select>
-                    </div>
-
-                    {/* Número do Documento */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-slate-300">
-                        {isChildCenter ? 'Número da Cédula / Registo (Opcional)' : 'Número do Documento'} {!isChildCenter && <span className="text-rose-400">*</span>}
-                      </label>
-                      <input
-                        type="text"
-                        required={!isChildCenter}
-                        value={documentNumber}
-                        onChange={e => setDocumentNumber(e.target.value)}
-                        placeholder={isChildCenter ? 'Ex: Registo nº 1042/2022' : 'Ex: 110200349182A'}
-                        className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 font-mono uppercase"
-                      />
-                    </div>
-
-                    {/* Se for Centro Técnico/Profissional (CFTPM), permitir NUIT opcional */}
-                    {!isChildCenter && (
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-semibold text-slate-300">NUIT (Opcional)</label>
-                        <input
-                          type="text"
-                          value={nuit}
-                          onChange={e => setNuit(e.target.value)}
-                          placeholder="Ex: 400192831"
-                          className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 font-mono"
-                        />
-                      </div>
-                    )}
-
-                    {/* Escola Anterior (se for escola) */}
-                    {isSchool && (
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-semibold text-slate-300">Escola Anterior (se aplicável)</label>
-                        <input
-                          type="text"
-                          value={previousSchool}
-                          onChange={e => setPreviousSchool(e.target.value)}
-                          placeholder="Ex: Escola Primária Completa de Nacala"
-                          className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                        />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* SEÇÃO: Encarregados de Educação (OBRIGATÓRIO em Centro Infantil / Escola) */}
-                  {(isChildCenter || isSchool) && (
-                    <div className="p-5 rounded-2xl bg-slate-950 border border-emerald-500/30 space-y-4">
-                      <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
-                        <HeartHandshake className="w-4 h-4 text-emerald-400" />
-                        <h4 className="text-xs font-bold text-white uppercase tracking-wider">
-                          Dados do Encarregado de Educação Responsável (Obrigatório)
-                        </h4>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        <div className="space-y-1.5 sm:col-span-2">
-                          <label className="text-xs font-semibold text-slate-300">
-                            Nome do Pai / Mãe / Tutor(a) <span className="text-rose-400">*</span>
-                          </label>
-                          <input
-                            type="text"
-                            required
-                            value={guardianName}
-                            onChange={e => setGuardianName(e.target.value)}
-                            placeholder="Nome Completo do Encarregado"
-                            className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                          />
-                        </div>
-
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-semibold text-slate-300">
-                            Grau de Parentesco <span className="text-rose-400">*</span>
-                          </label>
-                          <select
-                            value={guardianRelationship}
-                            onChange={e => setGuardianRelationship(e.target.value)}
-                            className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer"
-                          >
-                            <option value="Mãe">Mãe</option>
-                            <option value="Pai">Pai</option>
-                            <option value="Avó/Avô">Avó / Avô</option>
-                            <option value="Tutor Legal">Tutor(a) Legal</option>
-                            <option value="Tio/Tia">Tio / Tia</option>
-                            <option value="Outro">Outro Responsável</option>
                           </select>
                         </div>
 
                         <div className="space-y-1.5">
                           <label className="text-xs font-semibold text-slate-300">
-                            Telefone / WhatsApp Principal <span className="text-rose-400">*</span>
+                            Número do Documento{' '}
+                            {reqOf('documentNumber', 'opcional') === 'obrigatorio' ? (
+                              <span className="text-rose-400">*</span>
+                            ) : (
+                              <span className="text-slate-500 font-normal">(Opcional)</span>
+                            )}
                           </label>
                           <input
-                            type="tel"
-                            required
-                            value={phone}
-                            onChange={e => setPhone(e.target.value)}
-                            placeholder="+258 84 / 85 XXX XXXX"
-                            className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
+                            type="text"
+                            value={documentNumber}
+                            onChange={e => setDocumentNumber(e.target.value)}
+                            placeholder="Número do BI / Cédula / Passaporte"
+                            className={`w-full px-3.5 py-2.5 bg-slate-950 border rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 font-mono uppercase ${
+                              fieldErrors.documentNumber ? 'border-rose-500' : 'border-slate-800'
+                            }`}
                           />
                         </div>
+                      </>
+                    )}
 
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-semibold text-slate-300">Telefone Alternativo de Emergência</label>
-                          <input
-                            type="tel"
-                            value={guardianAltPhone}
-                            onChange={e => setGuardianAltPhone(e.target.value)}
-                            placeholder="+258 82 / 86 / 87 XXX XXXX"
-                            className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                          />
-                        </div>
+                    {/* Telefone Principal */}
+                    {reqOf('phone', 'obrigatorio') !== 'oculto' && (
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-slate-300">
+                          Contacto Telefónico / WhatsApp{' '}
+                          {reqOf('phone', 'obrigatorio') === 'obrigatorio' ? (
+                            <span className="text-rose-400">*</span>
+                          ) : (
+                            <span className="text-slate-500 font-normal">(Opcional)</span>
+                          )}
+                        </label>
+                        <input
+                          type="tel"
+                          value={phone}
+                          onChange={e => setPhone(e.target.value)}
+                          placeholder="+258 84 / 85 / 86 XXX XXXX"
+                          className={`w-full px-3.5 py-2.5 bg-slate-950 border rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 ${
+                            fieldErrors.phone ? 'border-rose-500' : 'border-slate-800'
+                          }`}
+                        />
+                      </div>
+                    )}
 
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-semibold text-slate-300">E-mail do Encarregado (Opcional)</label>
-                          <input
-                            type="email"
-                            value={email}
-                            onChange={e => setEmail(e.target.value)}
-                            placeholder="encarregado@email.com"
-                            className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                          />
-                        </div>
+                    {/* E-mail */}
+                    {reqOf('email', 'opcional') !== 'oculto' && (
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-slate-300">
+                          Endereço de E-mail{' '}
+                          {reqOf('email', 'opcional') === 'obrigatorio' ? (
+                            <span className="text-rose-400">*</span>
+                          ) : (
+                            <span className="text-slate-500 font-normal">(Opcional)</span>
+                          )}
+                        </label>
+                        <input
+                          type="email"
+                          value={email}
+                          onChange={e => setEmail(e.target.value)}
+                          placeholder="nome@exemplo.mz"
+                          className={`w-full px-3.5 py-2.5 bg-slate-950 border rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 ${
+                            fieldErrors.email ? 'border-rose-500' : 'border-slate-800'
+                          }`}
+                        />
+                      </div>
+                    )}
 
-                        {/* Pessoas autorizadas a buscar a criança */}
-                        {isChildCenter && (
-                          <div className="sm:col-span-3 space-y-1.5">
+                    {/* NUIT */}
+                    {reqOf('nuit', 'opcional') !== 'oculto' && (
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-slate-300">
+                          NUIT{' '}
+                          {reqOf('nuit', 'opcional') === 'obrigatorio' ? (
+                            <span className="text-rose-400">*</span>
+                          ) : (
+                            <span className="text-slate-500 font-normal">(Opcional)</span>
+                          )}
+                        </label>
+                        <input
+                          type="text"
+                          value={nuit}
+                          onChange={e => setNuit(e.target.value)}
+                          placeholder="9 dígitos do NUIT"
+                          className={`w-full px-3.5 py-2.5 bg-slate-950 border rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 font-mono ${
+                            fieldErrors.nuit ? 'border-rose-500' : 'border-slate-800'
+                          }`}
+                        />
+                      </div>
+                    )}
+
+                    {/* Escola Anterior */}
+                    {reqOf('previousSchool', 'opcional') !== 'oculto' && (
+                      <div className="space-y-1.5 sm:col-span-2">
+                        <label className="text-xs font-semibold text-slate-300">
+                          Escola ou Habilitações Anteriores{' '}
+                          {reqOf('previousSchool', 'opcional') === 'obrigatorio' ? (
+                            <span className="text-rose-400">*</span>
+                          ) : (
+                            <span className="text-slate-500 font-normal">(Opcional)</span>
+                          )}
+                        </label>
+                        <input
+                          type="text"
+                          value={previousSchool}
+                          onChange={e => setPreviousSchool(e.target.value)}
+                          placeholder="Estabelecimento frequentado anteriormente"
+                          className={`w-full px-3.5 py-2.5 bg-slate-950 border rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 ${
+                            fieldErrors.previousSchool ? 'border-rose-500' : 'border-slate-800'
+                          }`}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* SEÇÃO: Encarregados de Educação (conforme campos visíveis) */}
+                  {showGuardianSection && (
+                    <div className="p-5 rounded-2xl bg-slate-950 border border-emerald-500/30 space-y-4">
+                      <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
+                        <HeartHandshake className="w-4 h-4 text-emerald-400" />
+                        <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                          Dados do Encarregado de Educação
+                        </h4>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {reqOf('guardianName', 'opcional') !== 'oculto' && (
+                          <div className="space-y-1.5 sm:col-span-2">
                             <label className="text-xs font-semibold text-slate-300">
-                              Pessoas Autorizadas a Buscar a Criança na Saída <span className="text-rose-400">*</span>
+                              Nome do Pai / Mãe / Tutor(a){' '}
+                              {reqOf('guardianName', 'opcional') === 'obrigatorio' ? (
+                                <span className="text-rose-400">*</span>
+                              ) : (
+                                <span className="text-slate-500 font-normal">(Opcional)</span>
+                              )}
                             </label>
                             <input
                               type="text"
-                              required
+                              value={guardianName}
+                              onChange={e => setGuardianName(e.target.value)}
+                              placeholder="Nome Completo do Encarregado"
+                              className={`w-full px-3.5 py-2.5 bg-slate-900 border rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 ${
+                                fieldErrors.guardianName ? 'border-rose-500' : 'border-slate-800'
+                              }`}
+                            />
+                          </div>
+                        )}
+
+                        {reqOf('guardianRelationship', 'oculto') !== 'oculto' && (
+                          <div className="space-y-1.5">
+                            <label className="text-xs font-semibold text-slate-300">
+                              Grau de Parentesco{' '}
+                              {reqOf('guardianRelationship', 'oculto') === 'obrigatorio' ? (
+                                <span className="text-rose-400">*</span>
+                              ) : (
+                                <span className="text-slate-500 font-normal">(Opcional)</span>
+                              )}
+                            </label>
+                            <select
+                              value={guardianRelationship}
+                              onChange={e => setGuardianRelationship(e.target.value)}
+                              className={`w-full px-3.5 py-2.5 bg-slate-900 border rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer ${
+                                fieldErrors.guardianRelationship ? 'border-rose-500' : 'border-slate-800'
+                              }`}
+                            >
+                              <option value="">Selecionar...</option>
+                              <option value="Mãe">Mãe</option>
+                              <option value="Pai">Pai</option>
+                              <option value="Avó/Avô">Avó / Avô</option>
+                              <option value="Tutor Legal">Tutor(a) Legal</option>
+                              <option value="Tio/Tia">Tio / Tia</option>
+                              <option value="Outro">Outro Responsável</option>
+                            </select>
+                          </div>
+                        )}
+
+                        {reqOf('guardianPhone', 'opcional') !== 'oculto' && (
+                          <div className="space-y-1.5">
+                            <label className="text-xs font-semibold text-slate-300">
+                              Telefone do Encarregado{' '}
+                              {reqOf('guardianPhone', 'opcional') === 'obrigatorio' ? (
+                                <span className="text-rose-400">*</span>
+                              ) : (
+                                <span className="text-slate-500 font-normal">(Opcional)</span>
+                              )}
+                            </label>
+                            <input
+                              type="tel"
+                              value={guardianPhone}
+                              onChange={e => setGuardianPhone(e.target.value)}
+                              placeholder="+258 82 / 84 / 86 XXX XXXX"
+                              className={`w-full px-3.5 py-2.5 bg-slate-900 border rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 ${
+                                fieldErrors.guardianPhone ? 'border-rose-500' : 'border-slate-800'
+                              }`}
+                            />
+                          </div>
+                        )}
+
+                        {reqOf('authorizedPickupPersons', 'oculto') !== 'oculto' && (
+                          <div className="sm:col-span-3 space-y-1.5">
+                            <label className="text-xs font-semibold text-slate-300">
+                              Pessoas Autorizadas a Buscar a Criança{' '}
+                              {reqOf('authorizedPickupPersons', 'oculto') === 'obrigatorio' ? (
+                                <span className="text-rose-400">*</span>
+                              ) : (
+                                <span className="text-slate-500 font-normal">(Opcional)</span>
+                              )}
+                            </label>
+                            <input
+                              type="text"
                               value={authorizedPickupPersons}
                               onChange={e => setAuthorizedPickupPersons(e.target.value)}
-                              placeholder="Nomes completos das pessoas autorizadas e respectivos telefones"
-                              className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
+                              placeholder="Nomes completos das pessoas autorizadas e contactos"
+                              className={`w-full px-3.5 py-2.5 bg-slate-900 border rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 ${
+                                fieldErrors.authorizedPickupPersons ? 'border-rose-500' : 'border-slate-800'
+                              }`}
                             />
-                            <p className="text-[10px] text-slate-500">
-                              Por motivos de segurança infantil da portaria, nenhuma criança é entregue a pessoas não cadastradas.
-                            </p>
                           </div>
                         )}
                       </div>
                     </div>
                   )}
 
-                  {/* Contactos Próprios se for CFTPM / Adulto */}
-                  {!isChildCenter && !isSchool && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-semibold text-slate-300">
-                          Contacto Telefónico / WhatsApp <span className="text-rose-400">*</span>
-                        </label>
-                        <input
-                          type="tel"
-                          required
-                          value={phone}
-                          onChange={e => setPhone(e.target.value)}
-                          placeholder="+258 84 / 85 XXX XXXX"
-                          className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                        />
-                      </div>
+                  {/* Localização & Endereço */}
+                  {(reqOf('province', 'opcional') !== 'oculto' ||
+                    reqOf('city', 'opcional') !== 'oculto' ||
+                    reqOf('address', 'opcional') !== 'oculto') && (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      {reqOf('province', 'opcional') !== 'oculto' && (
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-semibold text-slate-300">
+                            Província{' '}
+                            {reqOf('province', 'opcional') === 'obrigatorio' ? (
+                              <span className="text-rose-400">*</span>
+                            ) : (
+                              <span className="text-slate-500 font-normal">(Opcional)</span>
+                            )}
+                          </label>
+                          <select
+                            value={province}
+                            onChange={e => setProvince(e.target.value)}
+                            className={`w-full px-3.5 py-2.5 bg-slate-950 border rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer ${
+                              fieldErrors.province ? 'border-rose-500' : 'border-slate-800'
+                            }`}
+                          >
+                            <option value="">Selecionar província...</option>
+                            {PROVINCES_MOZAMBIQUE.map(p => (
+                              <option key={p} value={p}>
+                                {p}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
 
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-semibold text-slate-300">
-                          E-mail para Notificações <span className="text-rose-400">*</span>
-                        </label>
-                        <input
-                          type="email"
-                          required
-                          value={email}
-                          onChange={e => setEmail(e.target.value)}
-                          placeholder="candidato@email.mz"
-                          className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                        />
-                      </div>
+                      {reqOf('city', 'opcional') !== 'oculto' && (
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-semibold text-slate-300">
+                            Cidade / Distrito{' '}
+                            {reqOf('city', 'opcional') === 'obrigatorio' ? (
+                              <span className="text-rose-400">*</span>
+                            ) : (
+                              <span className="text-slate-500 font-normal">(Opcional)</span>
+                            )}
+                          </label>
+                          <input
+                            type="text"
+                            value={city}
+                            onChange={e => setCity(e.target.value)}
+                            placeholder="Cidade ou distrito de residência"
+                            className={`w-full px-3.5 py-2.5 bg-slate-950 border rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 ${
+                              fieldErrors.city ? 'border-rose-500' : 'border-slate-800'
+                            }`}
+                          />
+                        </div>
+                      )}
+
+                      {reqOf('address', 'opcional') !== 'oculto' && (
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-semibold text-slate-300">
+                            Bairro / Rua{' '}
+                            {reqOf('address', 'opcional') === 'obrigatorio' ? (
+                              <span className="text-rose-400">*</span>
+                            ) : (
+                              <span className="text-slate-500 font-normal">(Opcional)</span>
+                            )}
+                          </label>
+                          <input
+                            type="text"
+                            value={address}
+                            onChange={e => setAddress(e.target.value)}
+                            placeholder="Bairro, quarteirão ou avenida"
+                            className={`w-full px-3.5 py-2.5 bg-slate-950 border rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 ${
+                              fieldErrors.address ? 'border-rose-500' : 'border-slate-800'
+                            }`}
+                          />
+                        </div>
+                      )}
                     </div>
                   )}
-
-                  {/* Localização & Endereço */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-slate-300">Província</label>
-                      <select
-                        value={province}
-                        onChange={e => setProvince(e.target.value)}
-                        className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 cursor-pointer"
-                      >
-                        {PROVINCES_MOZAMBIQUE.map(p => (
-                          <option key={p} value={p}>{p}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-slate-300">Cidade / Distrito</label>
-                      <input
-                        type="text"
-                        value={city}
-                        onChange={e => setCity(e.target.value)}
-                        placeholder="Ex: Nacala"
-                        className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-slate-300">Bairro / Rua</label>
-                      <input
-                        type="text"
-                        value={address}
-                        onChange={e => setAddress(e.target.value)}
-                        placeholder="Ex: Bairro Triângulo, Casa 44"
-                        className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                      />
-                    </div>
-                  </div>
 
                   <div className="flex items-center justify-between pt-4 border-t border-slate-800">
                     <button
                       type="button"
-                      onClick={() => setCurrentStep(1)}
+                      onClick={() => {
+                        setStepErrors([]);
+                        setCurrentStep(1);
+                      }}
                       className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white flex items-center gap-1.5 cursor-pointer"
                     >
                       <ArrowLeft className="w-4 h-4" />
@@ -1546,14 +1864,7 @@ export const PublicRegistrationView: React.FC = () => {
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        if (!fullName.trim() || !birthDate || (!isChildCenter && !documentNumber.trim()) || !phone.trim()) {
-                          alert('Preencha os campos obrigatórios assinalados com (*).');
-                          return;
-                        }
-                        setCurrentStep(3);
-                        soundManager.playClick();
-                      }}
+                      onClick={() => goToNextStep(2)}
                       className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-2 cursor-pointer transition-all shadow-md shadow-emerald-500/20"
                     >
                       Avançar para Questionário
@@ -1572,14 +1883,19 @@ export const PublicRegistrationView: React.FC = () => {
                       3. Questionário de Admissão
                     </h3>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      Responda às questões solicitadas pela direção do {resolvedPublicInst.name}.
+                      Responda às questões configuradas pela direção da {resolvedPublicInst.name}.
                     </p>
                   </div>
 
                   <div className="space-y-4">
-                    {(effectiveConfig.customQuestions && effectiveConfig.customQuestions.length > 0) ? (
-                      effectiveConfig.customQuestions.map(q => (
-                        <div key={q.id} className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+                    {visibleQuestions.length > 0 ? (
+                      visibleQuestions.map(q => (
+                        <div
+                          key={q.id}
+                          className={`p-4 rounded-2xl bg-slate-950 border space-y-2 ${
+                            fieldErrors[`q_${q.id}`] ? 'border-rose-500' : 'border-slate-800'
+                          }`}
+                        >
                           <label className="text-xs font-semibold text-slate-200 block">
                             {q.question} {q.required && <span className="text-rose-400">*</span>}
                           </label>
@@ -1629,7 +1945,9 @@ export const PublicRegistrationView: React.FC = () => {
                             >
                               <option value="">Selecione uma opção...</option>
                               {(q.options || []).map(opt => (
-                                <option key={opt} value={opt}>{opt}</option>
+                                <option key={opt} value={opt}>
+                                  {opt}
+                                </option>
                               ))}
                             </select>
                           )}
@@ -1637,7 +1955,7 @@ export const PublicRegistrationView: React.FC = () => {
                       ))
                     ) : (
                       <div className="p-8 text-center text-slate-500 text-xs">
-                        Não há perguntas adicionais para este ciclo de candidatura.
+                        Não há perguntas adicionais configuradas para esta instituição.
                       </div>
                     )}
                   </div>
@@ -1645,7 +1963,10 @@ export const PublicRegistrationView: React.FC = () => {
                   <div className="flex items-center justify-between pt-4 border-t border-slate-800">
                     <button
                       type="button"
-                      onClick={() => setCurrentStep(2)}
+                      onClick={() => {
+                        setStepErrors([]);
+                        setCurrentStep(2);
+                      }}
                       className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white flex items-center gap-1.5 cursor-pointer"
                     >
                       <ArrowLeft className="w-4 h-4" />
@@ -1653,10 +1974,7 @@ export const PublicRegistrationView: React.FC = () => {
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        setCurrentStep(4);
-                        soundManager.playClick();
-                      }}
+                      onClick={() => goToNextStep(3)}
                       className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-2 cursor-pointer transition-all shadow-md shadow-emerald-500/20"
                     >
                       Avançar para Documentos
@@ -1672,10 +1990,10 @@ export const PublicRegistrationView: React.FC = () => {
                   <div>
                     <h3 className="text-lg font-bold text-white flex items-center gap-2">
                       <FileText className="w-5 h-5 text-emerald-400" />
-                      4. Anexar Documentos Obrigatórios
+                      4. Documentos da Candidatura
                     </h3>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      Submeta cópias legíveis em formato PDF ou imagem (máx. 5 MB) dos documentos exigidos pelo {resolvedPublicInst.name}.
+                      Submeta cópias legíveis (PDF ou imagem, máx. 5 MB) conforme definido pela {resolvedPublicInst.name}.
                     </p>
                     <input
                       ref={docFileInputRef}
@@ -1686,75 +2004,86 @@ export const PublicRegistrationView: React.FC = () => {
                     />
                   </div>
 
-                  <div className="space-y-3">
-                    {(effectiveConfig.requiredDocuments && effectiveConfig.requiredDocuments.length > 0 
-                      ? effectiveConfig.requiredDocuments 
-                      : (isChildCenter 
-                          ? ['Cédula de Nascimento', 'Cartão de Vacinas em Dia', 'Fotografia tipo passe da Criança'] 
-                          : ['Bilhete de Identidade (BI)', 'Certificado de Habilitações', 'Fotografia tipo passe'])
-                    ).map(docTitle => {
-                      const isUploaded = !!uploadedDocs[docTitle];
+                  {configuredDocuments.length === 0 ? (
+                    <div className="p-8 rounded-2xl bg-slate-950 border border-slate-800 text-center text-xs text-slate-400">
+                      Esta instituição não exige anexo digital de documentos nesta etapa. Pode avançar para finalizar a candidatura.
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {configuredDocuments.map(docItem => {
+                        const isUploaded = !!uploadedDocs[docItem.name];
+                        const isDocRequired = docItem.requirement === 'obrigatorio';
 
-                      return (
-                        <div 
-                          key={docTitle}
-                          className={`p-4 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-                            isUploaded
-                              ? 'bg-emerald-950/20 border-emerald-500/40'
-                              : 'bg-slate-950 border-slate-800'
-                          }`}
-                        >
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                        return (
+                          <div
+                            key={docItem.name}
+                            className={`p-4 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
                               isUploaded
-                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                : 'bg-slate-800 text-slate-400 border border-slate-700'
-                            }`}>
-                              {isUploaded ? <CheckCircle2 className="w-5 h-5" /> : <FileText className="w-5 h-5" />}
+                                ? 'bg-emerald-950/20 border-emerald-500/40'
+                                : fieldErrors[`doc_${docItem.name}`]
+                                ? 'bg-rose-950/20 border-rose-500'
+                                : 'bg-slate-950 border-slate-800'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div
+                                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                                  isUploaded
+                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                    : 'bg-slate-800 text-slate-400 border border-slate-700'
+                                }`}
+                              >
+                                {isUploaded ? <CheckCircle2 className="w-5 h-5" /> : <FileText className="w-5 h-5" />}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="font-semibold text-white text-xs truncate">
+                                  {docItem.name} {isDocRequired && <span className="text-rose-400">*</span>}
+                                </p>
+                                {isUploaded ? (
+                                  <p className="text-[11px] text-emerald-400 font-mono mt-0.5">
+                                    {uploadedDocs[docItem.name].fileName} ({uploadedDocs[docItem.name].fileSize})
+                                  </p>
+                                ) : (
+                                  <p className="text-[11px] text-slate-500 mt-0.5">
+                                    {isDocRequired ? 'Obrigatório' : 'Opcional'} • PDF, JPG ou PNG
+                                  </p>
+                                )}
+                              </div>
                             </div>
-                            <div className="min-w-0">
-                              <p className="font-semibold text-white text-xs truncate">{docTitle}</p>
+
+                            <div className="flex items-center gap-2">
                               {isUploaded ? (
-                                <p className="text-[11px] text-emerald-400 font-mono mt-0.5">
-                                  {uploadedDocs[docTitle].fileName} ({uploadedDocs[docTitle].fileSize})
-                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveDoc(docItem.name)}
+                                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-950/60 text-slate-400 hover:text-rose-400 border border-slate-700 text-xs font-medium transition-colors cursor-pointer"
+                                >
+                                  Remover
+                                </button>
                               ) : (
-                                <p className="text-[11px] text-slate-500 mt-0.5">
-                                  Obrigatório • PDF, JPG ou PNG
-                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUploadDoc(docItem.name)}
+                                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                                >
+                                  <Upload className="w-3.5 h-3.5 text-emerald-400" />
+                                  Carregar Arquivo
+                                </button>
                               )}
                             </div>
                           </div>
-
-                          <div className="flex items-center gap-2">
-                            {isUploaded ? (
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveDoc(docTitle)}
-                                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-950/60 text-slate-400 hover:text-rose-400 border border-slate-700 text-xs font-medium transition-colors cursor-pointer"
-                              >
-                                Remover
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => handleUploadDoc(docTitle)}
-                                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-                              >
-                                <Upload className="w-3.5 h-3.5 text-emerald-400" />
-                                Carregar Arquivo
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                        );
+                      })}
+                    </div>
+                  )}
 
                   <div className="flex items-center justify-between pt-4 border-t border-slate-800">
                     <button
                       type="button"
-                      onClick={() => setCurrentStep(3)}
+                      onClick={() => {
+                        setStepErrors([]);
+                        setCurrentStep(3);
+                      }}
                       className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white flex items-center gap-1.5 cursor-pointer"
                     >
                       <ArrowLeft className="w-4 h-4" />
@@ -1762,10 +2091,7 @@ export const PublicRegistrationView: React.FC = () => {
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        setCurrentStep(5);
-                        soundManager.playClick();
-                      }}
+                      onClick={() => goToNextStep(4)}
                       className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-2 cursor-pointer transition-all shadow-md shadow-emerald-500/20"
                     >
                       Avançar para Pagamento
@@ -1781,10 +2107,17 @@ export const PublicRegistrationView: React.FC = () => {
                   <div>
                     <h3 className="text-lg font-bold text-white flex items-center gap-2">
                       <CreditCard className="w-5 h-5 text-emerald-400" />
-                      5. Taxa de Candidatura & Submissão Oficial
+                      5. Taxa de Candidatura &amp; Submissão Oficial
                     </h3>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      Efetue o pagamento da taxa de inscrição de <strong className="text-emerald-400 font-mono">{(selectedCourse?.price || 1500).toLocaleString()} MT</strong> para homologação da sua vaga.
+                      {coursePrice > 0 ? (
+                        <>
+                          Taxa de inscrição configurada:{' '}
+                          <strong className="text-emerald-400 font-mono">{coursePrice.toLocaleString()} MT</strong>.
+                        </>
+                      ) : (
+                        'Este curso/sala não possui taxa de inscrição online configurada.'
+                      )}
                     </p>
                   </div>
 
@@ -1793,7 +2126,11 @@ export const PublicRegistrationView: React.FC = () => {
                     {[
                       { id: 'M-Pesa', label: 'M-Pesa', desc: 'Carteira Móvel Vodacom' },
                       { id: 'e-Mola', label: 'e-Mola', desc: 'Carteira Móvel Movitel' },
-                      { id: 'BIM', label: 'Transferência Bancária', desc: resolvedPublicInst.paymentMethods?.bankName || 'Via Bancária Institucional' },
+                      {
+                        id: 'BIM',
+                        label: 'Transferência Bancária',
+                        desc: resolvedPublicInst.paymentMethods?.bankName || 'Via Bancária Institucional'
+                      },
                       { id: 'Presencial', label: 'Secretaria', desc: 'Presencial no balcão' }
                     ].map(item => (
                       <button
@@ -1817,13 +2154,15 @@ export const PublicRegistrationView: React.FC = () => {
                     {(paymentMethod === 'M-Pesa' || paymentMethod === 'e-Mola') && (
                       <div className="space-y-3">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-semibold text-slate-200">
-                            Instruções {paymentMethod} Oficial
+                          <span className="text-xs font-semibold text-slate-200">Instruções {paymentMethod} Oficial</span>
+                          <span className="text-[11px] font-mono text-emerald-400">
+                            Taxa: {coursePrice > 0 ? `${coursePrice.toLocaleString()} MT` : 'Gratuito'}
                           </span>
-                          <span className="text-[11px] font-mono text-emerald-400">Taxa: {(selectedCourse?.price || 1500).toLocaleString()} MT</span>
                         </div>
                         <p className="text-xs text-slate-400">
-                          Por segurança, os números privados M-Pesa/e-Mola são disponibilizados na secretaria da instituição ({resolvedPublicInst.phone || 'atendimento oficial'}) ou após autenticação no Portal de Pagamentos.
+                          Por segurança, as contas de recebimento M-Pesa/e-Mola são consultadas directamente na secretaria da{' '}
+                          {resolvedPublicInst.name}
+                          {resolvedPublicInst.phone ? ` (${resolvedPublicInst.phone})` : ''} ou após autenticação no Portal de Pagamentos.
                         </p>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-xl">
                           <input
@@ -1841,7 +2180,7 @@ export const PublicRegistrationView: React.FC = () => {
                                 setPaymentTxCode(e.target.value);
                                 setPaymentReferenceSubmitted(false);
                               }}
-                              placeholder="Código da Transação (ex: MP26...)"
+                              placeholder="Código da Transação (opcional)"
                               className="flex-1 px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 font-mono uppercase"
                             />
                             <button
@@ -1857,11 +2196,6 @@ export const PublicRegistrationView: React.FC = () => {
                             </button>
                           </div>
                         </div>
-                        <p className="text-[11px] text-slate-400">
-                          {paymentReferenceSubmitted
-                            ? 'Código registado para conferência. O pagamento fica com estado Pendente até validação pela tesouraria.'
-                            : 'Após transferir, introduza o código da transação recebido por SMS ou submeta para pagar depois na secretaria.'}
-                        </p>
                       </div>
                     )}
 
@@ -1869,9 +2203,15 @@ export const PublicRegistrationView: React.FC = () => {
                       <div className="space-y-3 text-xs text-slate-300">
                         <p className="font-semibold text-white">Instruções de Pagamento Bancário:</p>
                         <div className="p-3 rounded-xl bg-slate-900 text-[11px] space-y-1">
-                          {resolvedPublicInst.paymentMethods?.bankName && <p>Banco: <strong className="text-white">{resolvedPublicInst.paymentMethods.bankName}</strong></p>}
-                          <p>Beneficiário: <strong className="text-white">{resolvedPublicInst.name}</strong></p>
-                          <p className="text-slate-400">Consulte o NIB/IBAN oficial com a secretaria ou no Portal de Pagamentos autenticado.</p>
+                          {resolvedPublicInst.paymentMethods?.bankName && (
+                            <p>
+                              Banco: <strong className="text-white">{resolvedPublicInst.paymentMethods.bankName}</strong>
+                            </p>
+                          )}
+                          <p>
+                            Beneficiário: <strong className="text-white">{resolvedPublicInst.name}</strong>
+                          </p>
+                          <p className="text-slate-400">Consulte o NIB/IBAN oficial com a secretaria ou no Portal de Pagamentos.</p>
                         </div>
                         <input
                           type="text"
@@ -1880,9 +2220,6 @@ export const PublicRegistrationView: React.FC = () => {
                           placeholder="Referência do talão / transferência (opcional)"
                           className="w-full max-w-md px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 font-mono uppercase"
                         />
-                        <p className="text-[11px] text-slate-400">
-                          {resolvedPublicInst.paymentMethods?.instructions || 'Envie o comprovativo para a secretaria ou apresente no atendimento.'}
-                        </p>
                       </div>
                     )}
 
@@ -1890,7 +2227,7 @@ export const PublicRegistrationView: React.FC = () => {
                       <div className="text-xs text-slate-300 space-y-1">
                         <p className="font-semibold text-white">Pagamento Direto na Secretaria:</p>
                         <p className="text-slate-400">
-                          Poderá efetuar o pagamento presencialmente na secretaria do {resolvedPublicInst.name} no ato de entrega física dos documentos para validação.
+                          Poderá efectuar o pagamento presencialmente na secretaria da {resolvedPublicInst.name} no ato de conferência documental.
                         </p>
                       </div>
                     )}
@@ -1914,7 +2251,7 @@ export const PublicRegistrationView: React.FC = () => {
                         >
                           Regulamento de Candidaturas
                         </button>{' '}
-                        do {resolvedPublicInst.name}.
+                        da {resolvedPublicInst.name}.
                       </span>
                     </label>
 
@@ -1933,7 +2270,8 @@ export const PublicRegistrationView: React.FC = () => {
                           className="text-emerald-400 underline hover:text-emerald-300 font-semibold cursor-pointer"
                         >
                           Política de Privacidade
-                        </button>.
+                        </button>
+                        .
                       </span>
                     </label>
                   </div>
@@ -1942,14 +2280,16 @@ export const PublicRegistrationView: React.FC = () => {
                     <button
                       type="button"
                       disabled={isSubmitting}
-                      onClick={() => setCurrentStep(4)}
+                      onClick={() => {
+                        setStepErrors([]);
+                        setCurrentStep(4);
+                      }}
                       className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                     >
                       <ArrowLeft className="w-4 h-4" />
                       Voltar aos Documentos
                     </button>
-                    
-                    {/* Botão de Submissão com Prevenção de Duplo Clique e Spinner */}
+
                     <button
                       type="submit"
                       disabled={isSubmitting}
@@ -1981,7 +2321,7 @@ export const PublicRegistrationView: React.FC = () => {
                 Consulta Pública de Candidatura
               </h3>
               <p className="text-xs text-slate-400 mt-1">
-                Acompanhe o estado da sua inscrição no {resolvedPublicInst.name} inserindo o seu código ou contacto.
+                Acompanhe o estado da sua inscrição na {resolvedPublicInst.name} inserindo o código da candidatura.
               </p>
             </div>
 
@@ -1990,7 +2330,7 @@ export const PublicRegistrationView: React.FC = () => {
                 type="text"
                 value={searchCode}
                 onChange={e => setSearchCode(e.target.value)}
-                placeholder="Ex: CAND-2026-1042 ou Contacto"
+                placeholder={`Ex: ${(resolvedPublicInst.code || 'CAND').replace(/[^a-zA-Z0-9]/g, '')}-${new Date().getFullYear()}-1042`}
                 className="flex-1 px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 font-mono"
               />
               <button
@@ -2002,29 +2342,27 @@ export const PublicRegistrationView: React.FC = () => {
               </button>
             </form>
 
-            {/* Resultado da Consulta (PII rigorosamente mascarada) */}
-            {lookupAttempted && (
-              lookedUpApplication ? (
+            {lookupAttempted &&
+              (lookedUpApplication ? (
                 <div className="max-w-2xl p-6 rounded-2xl bg-slate-950 border border-slate-800 space-y-4 animate-in fade-in duration-200">
                   <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                     <div>
-                      <span className="font-mono text-xs font-bold text-emerald-400 block">
-                        {lookedUpApplication.code}
-                      </span>
-                      {/* Nome Mascarado (Sem PII) */}
+                      <span className="font-mono text-xs font-bold text-emerald-400 block">{lookedUpApplication.code}</span>
                       <h4 className="text-base font-bold text-white mt-0.5">
                         {maskCandidateName(lookedUpApplication.fullName)}
                       </h4>
                     </div>
-                    <span className={`px-3 py-1 rounded-full text-xs font-bold border ${
-                      lookedUpApplication.status === 'Aprovada'
-                        ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-                        : lookedUpApplication.status === 'Matriculado'
-                        ? 'bg-blue-500/15 text-blue-300 border-blue-500/30'
-                        : lookedUpApplication.status === 'Rejeitada'
-                        ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
-                        : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
-                    }`}>
+                    <span
+                      className={`px-3 py-1 rounded-full text-xs font-bold border ${
+                        lookedUpApplication.status === 'Aprovada'
+                          ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                          : lookedUpApplication.status === 'Matriculado'
+                          ? 'bg-blue-500/15 text-blue-300 border-blue-500/30'
+                          : lookedUpApplication.status === 'Rejeitada'
+                          ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                          : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                      }`}
+                    >
                       {lookedUpApplication.status}
                     </span>
                   </div>
@@ -2044,55 +2382,6 @@ export const PublicRegistrationView: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Estado da Candidatura */}
-                  <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 text-xs">
-                    {lookedUpApplication.status === 'submetida' && (
-                      <p className="text-amber-300">
-                        📋 Candidatura submetida com sucesso! Aguarda recepção e triagem inicial da secretaria acadêmica.
-                      </p>
-                    )}
-                    {lookedUpApplication.status === 'Pendente' && (
-                      <p className="text-amber-300">
-                        ⏳ A sua candidatura foi recebida e aguarda revisão e conferência de documentos pela secretaria.
-                      </p>
-                    )}
-                    {lookedUpApplication.status === 'Em Análise' && (
-                      <p className="text-amber-300">
-                        🔍 A secretaria acadêmica está ativamente a verificar a sua documentação de suporte.
-                      </p>
-                    )}
-                    {lookedUpApplication.status === 'Aprovada' && (
-                      <p className="text-emerald-300 font-semibold">
-                        🎉 Parabéns! A sua candidatura foi APROVADA. Dirija-se à secretaria ou confirme a sua matrícula.
-                      </p>
-                    )}
-                    {lookedUpApplication.status === 'Matriculado' && (
-                      <p className="text-blue-300 font-semibold">
-                        🎓 Matrícula Efetivada! Você já é oficialmente aluno da nossa instituição (Código: {lookedUpApplication.convertedStudentCode || 'Ativo'}).
-                      </p>
-                    )}
-                    {lookedUpApplication.status === 'Rejeitada' && (
-                      <p className="text-rose-300">
-                        ❌ Candidatura indeferida. Para detalhes, contacte a secretaria acadêmica.
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Documentos Pendentes (se houver) */}
-                  {lookedUpApplication.documents && lookedUpApplication.documents.some(d => !d.verified) && (
-                    <div className="p-3 rounded-xl bg-slate-900 border border-slate-800/80 text-xs space-y-1.5">
-                      <span className="text-slate-400 font-bold block text-[11px]">Documentos Sob Validação:</span>
-                      <ul className="list-disc list-inside space-y-0.5 text-slate-300 text-[11px]">
-                        {lookedUpApplication.documents.map((d, dIdx) => (
-                          <li key={dIdx} className={d.verified ? 'text-emerald-400' : 'text-amber-300'}>
-                            {d.name} — {d.verified ? 'Verificado' : 'Aguardando validação formal'}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {/* Botão de Contacto Direto com a Secretaria da Instituição (oculto se sem número) */}
                   <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
                     <span className="text-[11px] text-slate-400">Dúvidas sobre o seu processo?</span>
                     {validatedWhatsAppNumber && (
@@ -2100,12 +2389,11 @@ export const PublicRegistrationView: React.FC = () => {
                         type="button"
                         onClick={() => {
                           const msg = encodeURIComponent(
-                            `Olá Secretaria do ${resolvedPublicInst.name}! Gostaria de informações sobre o estado da candidatura #${lookedUpApplication.code}.`
+                            `Olá Secretaria da ${resolvedPublicInst.name}! Gostaria de informações sobre a candidatura #${lookedUpApplication.code}.`
                           );
                           window.open(`https://wa.me/${validatedWhatsAppNumber}?text=${msg}`, '_blank');
                         }}
                         className="px-4 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
-                        title="Contactar secretaria no WhatsApp"
                       >
                         <MessageCircle className="w-3.5 h-3.5" />
                         <span>Falar com a Secretaria no WhatsApp</span>
@@ -2115,10 +2403,9 @@ export const PublicRegistrationView: React.FC = () => {
                 </div>
               ) : (
                 <div className="text-center py-8 text-slate-500 text-xs">
-                  Nenhuma candidatura encontrada no {resolvedPublicInst.name} com os dados informados. Verifique se digitou o código corretamente.
+                  Nenhuma candidatura encontrada na {resolvedPublicInst.name} com os dados informados.
                 </div>
-              )
-            )}
+              ))}
           </div>
         )}
       </main>
@@ -2140,10 +2427,8 @@ export const PublicRegistrationView: React.FC = () => {
                 Fechar
               </button>
             </div>
-            <div className="text-xs text-slate-300 space-y-2 max-h-60 overflow-y-auto leading-relaxed">
-              <p>{resolvedPublicInst.termsAndConditions || '1. A submissão da candidatura constitui manifestação oficial de interesse e não assegura admissão automática sem parecer favorável da secretaria acadêmica.'}</p>
-              <p>2. Os candidatos e encarregados comprometem-se com a veracidade dos dados e documentos submetidos sob as penalidades legais vigentes.</p>
-              <p>3. As taxas de candidatura destinam-se ao custeio administrativo do processo de seleção e admissão.</p>
+            <div className="text-xs text-slate-300 space-y-2 max-h-60 overflow-y-auto leading-relaxed whitespace-pre-line">
+              {resolvedTermsText}
             </div>
             <div className="pt-2 text-right">
               <button
@@ -2178,9 +2463,8 @@ export const PublicRegistrationView: React.FC = () => {
                 Fechar
               </button>
             </div>
-            <div className="text-xs text-slate-300 space-y-2 max-h-60 overflow-y-auto leading-relaxed">
-              <p>{resolvedPublicInst.privacyPolicy || 'Os dados recolhidos nesta candidatura destinam-se estritamente à gestão acadêmica, registo de frequência e emissão de credenciais da instituição no SIGAR PRO.'}</p>
-              <p>Nenhum dado pessoal é partilhado com terceiros ou utilizado para fins não educacionais.</p>
+            <div className="text-xs text-slate-300 space-y-2 max-h-60 overflow-y-auto leading-relaxed whitespace-pre-line">
+              {resolvedPrivacyText}
             </div>
             <div className="pt-2 text-right">
               <button
@@ -2200,3 +2484,10 @@ export const PublicRegistrationView: React.FC = () => {
     </div>
   );
 };
+
+const PhoneCallBadge: React.FC<{ phone: string }> = ({ phone }) => (
+  <span className="inline-flex items-center gap-1">
+    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+    <span>Contacto: {phone}</span>
+  </span>
+);

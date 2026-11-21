@@ -2,7 +2,11 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import { Institution, PublicInstitution, OnlineRegistrationConfig } from '../types';
 import { CEU_AZUL_INSTITUTION } from '../data/ceuAzulData';
-import { INITIAL_INSTITUTIONS, DEFAULT_ONLINE_REGISTRATION_CONFIG } from '../data/mockData';
+import { INITIAL_INSTITUTIONS } from '../data/mockData';
+import {
+  createEmptyOnlineRegistrationConfig,
+  sanitizeFirestoreData
+} from '../utils/registrationConfigUtils';
 
 export const PUBLIC_INSTITUTIONS_COLLECTION = 'publicInstitutions';
 
@@ -11,7 +15,8 @@ export const PUBLIC_INSTITUTIONS_COLLECTION = 'publicInstitutions';
  */
 export function resolveInstitutionSlug(inst: Partial<Institution>): string {
   if (inst.slug && inst.slug.trim()) {
-    return inst.slug.trim().toLowerCase();
+    const cleaned = normalizeSlug(inst.slug);
+    if (cleaned) return cleaned;
   }
   if (inst.id === 'ceu-azul-nacala') return 'ceu-azul';
   if (inst.id === 'inst-1') return 'cftpm-moztechwave';
@@ -26,35 +31,92 @@ export function resolveInstitutionSlug(inst: Partial<Institution>): string {
 }
 
 /**
- * Normaliza um slug removendo barras, cerquilhas, prefixos e sufixos de rota pública.
+ * Normaliza um slug removendo barras, cerquilhas, prefixos (/i/, /instituicoes/) e sufixos de rota pública.
  */
 export function normalizeSlug(rawSlug: string): string {
   if (!rawSlug) return '';
-  return decodeURIComponent(rawSlug)
+  let decoded = rawSlug;
+  try {
+    decoded = decodeURIComponent(rawSlug);
+  } catch {
+    decoded = rawSlug;
+  }
+  return decoded
     .trim()
     .toLowerCase()
     .replace(/\?.*$/, '')
     .replace(/^[#/]+|[#/]+$/g, '')
+    .replace(/^i\//, '')
     .replace(/^instituico?e?s\//, '')
     .replace(/\/(inscricoes|inscricao|pagamentos|pagamento).*$/, '')
-    .trim();
+    .replace(/[^a-z0-9-_]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
 }
 
 /**
- * Extrai o slug institucional de pathname ou hash (ex: #instituicoes/ceu-azul/pagamentos).
+ * Indica se a localização atual corresponde a uma rota de Portal Público de Inscrições
+ * (`/i/<slug>`, `#i/<slug>`, `#/i/<slug>`, `/instituicoes/<slug>/inscricoes`, `#instituicoes/<slug>/inscricoes`).
  */
-export function extractSlugFromLocation(pathname?: string, hash?: string): string {
+export function isPublicRegistrationPath(pathname?: string, hash?: string): boolean {
+  const path = (pathname ?? (typeof window !== 'undefined' ? window.location.pathname : '')).toLowerCase();
+  const h = (hash ?? (typeof window !== 'undefined' ? window.location.hash : '')).toLowerCase();
+
+  if (/(?:^|\/)i\/[^/?#]+/.test(path)) return true;
+  if (/(?:^#?\/?)i\/[^/?#]+/.test(h)) return true;
+  if ((path.includes('/instituicao') || path.includes('/instituicoes')) && (path.includes('/inscricoes') || path.includes('/inscricao'))) {
+    return true;
+  }
+  if ((h.includes('instituicao') || h.includes('instituicoes')) && (h.includes('/inscricoes') || h.includes('/inscricao'))) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Extrai o slug institucional de pathname, hash ou query string
+ * (ex: /i/ceu-azul, #i/ceu-azul, #instituicoes/ceu-azul/inscricoes, #instituicoes/ceu-azul/pagamentos).
+ */
+export function extractSlugFromLocation(pathname?: string, hash?: string, search?: string): string {
   const path = pathname ?? (typeof window !== 'undefined' ? window.location.pathname : '');
   const h = hash ?? (typeof window !== 'undefined' ? window.location.hash : '');
+  const s = search ?? (typeof window !== 'undefined' ? window.location.search : '');
 
-  const hashMatch = h.match(/instituico?e?s\/([^/?#]+)\/(inscricoes|inscricao|pagamentos|pagamento)/i);
-  if (hashMatch?.[1]) {
-    return normalizeSlug(hashMatch[1]);
+  // 1. Formato legado completo em hash: #instituicoes/<slug>/inscricoes ou /pagamentos
+  const hashLegacyMatch = h.match(/instituico?e?s\/([^/?#]+)(?:\/(inscricoes|inscricao|pagamentos|pagamento))?/i);
+  if (hashLegacyMatch?.[1]) {
+    return normalizeSlug(hashLegacyMatch[1]);
   }
 
-  const pathMatch = path.match(/instituico?e?s\/([^/?#]+)\/(inscricoes|inscricao|pagamentos|pagamento)/i);
-  if (pathMatch?.[1]) {
-    return normalizeSlug(pathMatch[1]);
+  // 2. Formato curto em hash: #i/<slug> ou #/i/<slug>
+  const hashShortMatch = h.match(/^#?\/?i\/([^/?#]+)/i);
+  if (hashShortMatch?.[1]) {
+    return normalizeSlug(hashShortMatch[1]);
+  }
+
+  // 3. Formato legado completo em pathname: /instituicoes/<slug>/inscricoes ou /pagamentos
+  const pathLegacyMatch = path.match(/instituico?e?s\/([^/?#]+)(?:\/(inscricoes|inscricao|pagamentos|pagamento))?/i);
+  if (pathLegacyMatch?.[1]) {
+    return normalizeSlug(pathLegacyMatch[1]);
+  }
+
+  // 4. Formato curto em pathname: /i/<slug> ou /i/<slug>/inscricoes
+  const pathShortMatch = path.match(/^\/i\/([^/?#]+)/i);
+  if (pathShortMatch?.[1]) {
+    return normalizeSlug(pathShortMatch[1]);
+  }
+
+  // 5. Query parameters explícitos (?slug= ou ?inst=)
+  if (s) {
+    try {
+      const params = new URLSearchParams(s);
+      const qSlug = params.get('slug') || params.get('inst') || params.get('institutionId') || params.get('institution');
+      if (qSlug && qSlug.trim()) {
+        return normalizeSlug(qSlug);
+      }
+    } catch {
+      // ignore malformed search string
+    }
   }
 
   return '';
@@ -65,6 +127,7 @@ export function extractSlugFromLocation(pathname?: string, hash?: string): strin
  * antes de persistir ou expor em configuração pública (publicInstitutions).
  */
 export function sanitizePublicInstitutionPayload<T extends Record<string, any>>(raw: T): PublicInstitution {
+  const source = (raw || {}) as Record<string, any>;
   const {
     financialSettings: _fs,
     financialAccounts: _fa,
@@ -83,11 +146,11 @@ export function sanitizePublicInstitutionPayload<T extends Record<string, any>>(
     students: _st,
     users: _us,
     ...rest
-  } = raw || {};
+  } = source;
 
-  const rawPm = (raw?.paymentMethods && typeof raw.paymentMethods === 'object') ? raw.paymentMethods : {};
-  const acceptedChannels = Array.isArray(raw?.acceptedChannels) && raw.acceptedChannels.length > 0
-    ? raw.acceptedChannels
+  const rawPm = (source.paymentMethods && typeof source.paymentMethods === 'object') ? source.paymentMethods : {};
+  const acceptedChannels = Array.isArray(source.acceptedChannels) && source.acceptedChannels.length > 0
+    ? source.acceptedChannels
     : Array.isArray(rawPm.acceptedChannels) && rawPm.acceptedChannels.length > 0
       ? rawPm.acceptedChannels
       : ['M-Pesa', 'e-Mola', 'mKesh', 'Transferência Bancária', 'Balcão / Tesouraria'];
@@ -100,12 +163,12 @@ export function sanitizePublicInstitutionPayload<T extends Record<string, any>>(
       : 'Autentique-se no Portal de Pagamentos com a sua conta institucional para consultar as coordenadas oficiais e submeter comprovativos.'
   };
 
-  return {
+  return sanitizeFirestoreData({
     ...(rest as PublicInstitution),
     acceptedChannels,
     paymentMethods: sanitizedPaymentMethods,
-    updatedAt: rest.updatedAt || new Date().toISOString()
-  };
+    updatedAt: (rest.updatedAt as string | undefined) || new Date().toISOString()
+  });
 }
 
 /**
@@ -116,21 +179,37 @@ export function buildPublicInstitutionFromModel(inst: Institution): PublicInstit
   const primarySlug = resolveInstitutionSlug(inst);
 
   const aliases = Array.from(new Set([
-    ...(inst.slugAliases || []),
+    ...(inst.slugAliases || []).map(a => normalizeSlug(a)).filter(Boolean),
     primarySlug,
-    ...(inst.code ? [inst.code.toLowerCase()] : []),
+    ...(inst.code ? [normalizeSlug(inst.code)] : []),
     ...(inst.id ? [inst.id.toLowerCase()] : [])
-  ]));
+  ].filter(Boolean)));
 
-  const effectiveConfig: OnlineRegistrationConfig = inst.onlineRegistrationConfig || {
-    ...DEFAULT_ONLINE_REGISTRATION_CONFIG,
-    institutionId: inst.id,
-    title: `Inscrições Abertas — ${inst.name}`
-  };
+  const neutralFallback = createEmptyOnlineRegistrationConfig(inst);
+  const existingCfg = inst.onlineRegistrationConfig;
+  const effectiveConfig: OnlineRegistrationConfig = existingCfg
+    ? {
+        ...neutralFallback,
+        ...existingCfg,
+        institutionId: inst.id,
+        requiredFields: {
+          ...neutralFallback.requiredFields,
+          ...(existingCfg.requiredFields || {})
+        },
+        requiredDocuments: Array.isArray(existingCfg.requiredDocuments) ? existingCfg.requiredDocuments : [],
+        documentRequirements: existingCfg.documentRequirements || {},
+        customQuestions: Array.isArray(existingCfg.customQuestions) ? existingCfg.customQuestions : [],
+        coursesConfig: Array.isArray(existingCfg.coursesConfig) ? existingCfg.coursesConfig : []
+      }
+    : neutralFallback;
 
   const configuredChannels = inst.financialSettings?.paymentMethods
     ?.filter(m => m.enabled)
     .map(m => m.name);
+
+  const resolvedPhone = effectiveConfig.contactPhone || inst.phone || '';
+  const resolvedWhatsapp = effectiveConfig.contactWhatsapp || inst.whatsapp || resolvedPhone;
+  const resolvedEmail = effectiveConfig.contactEmail || inst.email || '';
 
   return sanitizePublicInstitutionPayload({
     id: primarySlug,
@@ -143,10 +222,10 @@ export function buildPublicInstitutionFromModel(inst: Institution): PublicInstit
     type: inst.type,
     nuit: inst.nuit,
     licenseNumber: inst.licenseNumber,
-    phone: inst.phone,
+    phone: resolvedPhone,
     phoneAlt: inst.phoneAlt,
-    email: inst.email,
-    whatsapp: inst.whatsapp || inst.phone,
+    email: resolvedEmail,
+    whatsapp: resolvedWhatsapp,
     address: inst.address,
     city: inst.city,
     province: inst.province,
@@ -168,8 +247,12 @@ export function buildPublicInstitutionFromModel(inst: Institution): PublicInstit
         : ['M-Pesa', 'e-Mola', 'mKesh', 'Transferência Bancária', 'Presencial'],
       instructions: 'Inicie sessão no Portal de Pagamentos com a sua conta de aluno, encarregado ou tesouraria para consultar coordenadas de recebimento e submeter comprovativos.'
     },
-    termsAndConditions: `1. Termos Oficiais da ${inst.name}.\n2. A submissão da candidatura não garante admissão imediata sem análise documental e homologação pela Secretaria Académica.\n3. O pagamento da taxa de inscrição não é reembolsável após validação do processo.`,
-    privacyPolicy: `A ${inst.name} compromete-se a resguardar a privacidade e os dados pessoais do candidato exclusivamente para fins de admissão e gestão académica oficial no SIGAR PRO.`,
+    termsAndConditions:
+      effectiveConfig.termsAndConditions?.trim() ||
+      `1. Termos Oficiais da ${inst.name}.\n2. A submissão da candidatura não garante admissão imediata sem análise documental e homologação pela Secretaria Académica.\n3. O pagamento da taxa de inscrição não é reembolsável após validação do processo.`,
+    privacyPolicy:
+      effectiveConfig.privacyPolicy?.trim() ||
+      `A ${inst.name} compromete-se a resguardar a privacidade e os dados pessoais do candidato exclusivamente para fins de admissão e gestão académica oficial no SIGAR PRO.`,
     updatedAt: new Date().toISOString()
   });
 }
@@ -179,11 +262,11 @@ export function buildPublicInstitutionFromModel(inst: Institution): PublicInstit
  */
 export async function syncPublicInstitutionMetadata(inst: Institution): Promise<void> {
   if (!inst?.id || !auth.currentUser) return;
-  const publicData = buildPublicInstitutionFromModel(inst);
+  const publicData = sanitizeFirestoreData(buildPublicInstitutionFromModel(inst));
   const slug = publicData.slug;
   if (!slug) return;
   try {
-    await setDoc(doc(db, PUBLIC_INSTITUTIONS_COLLECTION, slug), publicData);
+    await setDoc(doc(db, PUBLIC_INSTITUTIONS_COLLECTION, slug), publicData, { merge: true });
   } catch (err) {
     console.warn(`[PublicInstitutionService] Nota ao sincronizar publicInstitutions/${slug}:`, err);
   }
@@ -204,7 +287,7 @@ const KNOWN_INSTITUTIONS: Institution[] = [
  * - Nunca utilizar a instituição ativa do browser para determinar o portal público.
  * - Validar primeiramente em publicInstitutions/{slug}.
  * - Sanitizar sempre quaisquer campos financeiros privados legados antes de retornar.
- * - Se o slug for inválido ou não existir, retorna NULL.
+ * - Se o slug for inválido ou não existir, retorna NULL (nunca redireciona nem aplica fallback cruzado).
  */
 export async function resolvePublicInstitutionBySlug(
   rawSlug: string,
@@ -227,30 +310,32 @@ export async function resolvePublicInstitutionBySlug(
     console.warn(`[PublicInstitutionService] Nota ao buscar publicInstitutions/${slug}:`, error);
   }
 
-  // 2. Tentar encontrar nas instituições conhecidas do utilizador ou catálogos padrão
+  // 2. Tentar encontrar por correspondência exata de slug/aliases/id/code/sigla na pool conhecida
   const pool = localInstitutionsPool && localInstitutionsPool.length > 0
     ? localInstitutionsPool
     : KNOWN_INSTITUTIONS;
 
   const matched = pool.find(inst => {
-    const primary = (inst.slug || '').toLowerCase();
+    const primary = inst.slug ? normalizeSlug(inst.slug) : '';
     if (primary && primary === slug) return true;
 
-    const aliases = (inst.slugAliases || []).map(a => a.toLowerCase());
+    const aliases = (inst.slugAliases || []).map(a => normalizeSlug(a));
     if (aliases.includes(slug)) return true;
 
-    if (inst.code && inst.code.toLowerCase() === slug) return true;
+    if (inst.code && normalizeSlug(inst.code) === slug) return true;
     if (inst.id && inst.id.toLowerCase() === slug) return true;
-    if (inst.sigla && inst.sigla.toLowerCase() === slug) return true;
+    if (inst.sigla && normalizeSlug(inst.sigla) === slug) return true;
 
-    const slugifiedName = inst.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-    if (slugifiedName === slug) return true;
+    const slugifiedName = normalizeSlug(
+      inst.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    );
+    if (slugifiedName && slugifiedName === slug) return true;
 
-    if ((slug === 'cftpm' || slug === 'cftpm-moztechwave') && (inst.id === 'inst-1' || inst.code.includes('MTW-CF'))) {
+    if ((slug === 'cftpm' || slug === 'cftpm-moztechwave' || slug === 'cftpm-nacala') && inst.id === 'inst-1') {
       return true;
     }
 
-    if ((slug === 'ceu-azul' || slug === 'centro-infantil-ceu-azul') && (inst.id === 'ceu-azul-nacala' || inst.name.includes('Céu Azul'))) {
+    if ((slug === 'ceu-azul' || slug === 'centro-infantil-ceu-azul' || slug === 'ceu-azul-nacala') && inst.id === 'ceu-azul-nacala') {
       return true;
     }
 
@@ -261,20 +346,20 @@ export async function resolvePublicInstitutionBySlug(
     return buildPublicInstitutionFromModel(matched);
   }
 
-  // 3. Slug inválido ou inexistente: NUNCA retornar o tenant ativo do browser!
+  // 3. Slug inválido ou inexistente: NUNCA retornar o tenant ativo nem outra instituição!
   return null;
 }
 
 /**
  * Gera URL oficial formatada para o portal público de inscrição.
- * Preserva o formato exigido: #instituicoes/<slug>/inscricoes
+ * Formato estável: #i/<slug> (com total compatibilidade para #instituicoes/<slug>/inscricoes e /i/<slug>).
  */
 export function getPublicRegistrationUrl(inst: Institution, preview = false): string {
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://sigar.moztechwave.com';
-  const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
+  const pathname = typeof window !== 'undefined' ? window.location.pathname : '/';
   const slug = resolveInstitutionSlug(inst);
   const previewQuery = preview ? '?preview=true' : '';
-  return `${origin}${pathname}#instituicoes/${slug}/inscricoes${previewQuery}`;
+  return `${origin}${pathname}#i/${slug}${previewQuery}`;
 }
 
 /**

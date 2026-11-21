@@ -1440,8 +1440,9 @@ export const InstitutionSettingsView: React.FC = () => {
       {activeTab === 'inscricoes_online' && (
         <OnlineRegistrationSettingsPanel
           institution={activeInstitution}
-          onSave={async (updatedConfig, updatedSlug) => {
+          onSave={async (updatedConfig, updatedSlug, institutionUpdates) => {
             updateInstitution(activeInstitution.id, {
+              ...(institutionUpdates || {}),
               onlineRegistrationConfig: updatedConfig,
               slug: updatedSlug || activeInstitution.slug
             });

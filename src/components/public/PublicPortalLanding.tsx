@@ -35,13 +35,14 @@ import {
 import { soundManager } from '../../utils/audio';
 import { useApp } from '../../context/AppContext';
 import { validateAndFormatInternationalPhone } from '../../views/public/PublicRegistrationView';
+import { resolveInstitutionSlug } from '../../services/publicInstitutionService';
 import { COURSES_DATA } from '../../data/mockData';
 import { Course, Institution } from '../../types';
 
 interface PublicPortalLandingProps {
   onOpenAuthModal: (mode?: 'google' | 'credentials') => void;
   onOpenPublicVerify: () => void;
-  onOpenOnlineRegistration?: (courseName?: string) => void;
+  onOpenOnlineRegistration?: (courseName?: string, instSlug?: string) => void;
   onOpenRegisterInstitution: () => void;
   onOpenHelp: () => void;
 }
@@ -431,10 +432,12 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
                         <button
                           type="button"
                           onClick={() => {
+                            const courseInst = allInstitutions.find(i => i.id === c.institutionId);
+                            const slug = courseInst ? resolveInstitutionSlug(courseInst) : undefined;
                             if (onOpenOnlineRegistration) {
-                              onOpenOnlineRegistration(c.name);
+                              onOpenOnlineRegistration(c.name, slug);
                             } else {
-                              navigate('inscricao_publica');
+                              navigate('inscricao_publica', slug ? { inst: slug } : {});
                             }
                           }}
                           className="flex-1 py-2 px-3 rounded-xl text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white shadow-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1"
@@ -830,11 +833,13 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
                   type="button"
                   onClick={() => {
                     const courseName = selectedCourseDetails.name;
+                    const courseInst = allInstitutions.find(i => i.id === selectedCourseDetails.institutionId);
+                    const slug = courseInst ? resolveInstitutionSlug(courseInst) : undefined;
                     setSelectedCourseDetails(null);
                     if (onOpenOnlineRegistration) {
-                      onOpenOnlineRegistration(courseName);
+                      onOpenOnlineRegistration(courseName, slug);
                     } else {
-                      navigate('inscricao_publica');
+                      navigate('inscricao_publica', slug ? { inst: slug } : {});
                     }
                   }}
                   className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-md transition cursor-pointer flex items-center gap-2"
