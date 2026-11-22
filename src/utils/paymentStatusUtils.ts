@@ -194,14 +194,34 @@ export function getConfiguredInstitutionPaymentMethods(params: {
       });
     }
     if (Array.isArray(fs.paymentMethods)) {
-      for (const methodName of fs.paymentMethods) {
-        if (!methodName || !methodName.trim()) continue;
-        const mapped = mapChannelNameToNetwork(methodName);
-        registerOption({
-          id: mapped.network,
-          label: methodName.trim(),
-          category: mapped.category
-        });
+      for (const methodItem of fs.paymentMethods) {
+        if (!methodItem) continue;
+        if (typeof methodItem === 'string') {
+          const clean = (methodItem as string).trim();
+          if (!clean) continue;
+          const mapped = mapChannelNameToNetwork(clean);
+          registerOption({
+            id: mapped.network,
+            label: clean,
+            category: mapped.category
+          });
+        } else if (typeof methodItem === 'object') {
+          if (methodItem.enabled === false) continue;
+          const rawLabel = (methodItem.name || methodItem.key || '').trim();
+          if (!rawLabel) continue;
+          const mapped = mapChannelNameToNetwork(methodItem.key || rawLabel);
+          registerOption({
+            id: mapped.network,
+            label: rawLabel,
+            category: mapped.category,
+            ...(includePrivateDetails && (methodItem.accountNumber || methodItem.phone)
+              ? {
+                  accountNumber: (methodItem.accountNumber || methodItem.phone || '').trim(),
+                  holderName: methodItem.beneficiaryName || institution?.name
+                }
+              : {})
+          });
+        }
       }
     }
   }

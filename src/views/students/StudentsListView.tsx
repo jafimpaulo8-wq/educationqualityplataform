@@ -18,7 +18,9 @@ import {
   Eye,
   Edit,
   History,
-  Trash2
+  Trash2,
+  UserCheck,
+  Download
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { useToast } from '../../context/ToastContext';
@@ -31,7 +33,7 @@ import { ConfirmationModal } from '../../components/common/ConfirmationModal';
 import { StudentEditModal } from './StudentEditModal';
 
 export const StudentsListView: React.FC = () => {
-  const { students, courses, navigate, activeInstitution, openWhatsAppMessage, deleteStudent } = useApp();
+  const { students, courses, navigate, activeInstitution, openWhatsAppMessage, deleteStudent, changeStudentStatus } = useApp();
   const { success, error: toastError } = useToast();
 
   const [viewingStudent, setViewingStudent] = useState<Student | null>(null);
@@ -42,6 +44,57 @@ export const StudentsListView: React.FC = () => {
   const countActive = students.filter(s => s.status === 'Ativo').length;
   const countPending = students.filter(s => s.status === 'Aguardando Pagamento').length;
   const countTerminated = students.filter(s => s.status === 'Baixado').length;
+  const countInactive = students.filter(s => ['Inativo', 'Suspenso', 'Cancelado'].includes(s.status)).length;
+
+  const handleToggleActiveStatus = (s: Student) => {
+    const isCurrentlyBlocked = ['Inativo', 'Suspenso', 'Baixado', 'Cancelado'].includes(s.status);
+    const nextStatus = isCurrentlyBlocked ? 'Ativo' : 'Inativo';
+    changeStudentStatus(
+      s.id,
+      nextStatus,
+      nextStatus === 'Inativo'
+        ? 'Desativação rápida na listagem de alunos (acesso ao portal suspenso).'
+        : 'Reativação rápida na listagem de alunos.',
+      activeInstitution.representativeName || 'Secretaria Académica'
+    );
+    success(
+      nextStatus === 'Ativo' ? 'Aluno Ativado' : 'Aluno Inativado',
+      `${s.fullName} marcado como "${nextStatus}".`
+    );
+  };
+
+  const handleExportStudentsCsv = () => {
+    try {
+      const headers = ['Código', 'Nome Completo', 'Documento', 'Telefone', 'E-mail', 'Curso', 'Turma', 'Regime', 'Estado', 'Frequência (%)', 'Média', 'Saldo Devedor (MT)'];
+      const rows = students.map(s => [
+        `"${(s.code || '').replace(/"/g, '""')}"`,
+        `"${(s.fullName || '').replace(/"/g, '""')}"`,
+        `"${s.documentType || 'BI'}: ${(s.documentNumber || '').replace(/"/g, '""')}"`,
+        `"${(s.phone || '').replace(/"/g, '""')}"`,
+        `"${(s.email || '').replace(/"/g, '""')}"`,
+        `"${(s.courseName || '').replace(/"/g, '""')}"`,
+        `"${(s.classGroupName || '').replace(/"/g, '""')}"`,
+        `"${(s.regime || '').replace(/"/g, '""')}"`,
+        `"${(s.status || '').replace(/"/g, '""')}"`,
+        `"${s.attendancePercentage ?? 0}"`,
+        `"${s.averageGrade ?? 0}"`,
+        `"${s.balanceOwing ?? 0}"`
+      ]);
+      const csv = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `Alunos_${activeInstitution.code || 'SIGAR'}_${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      success('Exportação Concluída', `${students.length} aluno(s) exportados em formato CSV/Excel.`);
+    } catch {
+      toastError('Falha ao Exportar', 'Não foi possível gerar o ficheiro CSV.');
+    }
+  };
 
   // Filter options for the ProfessionalDataTable
   const tableFilters = useMemo(() => [
@@ -63,26 +116,29 @@ export const StudentsListView: React.FC = () => {
       key: 'fullName',
       header: 'Aluno / Processo',
       sortable: true,
-      render: (s) => (
-        <div className="flex items-center gap-3">
-          <img
-            src={s.photoUrl}
-            alt={s.fullName}
-            className="w-10 h-10 rounded-xl object-cover border border-slate-700 shrink-0"
-          />
-          <div>
-            <span className="font-bold text-white group-hover:text-blue-400 transition-colors block">
-              {s.fullName}
-            </span>
-            <span className="text-[10px] text-slate-400 font-mono">
-              {s.documentType}: {s.documentNumber}
-            </span>
-            <span className="text-[9px] text-amber-400 font-mono font-bold block">
-              {s.code}
-            </span>
+      render: (s) => {
+        const isBlocked = ['Inativo', 'Suspenso', 'Baixado', 'Cancelado'].includes(s.status);
+        return (
+          <div className={`flex items-center gap-3 ${isBlocked ? 'opacity-65' : ''}`}>
+            <img
+              src={s.photoUrl}
+              alt={s.fullName}
+              className={`w-10 h-10 rounded-xl object-cover border shrink-0 ${isBlocked ? 'border-rose-500/60 grayscale' : 'border-slate-700'}`}
+            />
+            <div>
+              <span className={`font-bold transition-colors block ${isBlocked ? 'text-rose-300 line-through' : 'text-white group-hover:text-blue-400'}`}>
+                {s.fullName}
+              </span>
+              <span className="text-[10px] text-slate-400 font-mono">
+                {s.documentType}: {s.documentNumber}
+              </span>
+              <span className="text-[9px] text-amber-400 font-mono font-bold block">
+                {s.code} {isBlocked ? `• [${s.status.toUpperCase()}]` : ''}
+              </span>
+            </div>
           </div>
-        </div>
-      )
+        );
+      }
     },
     {
       key: 'courseName',
@@ -195,29 +251,40 @@ export const StudentsListView: React.FC = () => {
       onClick: (s) => navigate('sivec_studio', { studentId: s.id })
     },
     {
+      id: 'toggle_status',
+      label: 'Ativar / Inativar Aluno',
+      icon: <UserCheck className="w-3.5 h-3.5 text-amber-400" />,
+      onClick: (s) => handleToggleActiveStatus(s)
+    },
+    {
       id: 'eliminar',
       label: 'Eliminar Aluno do Sistema',
       icon: <Trash2 className="w-3.5 h-3.5 text-rose-400" />,
       onClick: (s) => setDeletingStudent(s)
     }
-  ], [navigate, openWhatsAppMessage, activeInstitution]);
+  ], [navigate, openWhatsAppMessage, activeInstitution, handleToggleActiveStatus]);
 
   // Mobile Card Renderer
   const renderMobileCard = (s: Student) => {
     const badge = getStudentStatusBadgeStyle(s.status);
+    const isBlocked = ['Inativo', 'Suspenso', 'Baixado', 'Cancelado'].includes(s.status);
 
     return (
-      <div className="bg-[#0d1527] border border-slate-800 rounded-2xl p-4 space-y-3 shadow-md active:bg-[#111c35]/80 transition-colors">
+      <div className={`rounded-2xl p-4 space-y-3 shadow-md transition-colors border ${
+        isBlocked
+          ? 'bg-rose-950/15 border-rose-500/40'
+          : 'bg-[#0d1527] border-slate-800 active:bg-[#111c35]/80'
+      }`}>
         {/* Top: Avatar, Name, Status */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
             <img
               src={s.photoUrl}
               alt={s.fullName}
-              className="w-12 h-12 rounded-xl object-cover border border-slate-700 shrink-0"
+              className={`w-12 h-12 rounded-xl object-cover border shrink-0 ${isBlocked ? 'border-rose-500/50 grayscale' : 'border-slate-700'}`}
             />
             <div>
-              <h4 className="text-sm font-bold text-white tracking-tight">{s.fullName}</h4>
+              <h4 className={`text-sm font-bold tracking-tight ${isBlocked ? 'text-rose-200 line-through' : 'text-white'}`}>{s.fullName}</h4>
               <span className="text-[10px] text-amber-400 font-mono font-bold block">{s.code}</span>
               <span className="text-[10px] text-slate-400">{s.documentType}: {s.documentNumber}</span>
             </div>
@@ -278,6 +345,15 @@ export const StudentsListView: React.FC = () => {
           </button>
 
           <button
+            onClick={() => handleToggleActiveStatus(s)}
+            aria-label="Ativar ou Inativar Aluno"
+            title={isBlocked ? 'Reativar Aluno' : 'Inativar Aluno'}
+            className="p-2 rounded-xl bg-[#111c35] text-amber-400 border border-slate-700/80 hover:bg-amber-600 hover:text-white transition-colors cursor-pointer"
+          >
+            <UserCheck className="w-4 h-4" />
+          </button>
+
+          <button
             onClick={() => openWhatsAppMessage(s.phone, `Olá ${s.fullName}, contactamos da secretaria do ${activeInstitution.name}.`)}
             aria-label="Contactar via WhatsApp"
             className="p-2 rounded-xl bg-[#111c35] text-emerald-400 border border-slate-700/80 hover:bg-emerald-600 hover:text-white transition-colors"
@@ -323,7 +399,15 @@ export const StudentsListView: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <button
+            type="button"
+            onClick={handleExportStudentsCsv}
+            className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 font-semibold text-xs sm:text-sm cursor-pointer transition-all"
+          >
+            <Download className="w-4 h-4 text-emerald-400" />
+            <span>Exportar CSV / Excel</span>
+          </button>
           <PermissionGate permission="alunos.create">
             <button
               onClick={() => navigate('alunos_cadastrar')}
@@ -357,9 +441,9 @@ export const StudentsListView: React.FC = () => {
         </div>
 
         <div className="p-3.5 rounded-2xl bg-[#0b1120] border border-slate-800 shadow-sm">
-          <span className="text-[11px] text-slate-400 block font-medium">Processos com Baixa</span>
-          <span className="text-xl font-bold text-rose-400">{countTerminated}</span>
-          <span className="text-[10px] text-rose-500/80 mt-0.5 block">Desistências / Transferências</span>
+          <span className="text-[11px] text-slate-400 block font-medium">Inativos / Baixados</span>
+          <span className="text-xl font-bold text-rose-400">{countTerminated + countInactive}</span>
+          <span className="text-[10px] text-rose-500/80 mt-0.5 block">{countInactive} inativo(s) • {countTerminated} baixa(s)</span>
         </div>
       </div>
 

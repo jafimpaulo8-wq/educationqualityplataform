@@ -103,6 +103,10 @@ export const InstitutionSettingsView: React.FC = () => {
   const [stampUrl, setStampUrl] = useState(identity.stampUrl);
   const [stampText, setStampText] = useState(activeInstitution.stampText || '');
   const [showStampOnDocuments, setShowStampOnDocuments] = useState(activeInstitution.showStampOnDocuments ?? Boolean(identity.stampUrl || activeInstitution.stampText));
+  const [showWatermarkOnReports, setShowWatermarkOnReports] = useState(activeInstitution.showWatermarkOnReports ?? false);
+  const [requireCashRegisterOpen, setRequireCashRegisterOpen] = useState(activeInstitution.requireCashRegisterOpen ?? false);
+  const [showSignatureOnDocs, setShowSignatureOnDocs] = useState(activeInstitution.showSignatureOnDocs ?? true);
+  const [carnetStaticQrUrl, setCarnetStaticQrUrl] = useState(activeInstitution.carnetStaticQrUrl || '');
 
   // Document Models
   const [defaultContractModel, setDefaultContractModel] = useState(activeInstitution.officialModels?.defaultContractModel || 'modelo_padrao_formacao');
@@ -190,6 +194,10 @@ export const InstitutionSettingsView: React.FC = () => {
     setStampUrl(resolved.stampUrl);
     setStampText(activeInstitution.stampText || '');
     setShowStampOnDocuments(activeInstitution.showStampOnDocuments ?? Boolean(resolved.stampUrl || activeInstitution.stampText));
+    setShowWatermarkOnReports(activeInstitution.showWatermarkOnReports ?? false);
+    setRequireCashRegisterOpen(activeInstitution.requireCashRegisterOpen ?? false);
+    setShowSignatureOnDocs(activeInstitution.showSignatureOnDocs ?? true);
+    setCarnetStaticQrUrl(activeInstitution.carnetStaticQrUrl || '');
 
     setDefaultContractModel(activeInstitution.officialModels?.defaultContractModel || 'modelo_padrao_formacao');
     setDefaultDeclarationModel(activeInstitution.officialModels?.defaultDeclarationModel || 'declaracao_com_notas_siverc');
@@ -275,6 +283,10 @@ export const InstitutionSettingsView: React.FC = () => {
         stampUrl,
         stampText,
         showStampOnDocuments,
+        showWatermarkOnReports,
+        requireCashRegisterOpen,
+        showSignatureOnDocs,
+        carnetStaticQrUrl: carnetStaticQrUrl.trim(),
         officialModels: {
           defaultContractModel,
           defaultDeclarationModel,
@@ -1177,7 +1189,7 @@ export const InstitutionSettingsView: React.FC = () => {
                 />
               </div>
 
-              <div className="pt-2">
+              <div className="pt-2 space-y-2.5">
                 <label className="flex items-center gap-3 p-3 rounded-xl bg-[#0d1527] border border-slate-800 cursor-pointer">
                   <input
                     type="checkbox"
@@ -1191,6 +1203,40 @@ export const InstitutionSettingsView: React.FC = () => {
                     </span>
                     <span className="text-[11px] text-slate-400">
                       Adicionar carimbo e assinatura digital em certificados, declarações e boletins PDF gerados.
+                    </span>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 p-3 rounded-xl bg-[#0d1527] border border-slate-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showSignatureOnDocs}
+                    onChange={(e) => setShowSignatureOnDocs(e.target.checked)}
+                    className="w-4 h-4 rounded text-blue-600 focus:ring-0 focus:outline-hidden"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-white block">
+                      Exibir Assinatura em Documentos e Carnês
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      Mostra a assinatura e cargo do responsável no rodapé de carnês A4 e recibos oficiais.
+                    </span>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 p-3 rounded-xl bg-[#0d1527] border border-slate-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showWatermarkOnReports}
+                    onChange={(e) => setShowWatermarkOnReports(e.target.checked)}
+                    className="w-4 h-4 rounded text-blue-600 focus:ring-0 focus:outline-hidden"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-white block">
+                      Exibir Marca d&apos;Água do Logótipo/Sigla nos Relatórios e Carnês
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      Adiciona uma marca d&apos;água institucional subtil em impressões A4 para dificultar adulterações.
                     </span>
                   </div>
                 </label>
@@ -1368,6 +1414,76 @@ export const InstitutionSettingsView: React.FC = () => {
                   onChange={(e) => setMaxFinePercentage(parseFloat(e.target.value) || 0)}
                   className="w-full px-3.5 py-2.5 rounded-xl bg-[#0d1527] border border-slate-800 text-white text-xs font-bold"
                 />
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-slate-800 space-y-3">
+              <label className="flex items-center gap-3 p-3 rounded-xl bg-[#0d1527] border border-slate-800 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={requireCashRegisterOpen}
+                  onChange={(e) => setRequireCashRegisterOpen(e.target.checked)}
+                  className="w-4 h-4 rounded text-emerald-500"
+                />
+                <div>
+                  <span className="text-xs font-bold text-white block">
+                    Exigir Caixa Aberto para Receber Pagamentos
+                  </span>
+                  <span className="text-[11px] text-slate-400">
+                    Bloqueia lançamentos na tesouraria/mensalidades se nenhuma sessão de caixa estiver aberta.
+                  </span>
+                </div>
+              </label>
+
+              <div className="p-3 rounded-xl bg-[#0d1527] border border-slate-800 space-y-2">
+                <label className="block text-xs font-semibold text-slate-300">
+                  QR Code Estático do Carnê / Carteira M-Pesa (Opcional)
+                </label>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    value={carnetStaticQrUrl}
+                    onChange={(e) => setCarnetStaticQrUrl(e.target.value)}
+                    placeholder="Cole URL da imagem do QR ou carregue do dispositivo"
+                    className="flex-1 px-3 py-2 rounded-lg bg-[#090d16] border border-slate-700 text-white text-xs focus:outline-hidden"
+                  />
+                  <label className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white cursor-pointer inline-flex items-center gap-1.5 shrink-0">
+                    <Upload className="w-3.5 h-3.5 text-emerald-400" />
+                    Carregar Imagem
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          if (typeof reader.result === 'string') {
+                            setCarnetStaticQrUrl(reader.result);
+                          }
+                        };
+                        reader.readAsDataURL(file);
+                      }}
+                    />
+                  </label>
+                </div>
+                {carnetStaticQrUrl && (
+                  <div className="flex items-center gap-3 pt-1">
+                    <img
+                      src={carnetStaticQrUrl}
+                      alt="Pré-visualização QR Carnê"
+                      className="w-12 h-12 rounded-lg object-contain bg-white p-1 border border-slate-700"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setCarnetStaticQrUrl('')}
+                      className="text-[11px] text-rose-400 hover:underline cursor-pointer"
+                    >
+                      Remover QR Estático
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>

@@ -105,7 +105,10 @@ import {
   MozcoinDiscountRule,
   MozcoinEcosystemService,
   MozcoinPaymentMethod,
-  MoztechwaveIdentity
+  MoztechwaveIdentity,
+  StudentOccurrence,
+  TeamSharedNote,
+  SaasAdminExpense
 } from '../types';
 import {
   DEFAULT_MOZCOIN_WALLETS,
@@ -773,6 +776,23 @@ interface AppContextType {
     branchId: string;
     authMethod: string;
   }) => void;
+
+  // Ocorrências Disciplinares / Pedagógicas de Alunos (scoped por instituição em localStorage)
+  studentOccurrences: StudentOccurrence[];
+  addStudentOccurrence: (data: Omit<StudentOccurrence, 'id' | 'createdAt' | 'institutionId'>) => StudentOccurrence;
+  deleteStudentOccurrence: (occurrenceId: string) => void;
+
+  // Anotações Internas Partilhadas da Equipa (scoped por instituição em localStorage)
+  teamSharedNotes: TeamSharedNote[];
+  addTeamSharedNote: (data: Omit<TeamSharedNote, 'id' | 'createdAt' | 'institutionId'>) => TeamSharedNote;
+  toggleTeamNoteShowOnHome: (noteId: string) => void;
+  deleteTeamSharedNote: (noteId: string) => void;
+
+  // Despesas Próprias da Plataforma SaaS (Dono / Super Admin em localStorage)
+  saasExpenses: SaasAdminExpense[];
+  addSaasExpense: (data: Omit<SaasAdminExpense, 'id' | 'createdAt'>) => SaasAdminExpense;
+  updateSaasExpense: (id: string, updates: Partial<SaasAdminExpense>) => void;
+  deleteSaasExpense: (id: string) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -1456,6 +1476,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return DEFAULT_MOZTECHWAVE_IDENTITIES[0] || null;
   });
 
+  // Ocorrências Disciplinares/Pedagógicas (isoladas por instituição via localStorage)
+  const [studentOccurrences, setStudentOccurrences] = useState<StudentOccurrence[]>([]);
+  const [teamSharedNotes, setTeamSharedNotes] = useState<TeamSharedNote[]>([]);
+  const [saasExpenses, setSaasExpenses] = useState<SaasAdminExpense[]>(() => {
+    try {
+      const saved = localStorage.getItem('sigar_saas_expenses_v1');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('sigar_saas_expenses_v1', JSON.stringify(saasExpenses));
+    } catch (e) {
+      console.warn('Failed to save saasExpenses:', e);
+    }
+  }, [saasExpenses]);
+
   const clearTenantData = () => {
     setAllStudents([]);
     setAllCourses([]);
@@ -2052,16 +2092,141 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const activeTeacher = teachers.find(t => t.id === activeTeacherId) || teachers[0] || null;
 
-  // Escopo Estrito do Docente: "Professor deve ver apenas aquilo que lhe foi atribuído"
+  // Escopo Estrito do Docente: "Professor deve ver apenas aquilo que lhe foi atribuído" (Titular OU Substituto por disciplina)
   const teacherAssignedClasses = classes.filter(c => {
     if (!activeTeacher) return true;
     const secondWord = activeTeacher.fullName?.split(' ')[1]?.toLowerCase() || '';
+    const fullNameLower = (activeTeacher.fullName || '').trim().toLowerCase();
+    const matchesDisciplineAssignment = Array.isArray(c.disciplineAssignments) && c.disciplineAssignments.some(da => {
+      if (da.titularTeacherId && da.titularTeacherId === activeTeacher.id) return true;
+      if (da.substituteTeacherId && da.substituteTeacherId === activeTeacher.id) return true;
+      if (fullNameLower && (da.titularTeacherName?.toLowerCase() === fullNameLower || da.substituteTeacherName?.toLowerCase() === fullNameLower)) return true;
+      if (secondWord && (da.titularTeacherName?.toLowerCase().includes(secondWord) || da.substituteTeacherName?.toLowerCase().includes(secondWord))) return true;
+      return false;
+    });
     return (
       (activeTeacher.classGroupIds && activeTeacher.classGroupIds.includes(c.id)) ||
       (c.teacherId && c.teacherId === activeTeacher.id) ||
-      (secondWord && c.teacherName && c.teacherName.toLowerCase().includes(secondWord))
+      (secondWord && c.teacherName && c.teacherName.toLowerCase().includes(secondWord)) ||
+      matchesDisciplineAssignment
     );
   });
+
+  // Carregar Ocorrências e Anotações Internas isoladas por scopedInstId
+  useEffect(() => {
+    if (!scopedInstId) {
+      setStudentOccurrences([]);
+      setTeamSharedNotes([]);
+      return;
+    }
+    try {
+      const savedOcc = localStorage.getItem(`sigar_occurrences_v1_${scopedInstId}`);
+      setStudentOccurrences(savedOcc ? JSON.parse(savedOcc) : []);
+    } catch {
+      setStudentOccurrences([]);
+    }
+    try {
+      const savedNotes = localStorage.getItem(`sigar_team_notes_v1_${scopedInstId}`);
+      setTeamSharedNotes(savedNotes ? JSON.parse(savedNotes) : []);
+    } catch {
+      setTeamSharedNotes([]);
+    }
+  }, [scopedInstId]);
+
+  const addStudentOccurrence = (data: Omit<StudentOccurrence, 'id' | 'createdAt' | 'institutionId'>): StudentOccurrence => {
+    const newOcc: StudentOccurrence = {
+      ...data,
+      id: `occ-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      institutionId: scopedInstId,
+      createdAt: new Date().toISOString()
+    };
+    setStudentOccurrences(prev => {
+      const next = [newOcc, ...prev];
+      if (scopedInstId) {
+        try {
+          localStorage.setItem(`sigar_occurrences_v1_${scopedInstId}`, JSON.stringify(next));
+        } catch (e) { console.warn('Failed to persist occurrence:', e); }
+      }
+      return next;
+    });
+    soundManager.playNotification();
+    return newOcc;
+  };
+
+  const deleteStudentOccurrence = (occurrenceId: string) => {
+    setStudentOccurrences(prev => {
+      const next = prev.filter(o => o.id !== occurrenceId);
+      if (scopedInstId) {
+        try {
+          localStorage.setItem(`sigar_occurrences_v1_${scopedInstId}`, JSON.stringify(next));
+        } catch (e) { console.warn('Failed to persist occurrence deletion:', e); }
+      }
+      return next;
+    });
+  };
+
+  const addTeamSharedNote = (data: Omit<TeamSharedNote, 'id' | 'createdAt' | 'institutionId'>): TeamSharedNote => {
+    const newNote: TeamSharedNote = {
+      ...data,
+      id: `tnote-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      institutionId: scopedInstId,
+      createdAt: new Date().toISOString()
+    };
+    setTeamSharedNotes(prev => {
+      const next = [newNote, ...prev];
+      if (scopedInstId) {
+        try {
+          localStorage.setItem(`sigar_team_notes_v1_${scopedInstId}`, JSON.stringify(next));
+        } catch (e) { console.warn('Failed to persist team note:', e); }
+      }
+      return next;
+    });
+    soundManager.playSuccess();
+    return newNote;
+  };
+
+  const toggleTeamNoteShowOnHome = (noteId: string) => {
+    setTeamSharedNotes(prev => {
+      const next = prev.map(n => n.id === noteId ? { ...n, showOnHome: !n.showOnHome } : n);
+      if (scopedInstId) {
+        try {
+          localStorage.setItem(`sigar_team_notes_v1_${scopedInstId}`, JSON.stringify(next));
+        } catch (e) { console.warn('Failed to update team note:', e); }
+      }
+      return next;
+    });
+  };
+
+  const deleteTeamSharedNote = (noteId: string) => {
+    setTeamSharedNotes(prev => {
+      const next = prev.filter(n => n.id !== noteId);
+      if (scopedInstId) {
+        try {
+          localStorage.setItem(`sigar_team_notes_v1_${scopedInstId}`, JSON.stringify(next));
+        } catch (e) { console.warn('Failed to delete team note:', e); }
+      }
+      return next;
+    });
+  };
+
+  const addSaasExpense = (data: Omit<SaasAdminExpense, 'id' | 'createdAt'>): SaasAdminExpense => {
+    const exp: SaasAdminExpense = {
+      ...data,
+      id: `saas-exp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      createdAt: new Date().toISOString()
+    };
+    setSaasExpenses(prev => [exp, ...prev]);
+    soundManager.playSuccess();
+    return exp;
+  };
+
+  const updateSaasExpense = (id: string, updates: Partial<SaasAdminExpense>) => {
+    setSaasExpenses(prev => prev.map(e => e.id === id ? { ...e, ...updates } : e));
+  };
+
+  const deleteSaasExpense = (id: string) => {
+    setSaasExpenses(prev => prev.filter(e => e.id !== id));
+  };
 
   const teacherAssignedStudents = students.filter(s => {
     if (!activeTeacher) return true;
@@ -8656,7 +8821,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         authLoadingPhase,
         onboardingCompleted,
         completeOnboarding,
-        restartOnboarding
+        restartOnboarding,
+        // Ocorrências, Anotações Internas e Despesas SaaS
+        studentOccurrences,
+        addStudentOccurrence,
+        deleteStudentOccurrence,
+        teamSharedNotes,
+        addTeamSharedNote,
+        toggleTeamNoteShowOnHome,
+        deleteTeamSharedNote,
+        saasExpenses,
+        addSaasExpense,
+        updateSaasExpense,
+        deleteSaasExpense
       }}
     >
       {children}

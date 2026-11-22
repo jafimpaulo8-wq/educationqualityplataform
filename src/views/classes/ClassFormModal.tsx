@@ -10,9 +10,11 @@ import {
   UserCheck, 
   Activity,
   Layers,
-  GraduationCap
+  GraduationCap,
+  Plus,
+  Trash2
 } from 'lucide-react';
-import { ClassGroup, Student, Course } from '../../types';
+import { ClassGroup, Student, Course, Teacher, DisciplineTeacherAssignment } from '../../types';
 
 interface ClassFormModalProps {
   isOpen: boolean;
@@ -21,6 +23,7 @@ interface ClassFormModalProps {
   initialClass?: ClassGroup | null;
   courses: Course[];
   availableStudents: Student[];
+  teachers?: Teacher[];
 }
 
 export const ClassFormModal: React.FC<ClassFormModalProps> = ({
@@ -29,14 +32,20 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
   onSave,
   initialClass,
   courses,
-  availableStudents
+  availableStudents,
+  teachers = []
 }) => {
   const [name, setName] = useState('');
   const [courseId, setCourseId] = useState('');
   const [period, setPeriod] = useState('1º Semestre 2026');
   const [schedule, setSchedule] = useState('08:00 - 12:00');
   const [room, setRoom] = useState('Laboratório Tech 1');
+  const [teacherId, setTeacherId] = useState('');
   const [teacherName, setTeacherName] = useState('');
+  const [disciplineAssignments, setDisciplineAssignments] = useState<DisciplineTeacherAssignment[]>([]);
+  const [newDiscName, setNewDiscName] = useState('');
+  const [newDiscTitularId, setNewDiscTitularId] = useState('');
+  const [newDiscSubId, setNewDiscSubId] = useState('');
   const [capacity, setCapacity] = useState<number>(25);
   const [shift, setShift] = useState<ClassGroup['shift']>('Manhã');
   const [status, setStatus] = useState<ClassGroup['status']>('Em Curso');
@@ -54,7 +63,9 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
       setPeriod(initialClass.period || '1º Semestre 2026');
       setSchedule(initialClass.schedule || '08:00 - 12:00');
       setRoom(initialClass.room);
+      setTeacherId(initialClass.teacherId || '');
       setTeacherName(initialClass.teacherName);
+      setDisciplineAssignments(initialClass.disciplineAssignments || []);
       setCapacity(initialClass.capacity || 25);
       setShift(initialClass.shift);
       setStatus(initialClass.status);
@@ -67,7 +78,9 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
       setPeriod('1º Semestre 2026');
       setSchedule('08:00 - 12:00');
       setRoom('Laboratório Tech 1');
+      setTeacherId('');
       setTeacherName('');
+      setDisciplineAssignments([]);
       setCapacity(25);
       setShift('Manhã');
       setStatus('Em Curso');
@@ -100,6 +113,28 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
     });
   };
 
+  const handleAddDisciplineAssignment = () => {
+    if (!newDiscName.trim()) return;
+    const titular = teachers.find(t => t.id === newDiscTitularId);
+    const sub = teachers.find(t => t.id === newDiscSubId);
+    if (!titular && !teacherName.trim()) return;
+
+    setDisciplineAssignments(prev => [
+      ...prev,
+      {
+        id: `da-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        disciplineName: newDiscName.trim(),
+        titularTeacherId: titular?.id || teacherId || undefined,
+        titularTeacherName: titular?.fullName || teacherName.trim() || 'Docente Titular',
+        substituteTeacherId: sub?.id || undefined,
+        substituteTeacherName: sub?.fullName || undefined
+      }
+    ]);
+    setNewDiscName('');
+    setNewDiscTitularId('');
+    setNewDiscSubId('');
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !courseId) return;
@@ -113,7 +148,9 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
       period,
       schedule,
       room: room.trim(),
+      teacherId: teacherId || undefined,
       teacherName: teacherName.trim() || 'A definir',
+      disciplineAssignments,
       capacity: Number(capacity) || 25,
       studentIds: selectedStudentIds,
       shift,
@@ -269,6 +306,25 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
                 <UserCheck className="w-3.5 h-3.5 text-slate-400" />
                 Professor / Formador Titular
               </label>
+              {teachers.length > 0 && (
+                <select
+                  value={teacherId}
+                  onChange={e => {
+                    const selectedId = e.target.value;
+                    setTeacherId(selectedId);
+                    const found = teachers.find(t => t.id === selectedId);
+                    if (found) setTeacherName(found.fullName);
+                  }}
+                  className="w-full mb-1.5 px-3 py-2 border border-slate-200 rounded-xl text-xs font-medium bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                >
+                  <option value="">Selecionar docente registado (ou digitar abaixo)...</option>
+                  {teachers.map(t => (
+                    <option key={t.id} value={t.id}>
+                      {t.fullName} {t.specialty ? `(${t.specialty})` : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
               <input
                 type="text"
                 value={teacherName}
@@ -278,6 +334,82 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
                 className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none"
               />
             </div>
+          </div>
+
+          {/* Professores por Disciplina (Titular & Substituto) */}
+          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+            <div>
+              <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
+                Professores por Disciplina (Titular &amp; Substituto)
+              </h4>
+              <p className="text-[11px] text-slate-500">
+                Tanto o professor titular quanto o substituto terão acesso automático a esta turma nos seus portais.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+              <input
+                type="text"
+                value={newDiscName}
+                onChange={e => setNewDiscName(e.target.value)}
+                placeholder="Disciplina / Módulo..."
+                className="sm:col-span-4 px-2.5 py-2 border border-slate-200 rounded-xl bg-white text-xs"
+              />
+              <select
+                value={newDiscTitularId}
+                onChange={e => setNewDiscTitularId(e.target.value)}
+                className="sm:col-span-3 px-2.5 py-2 border border-slate-200 rounded-xl bg-white text-xs"
+              >
+                <option value="">Titular...</option>
+                {teachers.map(t => (
+                  <option key={t.id} value={t.id}>{t.fullName}</option>
+                ))}
+              </select>
+              <select
+                value={newDiscSubId}
+                onChange={e => setNewDiscSubId(e.target.value)}
+                className="sm:col-span-3 px-2.5 py-2 border border-slate-200 rounded-xl bg-white text-xs"
+              >
+                <option value="">Substituto (opcional)...</option>
+                {teachers.map(t => (
+                  <option key={t.id} value={t.id}>{t.fullName}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={handleAddDisciplineAssignment}
+                className="sm:col-span-2 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Add
+              </button>
+            </div>
+
+            {disciplineAssignments.length > 0 && (
+              <div className="space-y-1.5">
+                {disciplineAssignments.map(da => (
+                  <div key={da.id} className="flex items-center justify-between gap-2 bg-white px-3 py-2 rounded-xl border border-slate-200 text-xs">
+                    <div className="min-w-0">
+                      <span className="font-bold text-slate-800">{da.disciplineName}</span>
+                      <span className="text-slate-500 ml-2">
+                        Titular: <strong className="text-slate-700">{da.titularTeacherName}</strong>
+                        {da.substituteTeacherName && (
+                          <> • Substituto: <strong className="text-indigo-700">{da.substituteTeacherName}</strong></>
+                        )}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setDisciplineAssignments(prev => prev.filter(x => x.id !== da.id))}
+                      className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer shrink-0"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Row 4: Capacidade, Turno & Estado */}

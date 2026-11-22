@@ -49,10 +49,11 @@ import {
   TrendingUp, 
   BarChart3,
   Calendar,
-  DollarSign
+  DollarSign,
+  Trash2
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { Institution, UserRole, CertificateData } from '../../types';
+import { Institution, UserRole, CertificateData, SaasAdminExpense } from '../../types';
 import { MozcoinWallet, MozcoinTransaction, MozcoinPurchaseRequest } from '../../types/mozcoin';
 import { PlanDefinition, PlanLimits } from '../../types/plans';
 import { AuditLogEntry } from '../../types/audit';
@@ -71,7 +72,8 @@ export type CoreTab =
   | 'auditoria' 
   | 'seguranca' 
   | 'regras' 
-  | 'arquitetura';
+  | 'arquitetura'
+  | 'financeiro_saas';
 
 export const MoztechwaveCoreView: React.FC = () => {
   const { 
@@ -90,7 +92,11 @@ export const MoztechwaveCoreView: React.FC = () => {
     navigate, 
     firebaseUser, 
     activeRole,
-    addNotification
+    addNotification,
+    saasExpenses,
+    addSaasExpense,
+    updateSaasExpense,
+    deleteSaasExpense
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<CoreTab>('dashboard');
@@ -115,6 +121,16 @@ export const MoztechwaveCoreView: React.FC = () => {
   const [newInstPhone, setNewInstPhone] = useState('+258 84 000 0000');
   const [newInstPlan, setNewInstPlan] = useState('Profissional');
   const [newInstRepName, setNewInstRepName] = useState('');
+  const [newInstTrialDays, setNewInstTrialDays] = useState(14);
+  const [newInstMonthlyFeeMZN, setNewInstMonthlyFeeMZN] = useState(3500);
+
+  // 90.11 SaaS Expenses states
+  const [expDesc, setExpDesc] = useState('');
+  const [expCategory, setExpCategory] = useState<SaasAdminExpense['category']>('servidor');
+  const [expAmount, setExpAmount] = useState('');
+  const [expDate, setExpDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [expStatus, setExpStatus] = useState<SaasAdminExpense['status']>('pago');
+  const [expNotes, setExpNotes] = useState('');
 
   // 90.3 Users IAM state
   interface ManagedUser {
@@ -441,6 +457,13 @@ export const MoztechwaveCoreView: React.FC = () => {
       city: newInstCity,
       address: `Av. Principal, nº ${Math.floor(100 + Math.random() * 900)}`,
       plan: newInstPlan,
+      trialDays: newInstTrialDays,
+      trialExpiresAt:
+        newInstTrialDays > 0
+          ? new Date(Date.now() + newInstTrialDays * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+          : undefined,
+      monthlyFeeMZN: newInstMonthlyFeeMZN,
+      saasBillingStatus: 'em_dia',
       status: 'Ativa',
       connectedSystem: 'SIGAR',
       sivecEnabled: true,
@@ -793,6 +816,7 @@ export const MoztechwaveCoreView: React.FC = () => {
             { id: 'seguranca', label: '90.8 Segurança Máxima', icon: ShieldCheck },
             { id: 'regras', label: '90.9 Regra Anti-Escalação', icon: Lock },
             { id: 'arquitetura', label: '90.10 Topologia do Sistema', icon: GitBranch },
+            { id: 'financeiro_saas', label: '90.11 Financeiro SaaS', icon: DollarSign },
           ].map(tab => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -1049,10 +1073,14 @@ export const MoztechwaveCoreView: React.FC = () => {
                           <div className="text-slate-300">{inst.city}, {inst.province}</div>
                           <div className="text-[11px] font-mono text-slate-500">NUIT: {inst.nuit}</div>
                         </td>
-                        <td className="py-3.5 px-4">
-                          <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                        <td className="py-3.5 px-4 space-y-1">
+                          <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-300 border border-amber-500/20 inline-block">
                             {inst.plan || 'Profissional'}
                           </span>
+                          <div className="text-[10px] font-mono text-slate-400">
+                            {(inst.monthlyFeeMZN ?? 3500).toLocaleString('pt-MZ')} MT/mês
+                            {inst.trialExpiresAt ? ` • Trial até ${inst.trialExpiresAt}` : ''}
+                          </div>
                         </td>
                         <td className="py-3.5 px-4 font-mono">
                           <div className="text-slate-200">{inst.totalStudents || 0} alunos</div>
@@ -1061,14 +1089,36 @@ export const MoztechwaveCoreView: React.FC = () => {
                         <td className="py-3.5 px-4 font-mono text-slate-300">
                           {inst.branches?.length || 1} filial(is)
                         </td>
-                        <td className="py-3.5 px-4">
-                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                        <td className="py-3.5 px-4 space-y-1">
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider inline-block ${
                             isSuspended 
                               ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' 
                               : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                           }`}>
                             {inst.status || 'Ativa'}
                           </span>
+                          <div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const nextBilling =
+                                  inst.saasBillingStatus === 'vencida' || inst.saasBillingStatus === 'bloqueada'
+                                    ? 'em_dia'
+                                    : 'vencida';
+                                updateInstitution(inst.id, { saasBillingStatus: nextBilling });
+                              }}
+                              title="Alternar estado de faturação SaaS (Em dia / Vencida)"
+                              className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold border cursor-pointer transition-colors ${
+                                inst.saasBillingStatus === 'vencida' || inst.saasBillingStatus === 'bloqueada'
+                                  ? 'bg-rose-500/15 text-rose-300 border-rose-500/30 hover:bg-rose-500/25'
+                                  : inst.saasBillingStatus === 'pendente'
+                                  ? 'bg-amber-500/15 text-amber-300 border-amber-500/30 hover:bg-amber-500/25'
+                                  : 'bg-sky-500/15 text-sky-300 border-sky-500/30 hover:bg-sky-500/25'
+                              }`}
+                            >
+                              SaaS: {(inst.saasBillingStatus || 'em_dia').replace('_', ' ').toUpperCase()}
+                            </button>
+                          </div>
                         </td>
                         <td className="py-3.5 px-4 text-right">
                           <div className="flex items-center justify-end gap-1.5">
@@ -1676,6 +1726,303 @@ export const MoztechwaveCoreView: React.FC = () => {
         </div>
       )}
 
+      {/* 90.11 FINANCEIRO SAAS DO PROPRIETÁRIO */}
+      {activeTab === 'financeiro_saas' && (() => {
+        const totalExpectedRevenue = allInstitutions.reduce((sum, i) => sum + Number(i.monthlyFeeMZN ?? 3500), 0);
+        const onTimeRevenue = allInstitutions
+          .filter(i => !i.saasBillingStatus || i.saasBillingStatus === 'em_dia')
+          .reduce((sum, i) => sum + Number(i.monthlyFeeMZN ?? 3500), 0);
+        const pendingOrOverdueRevenue = totalExpectedRevenue - onTimeRevenue;
+        const totalExpenses = saasExpenses.reduce((sum, e) => sum + Number(e.amountMZN || 0), 0);
+        const netBalance = onTimeRevenue - totalExpenses;
+
+        return (
+          <div className="space-y-6">
+            {/* KPIs Financeiros SaaS */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-2xl">
+                <div className="text-[11px] font-mono text-slate-400 uppercase">MRR Previsto (Total Mensal)</div>
+                <div className="text-2xl font-black text-white mt-1.5 font-mono">
+                  {totalExpectedRevenue.toLocaleString('pt-MZ')} <span className="text-xs text-slate-400">MT</span>
+                </div>
+                <div className="text-[10px] text-slate-500 mt-1">{allInstitutions.length} instituições clientes</div>
+              </div>
+
+              <div className="bg-slate-900/80 border border-emerald-500/30 p-4 rounded-2xl">
+                <div className="text-[11px] font-mono text-emerald-400 uppercase">Receita Em Dia</div>
+                <div className="text-2xl font-black text-emerald-400 mt-1.5 font-mono">
+                  {onTimeRevenue.toLocaleString('pt-MZ')} <span className="text-xs text-emerald-500/70">MT</span>
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1">
+                  Pendente/Vencido: {pendingOrOverdueRevenue.toLocaleString('pt-MZ')} MT
+                </div>
+              </div>
+
+              <div className="bg-slate-900/80 border border-rose-500/30 p-4 rounded-2xl">
+                <div className="text-[11px] font-mono text-rose-400 uppercase">Despesas da Plataforma</div>
+                <div className="text-2xl font-black text-rose-400 mt-1.5 font-mono">
+                  {totalExpenses.toLocaleString('pt-MZ')} <span className="text-xs text-rose-500/70">MT</span>
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1">{saasExpenses.length} lançamento(s) registado(s)</div>
+              </div>
+
+              <div className="bg-slate-900/80 border border-amber-500/30 p-4 rounded-2xl">
+                <div className="text-[11px] font-mono text-amber-400 uppercase">Saldo Líquido SaaS</div>
+                <div className={`text-2xl font-black mt-1.5 font-mono ${netBalance >= 0 ? 'text-amber-300' : 'text-rose-400'}`}>
+                  {netBalance.toLocaleString('pt-MZ')} <span className="text-xs text-slate-400">MT</span>
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1">Receita Em Dia − Despesas</div>
+              </div>
+            </div>
+
+            {/* Faturação das Instituições Clientes */}
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl overflow-hidden">
+              <div className="p-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-bold text-white">Contas a Receber SaaS (Subscrições &amp; Trials das Escolas)</h3>
+                  <p className="text-xs text-slate-400">Controle mensalidades, períodos de teste e envie alertas imediatos ao painel da instituição.</p>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-950/70 text-slate-400 font-mono uppercase text-[10px] border-b border-slate-800">
+                    <tr>
+                      <th className="py-3 px-4">Instituição</th>
+                      <th className="py-3 px-4">Plano</th>
+                      <th className="py-3 px-4">Mensalidade SaaS</th>
+                      <th className="py-3 px-4">Trial Expira</th>
+                      <th className="py-3 px-4">Estado Faturação</th>
+                      <th className="py-3 px-4 text-right">Ação Rápida</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {allInstitutions.map(inst => (
+                      <tr key={inst.id} className="hover:bg-slate-800/30">
+                        <td className="py-3 px-4">
+                          <div className="font-bold text-white">{inst.name}</div>
+                          <div className="text-[10px] font-mono text-slate-500">{inst.code}</div>
+                        </td>
+                        <td className="py-3 px-4 text-amber-300 font-semibold">{inst.plan || 'Profissional'}</td>
+                        <td className="py-3 px-4 font-mono text-white font-bold">
+                          {(inst.monthlyFeeMZN ?? 3500).toLocaleString('pt-MZ')} MT
+                        </td>
+                        <td className="py-3 px-4 font-mono text-slate-400">
+                          {inst.trialExpiresAt || '—'}
+                        </td>
+                        <td className="py-3 px-4">
+                          <select
+                            value={inst.saasBillingStatus || 'em_dia'}
+                            onChange={(e) =>
+                              updateInstitution(inst.id, { saasBillingStatus: e.target.value as any })
+                            }
+                            className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs font-bold text-white cursor-pointer"
+                          >
+                            <option value="em_dia">Em dia</option>
+                            <option value="pendente">Pendente</option>
+                            <option value="vencida">Vencida (Alerta no Painel)</option>
+                            <option value="bloqueada">Bloqueada (Alerta Crítico)</option>
+                          </select>
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              updateInstitution(inst.id, {
+                                saasBillingStatus: inst.saasBillingStatus === 'em_dia' ? 'vencida' : 'em_dia'
+                              })
+                            }
+                            className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 cursor-pointer"
+                          >
+                            {inst.saasBillingStatus === 'em_dia' ? 'Marcar Vencida' : 'Regularizar'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Despesas do Proprietário SaaS */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const amt = Number(expAmount);
+                  if (!expDesc.trim() || !amt || amt <= 0) return;
+                  addSaasExpense({
+                    description: expDesc.trim(),
+                    category: expCategory,
+                    amountMZN: amt,
+                    date: expDate,
+                    status: expStatus,
+                    notes: expNotes.trim() || undefined
+                  });
+                  setExpDesc('');
+                  setExpAmount('');
+                  setExpNotes('');
+                }}
+                className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 space-y-3 text-xs"
+              >
+                <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Plus className="w-4 h-4 text-amber-400" />
+                  Registar Despesa da Plataforma
+                </h4>
+                <div>
+                  <label className="block text-slate-400 mb-1">Descrição</label>
+                  <input
+                    type="text"
+                    required
+                    value={expDesc}
+                    onChange={(e) => setExpDesc(e.target.value)}
+                    placeholder="Ex: Servidor Cloud / Domínio .ac.mz"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-slate-400 mb-1">Categoria</label>
+                    <select
+                      value={expCategory}
+                      onChange={(e) => setExpCategory(e.target.value as any)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-white"
+                    >
+                      <option value="servidor">Servidor</option>
+                      <option value="dominio">Domínio</option>
+                      <option value="hospedagem">Hospedagem</option>
+                      <option value="escritorio">Escritório</option>
+                      <option value="suporte">Suporte</option>
+                      <option value="outro">Outro</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-1">Valor (MT)</label>
+                    <input
+                      type="number"
+                      min={1}
+                      required
+                      value={expAmount}
+                      onChange={(e) => setExpAmount(e.target.value)}
+                      placeholder="1500"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-slate-400 mb-1">Data</label>
+                    <input
+                      type="date"
+                      value={expDate}
+                      onChange={(e) => setExpDate(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-1">Estado</label>
+                    <select
+                      value={expStatus}
+                      onChange={(e) => setExpStatus(e.target.value as any)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-white"
+                    >
+                      <option value="pago">Pago</option>
+                      <option value="pendente">Pendente</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">Notas (Opcional)</label>
+                  <input
+                    type="text"
+                    value={expNotes}
+                    onChange={(e) => setExpNotes(e.target.value)}
+                    placeholder="Referência fatura..."
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold uppercase tracking-wider cursor-pointer"
+                >
+                  Adicionar Despesa SaaS
+                </button>
+              </form>
+
+              <div className="lg:col-span-2 bg-slate-900/80 border border-slate-800 rounded-2xl overflow-hidden">
+                <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+                  <h4 className="text-sm font-bold text-white">Livro de Despesas Operacionais SaaS</h4>
+                  <span className="text-xs font-mono text-rose-400 font-bold">
+                    Total: {totalExpenses.toLocaleString('pt-MZ')} MT
+                  </span>
+                </div>
+                {saasExpenses.length === 0 ? (
+                  <div className="p-8 text-center text-xs text-slate-500">
+                    Nenhuma despesa SaaS lançada até ao momento.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-950/70 text-slate-400 font-mono uppercase text-[10px] border-b border-slate-800">
+                        <tr>
+                          <th className="py-2.5 px-4">Data</th>
+                          <th className="py-2.5 px-4">Descrição</th>
+                          <th className="py-2.5 px-4">Categoria</th>
+                          <th className="py-2.5 px-4">Valor</th>
+                          <th className="py-2.5 px-4">Estado</th>
+                          <th className="py-2.5 px-4 text-right">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60">
+                        {saasExpenses.map(exp => (
+                          <tr key={exp.id} className="hover:bg-slate-800/30">
+                            <td className="py-2.5 px-4 font-mono text-slate-400">{exp.date}</td>
+                            <td className="py-2.5 px-4">
+                              <div className="font-semibold text-white">{exp.description}</div>
+                              {exp.notes && <div className="text-[10px] text-slate-500">{exp.notes}</div>}
+                            </td>
+                            <td className="py-2.5 px-4 uppercase font-mono text-[10px] text-slate-300">{exp.category}</td>
+                            <td className="py-2.5 px-4 font-mono font-bold text-rose-300">
+                              {Number(exp.amountMZN || 0).toLocaleString('pt-MZ')} MT
+                            </td>
+                            <td className="py-2.5 px-4">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateSaasExpense(exp.id, {
+                                    status: exp.status === 'pago' ? 'pendente' : 'pago'
+                                  })
+                                }
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
+                                  exp.status === 'pago'
+                                    ? 'bg-emerald-500/20 text-emerald-400'
+                                    : 'bg-amber-500/20 text-amber-300'
+                                }`}
+                              >
+                                {exp.status === 'pago' ? 'Pago' : 'Pendente'}
+                              </button>
+                            </td>
+                            <td className="py-2.5 px-4 text-right">
+                              <button
+                                type="button"
+                                onClick={() => deleteSaasExpense(exp.id)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 cursor-pointer"
+                                title="Remover despesa"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* CREATE INSTITUTION MODAL (90.2) */}
       {showCreateInstModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -1725,6 +2072,30 @@ export const MoztechwaveCoreView: React.FC = () => {
                     <option value="Profissional">Plano Professional</option>
                     <option value="Enterprise Multi-Campus">Plano Enterprise</option>
                   </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-slate-300 font-semibold">Dias de Teste (Trial)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={90}
+                    value={newInstTrialDays}
+                    onChange={e => setNewInstTrialDays(Math.max(0, Number(e.target.value) || 0))}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-slate-300 font-semibold">Mensalidade SaaS (MT/mês)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={newInstMonthlyFeeMZN}
+                    onChange={e => setNewInstMonthlyFeeMZN(Math.max(0, Number(e.target.value) || 0))}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+                  />
                 </div>
               </div>
 

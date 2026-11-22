@@ -1,0 +1,445 @@
+Olá sugo Vasconcelos né o mentor aqui desses treinamentos quem desenvolveu Esse sistema de gestão escolar e vou apresentar para vocês aqui então todo o
+0:099 segundossistema tá todo o funcionamento aqui né do sistema e todos os recursos que existem nele vai ser um vídeo e um pouco grande Tá e mas aqui vai ser para poder
+0:1818 segundosdetalhar mesmo e explicar para vocês aí as funcionalidades do sistema você pode acompanhar esse vídeo já fazendo o teste
+0:2525 segundosno sistema que é o mais ideal então você pode entrar em escolar SAS P sistem com.br E aqui utilizar esse e-mail e a
+0:3232 segundossenha 123 tá para nós podermos então acessar o painel principal que é o painel do gestor SAS eu vou explicar tanto o painel do gestor SAS quanto o
+0:4040 segundospainel aqui das empresas que são painel das escolas uma observação aqui já de início é que todas as informações relacionadas a dados cadastrais valores
+0:4949 segundose qualquer outro é tudo fictício é somente para preenchimento de dados do sistema para que eu posso né Para que eu possa exemplificar ele aqui para vocês
+0:5656 segundostá já falando dessa tela aqui Inicial você tem a possibilidade de acesso para não ter que ficar toda vez colocando os dados aqui tá E também recuperação de
+1:051 minuto e 5 segundossenha que é mandada via e-mail e via WhatsApp aqui também para o cliente fazer essa redefinição eu vou clicar
+1:131 minuto e 13 segundospara poder entrar no sistema e como eu entrei com o usuário SAS ele é redirecionado pro painel SAS esse painel SAS ele é o painel vamos se dizer assim
+1:211 minuto e 21 segundosdo dono do sistema tá uma gestão SAS ela vai trabalhar da seguinte forma te possibilitando ter várias empresas
+1:271 minuto e 27 segundoscadastradas aqui dentro Cada uma com a sua estrutura de informações ali separadas né Independentes ou você pode
+1:351 minuto e 35 segundostrabalhar também com uma empresa e várias filiais Então vamos supor que uma escola ela tenha 10 filiais ali então
+1:421 minuto e 42 segundosvocê pode utilizar essa estrutura para controlar Todas aquelas filiais e aquelas movimentações né que vão ser
+1:491 minuto e 49 segundosdiferentes em cada uma delas e aqui né eu fiz como se fossem três escolas diferentes mas já fica eh explicado para
+1:561 minuto e 56 segundosvocês que tem essa possibilidade esse sistema de gestão escolar Ele atende qual escola todo e qualquer tipo de escola curso profissionalizante curso
+2:042 minutos e 4 segundostécnico superior Escola de Ensino Médio fundamental escola pública escola particular tudo tá eu fiz ele de uma forma agora genérica onde ele pode
+2:122 minutos e 12 segundosabranger todas essas situações aí vamos lá no painel SAS ele vai dar algumas informações aqui relacionad a quantas
+2:202 minutos e 20 segundosempresas você tem cadastrado tá se você tem despesas aí né vencidas essas despesas poderiam ser por exemplo eh um
+2:272 minutos e 27 segundosaluguel de um escritório um o o custo com o servidor de hospedagem para manter o sistema tá custo com domínio entre
+2:352 minutos e 35 segundosoutras situações que podem acontecer e aqui os recebimentos que você tem né que vão vindo das empresas que estão utilizando o seu sistema Então você
+2:432 minutos e 43 segundoscadastrou a empresa você pode definir uma mensalidade para ela e esse sistema vai fazer toda a parte de cobrança ali né de baixa automática do pagamento tudo
+2:522 minutos e 52 segundostudo vou mostrar para vocês tá aí Aqui um card para saldo Lembrando que eu vendo tanto o sistema já Pronto né já finalizado conforme o que vai estar
+3:003 minutossendo apresentado aqui e também as aulas que ensinam o passo a passo do zero de como desenvolver ele que para você que
+3:083 minutos e 8 segundostem tempo é muito importante você acompanhar é interessante porque depois você consegue modificar consegue adaptar outras coisas tá então aqui por exemplo
+3:153 minutos e 15 segundosAh eu gostaria que mostrassem outras informações dá para você buscar também Lá do banco de dados isso né basta aprender como que eu fiz para poder
+3:223 minutos e 22 segundostrazer essa e você trazer as demais não só aqui que é no painel SAS mas depois principalmente no painel das escolas tá onde vai ter cadastro de aluno e toda a
+3:313 minutos e 31 segundosgestão de escola ali então aqui no painel SAS você vai ter a possibilidade de cadastrar as empresas o cadastro no geral dentro do sistema ele é feito aqui
+3:393 minutos e 39 segundosatravés dessas janelas que são as modais tá então é bem prático aqui aqui fica em dat table ele já tem toda uma estrutura
+3:463 minutos e 46 segundosresponsiva vou mostrar aqui para vocês Deixa eu fazer aqui ó inspecionar venho aqui no modo
+3:543 minutos e 54 segundosresponsivo como se fosse do telefone tá vendo Então você consegue utilizar né esse sistema aqui também a partir num telefone é o ideal não tá ele é feito
+4:024 minutos e 2 segundospara desktop né interessante depois eu vou estar fazendo mais para frente ainda não tem previsão aplicativo aí nós podemos ter no aplicativo as informações
+4:114 minutos e 11 segundosque você julgar necessária aqui né ou mais importantes para que você possa manipular nele tá porque aí os botões tudo já seria preparado para um
+4:194 minutos e 19 segundosaplicativo mas se você precisar né no no no caso aí eventual de acessar pelo telefone você consegue acessar perfeitamente essas informações então
+4:284 minutos e 28 segundosaqui vai ter o cadastro das empresas que seriam as escolas né Aí você vai ter a possibilidade por exemplo na hora de cadastrar essa escola de colocar as
+4:364 minutos e 36 segundosLogos já dela mas ele também tem essa possibilidade no painel porque às vezes você vendeu o sistema para uma escola né E você já pode pedir Qual que é a sua
+4:444 minutos e 44 segundossua logo me manda sua logo aí aí você já faz aqui as medidas corretas tá porque quando o usuário é muito leigo até dificuldade para subir essas essas
+4:524 minutos e 52 segundosimagens ele tem então tudo aquilo que você puder agilizar E adiantar para já entregar tudo já 100% para ele só começar a usar é melhor então eu já
+5:005 minutoscoloquei aqui no painel essa possibilidade aí na hora que você cadastrar ela ele já cadastra um administrador então por exemplo eu posso entrar com esse usuário que é a empresa
+5:095 minutos e 9 segundosum né @hotmail.com que quando eu fizer o acesso aqui no sistema com esses dados ele já cai no painel da escola então ele
+5:175 minutos e 17 segundosnão tem mais aquele painel ali que é do gestor SAS tá vendo ele já cai mostrando os dados da escola mostrando um gráfico aqui dos recebimentos né ele já pode
+5:255 minutos e 25 segundosfazer então o seu cadastro aqui de alunos fazer o cadastro de turmas e toda a gestão necessária inclusive cadastrando outros usuários como
+5:335 minutos e 33 segundossecretário porteiro professores que vão fazer também a gestão do sistema mas daqui a pouco nós chegamos lá deixa eu voltar aqui para o painel SAS que é mais
+5:435 minutos e 43 segundospara explicar inicialmente para vocês mesmo tá essa estrutura SAS Então você cadastrou a escola ele já faz tudo aquilo já deixando um usuário inclusive
+5:515 minutos e 51 segundosesse usuário já recebe uma notificação ali no WhatsApp né com o link de acesso e com os dados de acesso dele toda
+5:595 minutos e 59 segundosempresa que for cadastrado ou qualquer usuário que for cadastrado no sistema por padrão Eu já coloquei a senha 1 2 3 lá no painel aqui é só você vir na opção
+6:076 minutos e 7 segundosde perfil que você consegue fazer a mudança desses dados né e do seu perfil no geral tá então isso aí sempre ele vai vir com o padrão aqui no painel SAS eu
+6:166 minutos e 16 segundosdeixei também cadastro de fornecedores que às vezes você tem alguns fornecedores que você precisa armazenar então ali eu permiti tá cadastro de forma de pagamento que você vai tá
+6:236 minutos e 23 segundostrabalhando no sistema frequência e cargos aqui cargos vai estar voltado para outros usuários aqui nos usuários você pode cadastrar outro usuário por
+6:306 minutos e 30 segundosexemplo além desse aqui que é o administrador você pode cadastrar por exemplo um gerente que vai te ajudar aqui te auxiliar no sistema E aí você pode definir Quais são as permissões que
+6:396 minutos e 39 segundosele vai ter dentro do painel Sasa o mesmo serve para o painel da escola que é onde nós vamos chegar daqui a pouco aqui tem todo o controle financeiro tá
+6:476 minutos e 47 segundosde contas a receber quas a pagar aqui que você consegue controlar por exemplo posso gerar uma conta para uma das empresas eu vou colocar aqui ó essa
+6:546 minutos e 54 segundosempresa que é essa escola né então vamos supor que eu coloquei aqui um uma conta X para ela Geralmente as contas vão ser as mensalidades quando você cadastra a
+7:037 minutos e 3 segundosempresa eu esqueci de falar ali e você já define Qual é a mensalidade para ela tá mas daqui a pouco eu falo disso aqui você pode definir um valor e vou colocar
+7:117 minutos e 11 segundosessa conta como vencida lá no painel dele vai ter um alerta falando que ele tem uma conta em débito tá uma conta já vencida ali né e isso vai ser alertado
+7:197 minutos e 19 segundoslá então aqui ele já salvou a conta né E vai mostrar essa conta aqui para mim ó perfeito aqui com essa conta sendo
+7:267 minutos e 26 segundoslançada ela já fica associada a esse cliente que é empresa se ela tiver vencida na hora que eu acessar lá o painel dele ele vai mostrar né O
+7:347 minutos e 34 segundosvencimento ali ele vai mostrar uma notificação voltando aqui no cadastro das empresas quando nós fizemos um cadastro ele pede aqui ó o valor da
+7:427 minutos e 42 segundosmensalidade tá inclusive dá para poder também cadastrar dias de teste então se você quiser que uma escola teste o sistema por tantos dias é só você
+7:507 minutos e 50 segundosdefinir aqui essa quantidade de dias que na hora que passar Aquela quantidade né Ou ele paga para continuar com o sistema né ou se ele não quiser ali ele é
+7:587 minutos e 58 segundostravado e aqui já você já recebe essa notificação falando que a o usuário tá inativo né Então você já vai verificar aquela situação para poder entrar em
+8:078 minutos e 7 segundoscontato com a escola para saber se ela vai querer ou não tá dar sequência no sistema quando você lança essa mensalidade então ele faz todo o
+8:148 minutos e 14 segundoscontrole financeiro né Aqui nós temos até a gestão de de caixa mas que não é nem muito utilizado pro painel SAS então se você
+8:228 minutos e 22 segundosquiser depois remover essa opção aqui tranquilo tem controle de tarefas também tá para você poder adicionar aqui tarefas de acordo com a sua agenda então
+8:308 minutos e 30 segundosele dá uma notificação aqui também no WhatsApp lembrando daquela tarefa ali com um determinado de tempo antes então tudo isso você consegue fazer tem
+8:388 minutos e 38 segundosanotações que você pode fazer aqui isso aqui é mais para quando você trabalha com mais de um usuário né aí aqui no painel SAS se tiver alguma anotação ali que seja mostrado para mais usuários
+8:478 minutos e 47 segundoselas aparecem aqui então são informações que você pode trocar aqui né entre um usuário e outro também pra gestão SAS Não não é nada muito útil mas dentro do
+8:558 minutos e 55 segundossistema por exemplo já daqui dentro do painel de escola sim né porque ali você pode ter secretário tesoureiro pode ter várias funcionalidades vários usuários naquele sistema e você queira deixar uma
+9:049 minutos e 4 segundosnotificação uma informação para eles aqui tá então isso é importante lá backup Onde você consegue fazer por aqui todo o backup do banco de dados do
+9:119 minutos e 11 segundossistema e conexão do WhatsApp essa conexão do WhatsApp ela só vai funcionar se você tiver utilizando a menua tá se
+9:199 minutos e 19 segundosvocê tiver utilizando aqui odm newtech ou qualquer outra api que você tenha conectado aí você precisa perguntar lá o gestor dessa api Esse é o único recurso
+9:289 minutos e 28 segundosexterno aqui que é pago que nós usamos dentro do sistema tá você precisa ver com ele se tem a possibilidade de fazer essa conexão essa conexão aqui quem
+9:379 minutos e 37 segundosgerou ela para mim foi o Diego que é o dono da menua então eu pedi né ele para poder passar para mim uma estrutura aonde eu conseguir se conectar o
+9:469 minutos e 46 segundosWhatsApp diretamente aqui sem ter que fazer pelo site deles lá tá pel pelo site da menua Porque até então nós temos que ir lá e fazemos a conexão à leitura
+9:549 minutos e 54 segundosdo QR Code agora não agora através dessa apc não na verdade que essa Instância aqui deles né você consegue então fazer
+10:0310 minutos e 3 segundosa leitura diretamente aqui mas você precisa ter o plano tá é mais ou menos aí um valor de r$ 1 por número com eh
+10:1010 minutos e 10 segundosdisparos eh disparos disparos Eh fugiu a palavra aqui ilimitados tá disparos ilimitados
+10:2010 minutos e 20 segundosEntão você vai pagar mais ou menos esse valor aí né para você poder utilizar aqui os recursos da api que são os disparos de mensagem então não tem a
+10:2810 minutos e 28 segundosnecessidade de eu ir lá e conectar e colocar aqui o meu token a minha Instância só vai precisar pegar a sua Instância do plano que você comprou e
+10:3510 minutos e 35 segundosdeixar aqui no sistema pronto fez isso acabou tá aí tanto o seu usuário administrador SAS Pode conectar o
+10:4310 minutos e 43 segundostelefone dele por aqui quanto o principal que vão ser as escolas também vai ter essa possibilidade porque senão você teria que ir no no site da menu em
+10:5210 minutos e 52 segundoscada uma das escola que você vender e conectar no o telefone daquela escola lá no QR Code mandando ele fazer leitura então é uma coisa muito mais burocrática
+11:0011 minutose trabalhosa para quem não sabe mexer com computador você tem que pensar sempre dessa forma que o seu cliente né que comprar esse sistema para poder utilizar ele ele vai ter certas
+11:0811 minutos e 8 segundosdificuldades então você tem que facilitar o máximo Então usando a menu e vai ter essa possibilidade Quando você clicar aqui ó o meu não vai dar porque eu desativei tá então ele não vai
+11:1611 minutos e 16 segundosconectar para essa Instância mesmo Você vai precisar de colocar outra Instância ali então quando você clicar para conectar o dispositivo ele já vai abrir o CR code aqui e com esse QR Code sendo
+11:2511 minutos e 25 segundoslido né Você já tem o seu telefone conectado mas desde que você tenha o plano na menua tá E tenha passado a Instância dele aqui tendo feito isso aí
+11:3411 minutos e 34 segundosEssas são as as configurações do gestor SAS vamos lá cadastrou uma escola aí você vai clicar sobre a escola para poder entrar ou claro os usuários que
+11:4311 minutos e 43 segundospertencem a essa escola quando eles fizerem o acesso eles vão cair diretamente aqui perceba que ele já tá dando um aviso né Por que que ele tá dando um aviso porque como eu criei
+11:5011 minutos e 50 segundosaquela conta para essa empresa eu coloquei ela vencida tá então se tem conta vencida ele vai ver esse Alerta se ele clicar aqui ou entrar aqui embaixo
+11:5811 minutos e 58 segundosem mensalidade ele vai ver quais são as mensalidades dele tá então a empresa que é escola ela vai ter aqui ó as mensalidades que seriam cada mês o valor
+12:0612 minutos e 6 segundosque você combinou vai sendo gerado aqui ou qualquer outra conta que você tenha feito extra para ela também vai ser apresentada aqui lá no painel SAS eu não
+12:1412 minutos e 14 segundosfalei vou só voltar aqui rapidinho assim como nos outros painéis tem como você eh configurar uma multa de atraso tá por
+12:2112 minutos e 21 segundosexemplo tantos reais aqui ele vai pagar r$ 1 se ele atrasar um dia ou 10 dias ou qualquer atraso que tiver e por dia ele
+12:2912 minutos e 29 segundospaga por exemplo 1% em cima daquele valor ou 2% ou 5 então é você quem vai definir essa situação aqui a multa é um
+12:3612 minutos e 36 segundosvalor único tá em reais o juros é em porcentagem em cima do valor que ele deve e isso aqui vai ser por dia então é
+12:4312 minutos e 43 segundosassim que vai funcionar tanto para o gestor aqui do SAS quanto para as empresas eu não vou deixar habilitado essas configurações para vocês poderem
+12:5212 minutos e 52 segundosmudar tá então isso aqui não vai ser possível alterar porque senão no link de teste aqui se os alunos desativarem toda essa est ura né eles vão acabar eh ou ou
+13:0213 minutos e 2 segundosmodificar isso aqui eles vão acabar atrapalhando os recursos do sistema para outro aluno testar então isso aqui não fica liberado voltando aqui na escola a
+13:0913 minutos e 9 segundosescola quando entrar com o usuário dela né seja o administrador ou qualquer outro usuário que temha aí ele vai ter Aqui de acordo com o nível de de acesso
+13:1813 minutos e 18 segundosa opção né de acessar as configurações e trocar os dados da escola tá colocar outras logo qualquer outra informação colocar um QR Code aqui pro carnê que eu
+13:2613 minutos e 26 segundosvou falar depois né aqui não precisa de ele mexer por exemplo no token na Instância porque a escola vai ter essa opção de conectar o WhatsApp e na hora
+13:3413 minutos e 34 segundosque clicar aqui ele vai conectar o WhatsApp dele pro onto já vai tá funcionando então ele não tem que saber que ele tem que vir aqui e inserir
+13:4113 minutos e 41 segundosnenhuma outra informação ah Inclusive eu até posso deixar isso aqui oculto ó tá eu vou até pensar depois nessa
+13:4913 minutos e 49 segundospossibilidade porque ele não é interessante que ele modifique esses dados uma vez que ele tem essa conexão
+13:5613 minutos e 56 segundossendo feita de forma manual exceto se você não tiver utilizando a menua né porque como eu expliquei Eu tenho esse recurso através da menua tá nos outros
+14:0414 minutos e 4 segundosaqui eu não tenho essa possibilidade de conexão direta Então é se ele não tiverem aí sim ele vai ter que passar os dados aqui de credenciais de forma
+14:1214 minutos e 12 segundosmanual mesmo eh Aqui é onde então ele vai configurar aquilo que eu acabei de falar né da da escola ela vai poder configurar a multa os juros e todas as
+14:2014 minutos e 20 segundosinformações aqui ó relacionad a CNPJ a endereço que vai aparecer em relatórios contratos e outras situações né aqui
+14:2714 minutos e 27 segundostambém vai ter uma uma coisa que é muito importante que é o token do Mercado Pago Então ela precisa de conectar o tokem do
+14:3514 minutos e 35 segundosMercado Pago dela para que os pagamentos isso é claro se a escola for trabalhar com recebimento de pagamento os pagamentos venha pra conta do Mercado
+14:4314 minutos e 43 segundosPago daquela escola tá então essa for Ah mas e essa escola não quer abrir uma conta no mercado pago né ele quer receber por exemplo direto no pix não
+14:5014 minutos e 50 segundostem problema aí ele vai colocar aqui ó e colocando aqui em dados para pagamento vamos supor por exemplo pix chave e-mail aí você coloca na
+14:5914 minutos e 59 segundosfrente a chave em vez de mandar a cobrança que eu vou explicar para vocês daqui a pouco como é que ela vem até por aqui eu já consigo mostrar ó em mensalidade ela vem assim ó quando você
+15:0815 minutos e 8 segundosgera uma cobrança para um vamos fazer aqui através do gestor SAS primeiro aqui ó então aqui onde eu
+15:1515 minutos e 15 segundostenho o meu financeiro recebimento eu vou pegar uma empresa deixa eu ver uma empresa que tem um número válido essa
+15:2315 minutos e 23 segundosaqui ó que é a Escola Estadual Freitas Silva né que também é um nome de teste todos os dados aqui são dados de teste
+15:3015 minutos e 30 segundoseu vou vir aqui ó Escola Estadual Freitas Silva pronto e vou clicar aqui para ele gerar uma cobrança tá na hora que ele
+15:3815 minutos e 38 segundosgera essa cobrança essa escola ela recebe uma notificação desse jeito aqui ó o nome do sistema fala que tem conta
+15:4515 minutos e 45 segundosvencida fala a descrição da conta fala a quantidade de multa e fala o novo valor e aqui o vencimento e ele recebe um link para poder efetuar o pagamento na hora
+15:5315 minutos e 53 segundosque ele clica isso é pelo mercado pago aí vem as opções que você deixar liberado né para que ele possa pagar boleto pix etc tá essa situação como eu
+16:0116 minutos e 1 segundoacabei de falar né Ela é uma situação que é gerada aqui pelo mercado pago mas se ele não quiser utilizar o Mercado Pago na hora que ele fizer uma cobrança
+16:1016 minutos e 10 segundosaí tanto aqui pro gestor SAS quanto pro painel você pode colocar esse campo tá para ele poder mandar os dados de
+16:1716 minutos e 17 segundospagamento Então em vez de receber o link conforme foi aqui ó vai vir os dados de pagamento só que aí não fica automatizado por quê Porque você vai ter
+16:2616 minutos e 26 segundosque receber aquele comprovante e conferir da baixa automática quando ele faz isso pelo mercado pago aí não aí já fica automatizado tá então é super
+16:3416 minutos e 34 segundosinteressante pro sistema que tanto o gestor Sasa aqui né vincule ali uma conta do mercado pago quanto as escolas também façam isso ah eu não gosto do
+16:4316 minutos e 43 segundosMercado Pago poderia ser outra api aqui dentro do sistema na forma que ele tá estruturado não mas você pode adaptar ele né para receber outras apis aí você
+16:5216 minutos e 52 segundosvai mudar ali a estrutura né de confirmação de pagamento entre outros então se a escola não for trabalhar com o mercado pago coloca aqui alguma
+16:5916 minutos e 59 segundosinformação caso queira que apareça nas cobranças Porque também tem escola que o aluno paga direto lá né então não tem problema aí não precisaria nem vir nenhum dado Então é só deixar aqui vazio
+17:0817 minutos e 8 segundose deixar aqui vazio essas informações do mercado paga aí ele paga e resolve o financeiro dele na própria escola mas se você quer que ele mande alguma informação nas cobranças ou seja um link
+17:1717 minutos e 17 segundosde pagamento como foi ali ou os dados aí seria aqui em cima tá então tem isso aí também marca dágua se vai aparecer no relatório ou não né Eh abertura
+17:2617 minutos e 26 segundosobrigatória de caixa mas isso aqui eu acho que Caixa para esse sistema também apesar de tempo porque eu já deixei no projeto painel aí que é o Projeto padrão né mas se você não quiser que ele mexa
+17:3517 minutos e 35 segundostambém aqui pode colocar não né aqui vai vir a cidade aonde a escola que vai aparecer em alguns contratos e relatório responsável pela escola que vai aparecer
+17:4417 minutos e 44 segundostambém ó aqui eu acabei colocando errado n aqui é o nome do responsável tá pegando aqui o nome do banco que doideira é essa deixa eu
+17:5217 minutos e 52 segundoscolocar aqui eh nome do responsável escola pronto Beleza deixa
+18:0018 minutoseu salvar aqui só para ver se ele tá recuperando uma informação errada ou se realmente eu devo ter trocado errado ali né não pelo jeito eu troquei mesmo aí
+18:0918 minutos e 9 segundosaqui o cargo dele tá que por exemplo diretor geral vou dar um exemplo aqui ó se eu acessar um painel do aluno sei que
+18:1618 minutos e 16 segundosnós vamos falar desse painel daqui a pouco mas vou acessar ele aqui para gerar por exemplo um certificado de uma turma em que ele já tenha finalizado tá
+18:2418 minutos e 24 segundosisso aqui também é opcional aí aqui vai aparecer a opção dele poder colocar o o nome tá vendo ó diretor geral né e uma
+18:3318 minutos e 33 segundosassinatura Se bem que não apareceu o nome dele tem alguns outros que aparecem Então nós vamos ver depois e essa informação é o que tiver aqui ó cargo responsável então ele puxa do que tá
+18:4118 minutos e 41 segundosescrito aqui poderia ser por exemplo eh um secretário responsável qualquer outra situação então o que você escrever aqui em alguns documentos relatórios ali ele
+18:4818 minutos e 48 segundosvai estar aparecendo tá a mesma coisa o nome aqui também isso aqui é pro carnê que eu vou falar depois então você pode configurar uma chave pix para aparecer
+18:5618 minutos e 56 segundosno carnê e dados de banco também para aparecer no carnê bem como um QR Code que também pode ser apresentado lá nele tá porque o carnê ele não funciona como
+19:0519 minutos e 5 segundoso Mercado Pago ali que você vai receber um link fazer o pagamento ele vai te dar o retorno do pagamento não ele pode ser para daqui um ano para daqui 8 meses 9 meses então é uma situação diferente né
+19:1419 minutos e 14 segundosque não tem como você personalizar um q code que é esse q code dinâmico que dão baixa automática Então você vai
+19:2119 minutos e 21 segundossimplesmente tirar um print do seu CR code aí né no aplicativo e vai subir ele aqui para o cliente na hora que receber
+19:2919 minutos e 29 segundosaquele carnê fazer o pagamento com base nele ou fazer o pagamento com dados do pix que estiver lá tá aqui tem uma outra opção também que o que a escola pode
+19:3719 minutos e 37 segundossubir que é uma assinatura se ela sobe já uma assinatura aqui aí nós temos a possibilidade essa assinatura na verdade até coloquei que ela é jpg mas ela
+19:4519 minutos e 45 segundospoderia ser png também ele pode ter a possibilidade de apresentar né Essas assinaturas aí dentro do sistema igual
+19:5319 minutos e 53 segundosaqui foi no certificado tá vendo ó vai aparecer ali né agora se não tiver ali ou se essa opção aqui também te assinatura tiver desmarcado Ó cadê
+20:0220 minutos e 2 segundosassinatura aqui ó assinatura recibos carteirinha tá vendo também serve o certificado se tiver não ele não coloca nada porque às vezes a escola quer fazer
+20:1120 minutos e 11 segundosa impressão né do do documento e assinar o responsável é assinar Mas se tiver carregado ali ele já coloca ela porque o
+20:1920 minutos e 19 segundosaluno já pode até gerar isso pelo próprio painel dele tá isso aqui também é gerado pela secretaria ali e depois eu falo disso então isso aqui basicamente
+20:2720 minutos e 27 segundosvai ser as configurações que a escola vai ter pro sistema tá com base aí em dados e outras situações não é todos os usuários que T permissão para isso são
+20:3620 minutos e 36 segundosusuários administradores e são usuários aqui também que possam né ter recebido essa permissão Porque aqui no cadastro
+20:4320 minutos e 43 segundosde pessoas isso já dentro da escola você tem como definir para aquele usuário ó o que que ele vai poder acessar tá então eu cadastrei por exemplo um um
+20:5120 minutos e 51 segundosfuncionário para portaria que só pode ver os alunos nada lei Mas eu poderia dar outras possibilidades ali para ele também e assim vai um gestor quem vai
+20:5920 minutos e 59 segundosdefinir isso aí vamos aqui passar rápido pelos painéis tá então aqui você tem a opção de cadastrar os alunos cadastrar o responsável vincular um responsável para
+21:0721 minutos e 7 segundosaquele aluno né aqui você vai ter opção de edição de exclusão também de dados isso aí tem todos de visualizar as informações daquele aluno então ele
+21:1521 minutos e 15 segundosmostra os dados dele Lembrando que tudo aqui É fictício mostra as turmas aqui também na qual ele está ou já passou tá e nessas turmas você pode aqui por
+21:2321 minutos e 23 segundosexemplo né transferir o aluno de turma pode pode gerar uma declaração de matrícula para aquele aluno ó aonde ele vai mostrar os dados Ali vai mostrar a
+21:3221 minutos e 32 segundosinformação de declaração tá vendo ó nome do responsável da escola que é aquilo que eu tava falando então se eu tivesse colocado aqui para nome do responsável da escola Vamos colocar aqui uma
+21:4121 minutos e 41 segundosconfiguração que seria porque senão fica muito esquisito isso aqui assim né vamos pôr assim ó ah ele tá puxando errado
+21:4921 minutos e 49 segundosmesmo ó ele já voltou a buscar Banco Bradesco aqui então deixa eu consertar isso aqui eu que na verdade voltei né pro pro arquivo errado ali tô olhando
+21:5621 minutos e 56 segundoserrado aqui aqui ó aí aqui o Vou Colocar assim ó eh
+22:0222 minutos e 2 segundossecretário teste do Santos pronto e ele fica como nome responsável aqui tá se eu encontrar qualquer problema no sistema
+22:1022 minutos e 10 segundosaí eu vou parar vou corrir porque esse esse vídeo de apresentação ele é a minha um vídeo onde eu percorro todo o sistema
+22:1822 minutos e 18 segundosé claro que eu já fiz vários outros testes antes mdulo a moda Mas se tiver alguma coisa que passou des percebido é aqui que eu vou estar corrigindo eu vou gerar a declaração de novo aqui pro
+22:2622 minutos e 26 segundosaluno deixa eu ver onde que eu tinha entrado foi aqui nas turmas né E aí eu gerei aqui ó declaração de matrícula Então lá embaixo ele vai mostrar aqui ó
+22:3422 minutos e 34 segundostá vendo o nome que você colocou lá tá então como eu disse aquele cargo aquele nome essas informações elas vão aparecer em alguns documentos que vão ser gerados
+22:4222 minutos e 42 segundospela escola aí Aqui nós temos também a possibilidade de gerar um boletim escolar para ele relacionado à aquela turma se tiver sido lançado notas tá vendo vai ser apresentado aqui então ele
+22:5122 minutos e 51 segundosvai mostrar qual foi o período Quais são as disciplinas né quais são aqui os períodos que é primeiro segundo terceiro trimestre Ah mas eh a minha escola não trabalha sim trabalha com bimestre não
+22:5922 minutos e 59 segundostem problema nenhum na hora de cadastrar a turma e daqui a pouco nós vamos chegar lá você vai ver que vai ter Como associar períodos a ela e aí você na
+23:0723 minutos e 7 segundosverdade é no curso tá E aí esses períodos vão ser relacionados por exemplo se eu gerar aqui um boletim do Ensino Fundamental aqui eu já coloquei períodos de outra forma se eu não me
+23:1523 minutos e 15 segundosengano foi bimestre ó e aí ele vai inserindo né Tem alguns outros cursos que eu fiz que são com período único então aqui você vai poder trabalhar aí
+23:2323 minutos e 23 segundosda forma que você quiser além do boletim vai ter também o contrato de matrícula né que se tiver informações de valores tá vendo ele vai colocar isso no
+23:3123 minutos e 31 segundoscontrato Ah mas o contrato que eu utilizo aqui na escola é outro é diferente não tem problema aí você vai alterar essa estrutura né para que ele
+23:3823 minutos e 38 segundospossa gerar o contrato conforme a preferência de vocês isso aqui são modelos de exemplos tá alguns desses
+23:4523 minutos e 45 segundosmodelos eu recebi de alguns alunos que já estão nessa área e outros eu utilizei o chat GPT para que pudesse me gerar aí né um contrato por exemplo com algumas
+23:5423 minutos e 54 segundoscláusulas Tá mas isso aqui tudo é importante vocês avaliarem né E alterarem E adaptarem conforme a
+24:0124 minutos e 1 segundonecessidade aí da escola tá então não é algo ali que vai tá eh 100% né A questão dos contratos eh pronto para uso
+24:1024 minutos e 10 segundosatendendo já aquel pode ter Pode ser que ela tenha cláusulas diferentes inclusive se ela não tiver valores ele nem pega isso aqui tá ele tem uma outra situação
+24:1724 minutos e 17 segundosdeixa eu ver se tem alguma turma aqui que por exemplo não Gere valores ó tá vendo ó valor e pagamento apresente matrícula não implica em
+24:2624 minutos e 26 segundosQualquer Custo ou encargo financeiro Então se aquela turma não tiver ele vai apresentar alguma informação falando isso ali tá mas como eu disse isso é bom
+24:3324 minutos e 33 segundosvocês revisarem aí junto com o administrativo da escola para poder ver se tá de acordo o contrato ou se tem novas cláusulas ou outras coisas que T que ser acrescentadas ou modificadas
+24:4224 minutos e 42 segundosdeclaração de frequência também interessante você consegue gerar a declaração de frequência pro aluno né e ele vai mostrar o quanto ele é frequente dentro daquela turma ali daquele curso
+24:5024 minutos e 50 segundosque ele estiver fazendo então tudo isso aqui pode ser gerado pelo sistema e tem outros tipos de documentos que também são gerados mas que daqui a pouco que eu
+24:5824 minutos e 58 segundosfalo deles tá aqui tem a opção para você poder retirar o certificado dele né através também do painel da secretaria Porque nós já fizemos a opção do
+25:0625 minutos e 6 segundoscertificado pelo painel do aluno depois eu vou voltar nesse painel do aluno mas pelo o secretário aqui também ou quem tiver acesso aos alunos podem também
+25:1325 minutos e 13 segundosfazer tá essa retirada ali então aqui nós vamos ter essas possibilidades de editar excluir verificar dados
+25:2025 minutos e 20 segundosinformações como foi ali verificar débitos dele tá que são contas relacionadas inclusive dá baixa nessas contas definindo aqui como que foi pago
+25:2725 minutos e 27 segundosou ou Além de dar baixa nessas contas gerar uma cobrança para aquele aluno também que na hora que eu clicar aqui ele gera uma notificação tá no WhatsApp
+25:3525 minutos e 35 segundosaí para ele ou para o responsável né dessa forma aqui ó informando se a se ela já tá vencida se não está né se vence hoje né Poderia ser um lembrete
+25:4425 minutos e 44 segundostambém então aqui é para você forçar uma nova cobrança Lembrando que o sistema já faz as cobranças de forma automática
+25:5125 minutos e 51 segundosmesmo com ele fechado então chegou no dia do pagamento da mensalidade daquele aluno pela manhã ele vai receber o lembrete de pagamento falando que a
+25:5825 minutos e 58 segundosconta dele vence hoje né E se ela já tiver vencida nos dias que for passando o vencimento ele vai mandando lembretes né daquele vencimento e vai atualizando
+26:0726 minutos e 7 segundosnesses lembretes multa e juros caso a escola esteja trabalhando ali nas configurações com essas multas e juros Além disso nós temos aqui como anexar
+26:1626 minutos e 16 segundosarquivos para o aluno tá então você pode selecionar por exemplo qualquer arquivo aqui ó Zip pegar um aqui por exemplo ó
+26:2326 minutos e 23 segundosimagem PDF tá e anexar pro aluno aqui então ele vai receber esses arquivos isso vai ficar anexado no cadastro dele
+26:3126 minutos e 31 segundosvocê pode ativar ou desativar o aluno dessa forma aqui ó se ele tiver ativo ou inativo ele não vai conseguir estar acessando ali o painel dele tá então se
+26:4026 minutos e 40 segundostiver algum aluno Inativo ele não consegue fazer mais o acesso eu coloquei aqui ó para ele deixar a linha inativa Assim fica melhor tá vendo porque aí você já consegue bater no olho você sabe
+26:4926 minutos e 49 segundosali né que aquele aluno tá Inativo então isso aqui não tinha acabei implementando ali aqui para poder ir pro WhatsApp do aluno aqui para poder gerar por exemplo
+26:5626 minutos e 56 segundosa carteirinha do aluno tá ele já gera ela aqui ó e Aqui nós temos um QR Code que quando esse QR Code é lido ele mostra os dados daquele aluno aquelas
+27:0527 minutos e 5 segundosinformações do aluno Agora se ele for lido por algum usuário que tem acesso ao sistema por exemplo um porteiro além de mostrar os dados do aluno ele já dá uma
+27:1427 minutos e 14 segundosnotificação de entrada dele tá então daqui a pouco eu já mostro essa situação aqui também né para vocês poderem ver
+27:2127 minutos e 21 segundosaqui tem o histórico do aluno que você consegue também gerar um histórico ali com todas as informações aí né da aquele aluno então por exemplo ele vai pegar
+27:2927 minutos e 29 segundosali os períodos deixa eu ver um outro que eu acho que foi o aluno dois não foi nem foi o dois deixa eu fechar esses aqui ó Foi esse aluno aqui aluno três
+27:3827 minutos e 38 segundosesse aluno três ele tem aqui o histórico dele ó do período 2023 2025 que foi o que eu lancei mais informações tá porque aí fica mais legal para vocês poderem
+27:4627 minutos e 46 segundosver aqui então 2023 essas foram as disciplinas que ele fez tá eu poderia até ter colocado aqui o curso mas eu coloquei a turma porque se colocar muita
+27:5427 minutos e 54 segundosinformação aqui também fica não fica legal né E aí ele fez essas disciplinas aqui e aqui ele foi aprovado tá se ele
+28:0128 minutos e 1 segundotiver alguma reprovação em alguma eu vou marcar aqui como reprovado Mas pode ser que o histórico da de determinada escola seja diferente então é interessante você
+28:0828 minutos e 8 segundoseh adaptar isso aí tá de acordo com aquela escola então aqui eu fiz uma coisa mais geral mesmo onde ele vai mostrar os anos e cada uma das
+28:1728 minutos e 17 segundosdisciplinas que aquele aluno fez naquele ano e o status ali o total de pontos se ele tá aprovado ou não tá bem parecido com o histórico Mas ele puxa todo bem
+28:2528 minutos e 25 segundosparecido com o boletim Mas ele puxa todo o histórico ou seja todo o período no qual o aluno esteve ali na escola tá E aqui tem a opção que é para poder
+28:3328 minutos e 33 segundosconfirmar a entrada do aluno esse aluno um por exemplo hoje a entrada dele não tá confirmada Então como que essa entrada pode ser confirmada ela pode ser confirmada por aqui mesmo através de um
+28:4228 minutos e 42 segundosporteiro que tem acesso a essas informações ou deixa eu ver se meu telefone aqui tá tá habilitado tá ou pode ser feito assim Olha que bacana se
+28:5028 minutos e 50 segundosele chegou lá vou abrir a carteirinha dele aqui de novo ele chegou na escola e ele ele não tiver com a carteirinha aí o porteiro vai ter que fazer o o o acesso
+28:5828 minutos e 58 segundosaí ao sistema né para poder eh confirmar a entrada dele por aqui tá mas se ele tiver com a carteirinha basta o porteiro fazer isso aqui ó ele vai
+29:0629 minutos e 6 segundosfazer a leitura dessa carteirinha do QR Code e ele fez a leitura do QR Code quando ele clicar aqui no link que é que é mandado ó ele já vai abrir os dados do
+29:1529 minutos e 15 segundosaluno e vai dar uma notificação de entrada confirmada tá vendo e aí o aluno já o aluno não o responsável do aluno vai receber essa notificação tá aqui eu
+29:2429 minutos e 24 segundoscoloquei por exemplo qual que é os dados do aluno é tudo fictício tá E qual qual é o curso que ele faz se ele fizer mais de um curso vai estar aparecendo ali ó
+29:3129 minutos e 31 segundosque são os cursos em andamento dele né e os horários também todos detalhados ali então é mais um detalhamento mesmo do aluno que pode ser eh exibido através da
+29:4129 minutos e 41 segundosleitura desse q code só que aí também quando ele fizer esse esse detalhamento né ele vai fazer isso aqui ó ele vai
+29:4929 minutos e 49 segundosmandar uma notificação de entrada então o responsável do aluno recebe essa notificação de entrada né com o horário e todas as informações ali relacionada a
+29:5929 minutos e 59 segundosaquele aluno tá então É bem interessante que você ten essas possibilidades agora se não for um usuário autenticado no sistema um porteiro por exemplo ele só
+30:0730 minutos e 7 segundosvai mostrar os dados dele aí ele não emite nenhuma alerta de entrada nem nada disso ele só mostra as informações do aluno então isso aqui pode ser lido por
+30:1430 minutos e 14 segundosqualquer um só que se for um usuário do sistema né Aí ele já lê e já dá notificação de entrada tá então eu já fiz tudo isso aí para que ele possa
+30:2330 minutos e 23 segundostrabalhar dessa forma e aqui você tem como gerar um relatório do aluno esses mesmos relatórios ele vai eles vão aparecer em várias outras eh circunstâncias aqui dentro do sistema tá
+30:3130 minutos e 31 segundosrelatório de turma relatório financeiro vários e vários tipos aqui você consegue fazer uma busca também desse aluno pelo nome ou pelo telefone ou por algumas
+30:3930 minutos e 39 segundosoutras situações eu coloquei para ele uma paginação então ele não trabalha por exemplo aqui ó como outras páginas com o dat table porque o dat table quando você
+30:4830 minutos e 48 segundostem muitos dados ele a partir ali de 1000 2000 dependendo do Servidor ele já começa a ficar pesado então o aluno ele é uma estrutura que não tem muito como
+30:5530 minutos e 55 segundosvocê buscar por exemplo por data nem nenhuma outra ação as contas não as contas pode ter 20.000 contas aqui no financeiro que ele vai buscar ela por um período de data então ele vai filtrar
+31:0431 minutos e 4 segundosaqui não aqui ele tem que mostrar todos tá então é interessante você fazer uma paginação assim para você poder controlar melhor essa estrutura não deixando o sistema ficar pesado Esse
+31:1231 minutos e 12 segundosaqui também ele tem um exemplo de XLS então se você precisar de exportar pro Excel ele exporta também esses dados para Excel para que você possa importar em outro sistema ou alguma outra
+31:2031 minutos e 20 segundossituação que você tenha necessidade aqui além do cadastro de alunos eu vou passar um pouquinho mais rápido outros você tem cadastro de professores de usuários
+31:2831 minutos e 28 segundosprofissionais tá em geral que pode ser por exemplo é um gerente né ou um porteiro ou qualquer outro né fornecedores tá E também tem os
+31:3631 minutos e 36 segundosaniversariantes onde ele vai mostrar aqui aniversariantes do dia não tem nenhum ou do mês tá E aqui também a mesma coisa no dashboard se eu não me engano eu recuperei essas informações ó
+31:4431 minutos e 44 segundosde quantos aniversariantes possuem no dia né clicou aqui ele já vai para essa página de aniversariantes se tiver algum no dia ele vai estar mostrando aqui
+31:5131 minutos e 51 segundostambém tá então tem como fazer esse filtro inclusive também tirar relatórios para essa situ ação cadastros temos
+31:5931 minutos e 59 segundoscadastros de forma de pagamento de frequência de k frequência é frequência das contas né se é mensal diária semanal como você quer receber porque na hora que você for cadastrar por exemplo uma
+32:0832 minutos e 8 segundosconta aqui a receber aí você pode definir qual é aquela frequência que ele tem para aquele recebimento tá não é muito comum aqui porque aqui é mais
+32:1632 minutos e 16 segundosmensalidade mesmo você não cobra um aluno todo dia então você tem mais uma mensalidade Então quando você faz uma estrutura na turma ele já faz toda essa
+32:2332 minutos e 23 segundosgestão ali vamos pra parte aqui então de turmas Quando você vai S uma nova Turma você define aqui uma descrição para ela tá aqui é um nome Qual é o ano letivo né
+32:3332 minutos e 33 segundosQual é o curso que vai estar vinculado àquela turma Qual é o turno Qual é o horário os dias aqui isso aqui é mais também informações Extra mesmo até a a
+32:4132 minutos e 41 segundossala em que ela vai estar o valor da mensalidade se houver valor de mensalidade você não colocar nada aqui tudo que é relacionado a valor some
+32:4932 minutos e 49 segundosentão ele não vai verificar nada no sistema né relacionado a valores então é aqui que você vai definir se aquilo é um se aquele é um curso gratuito ou não Tá
+32:5732 minutos e 57 segundosentão para PR escola pública por exemplo não vai ter essa informação mas se tiver aí ele vai puxar os dados de mensalidade desse valor que você colocar aqui aqui
+33:0433 minutos e 4 segundosvem o status dessa turma se ela não foi iniciada estar andamento já foi finalizada trancada ou arquivada né se ela tiver arquivada nem o professor nem alunos vem tá então isso aqui é só pra
+33:1333 minutos e 13 segundosgestão de secretaria depois eh se ela vai emitir certificado ou não tá a data de início data final máximo de alunos que aquela turma vai comportar e alguma
+33:2133 minutos e 21 segundosobservação Extra isso aqui é tudo que é necessário para você montar uma turma para qualquer tipo de escola né agora
+33:2833 minutos e 28 segundosantes de mostrar de montar as turmas é interessante você cadastrar aqui ó os cursos e esses cursos você tem a possibilidade também de relacionar a
+33:3633 minutos e 36 segundosdisciplina Então vamos supor que eu vou né ministrar dentro da minha escola um curso de ensino médio e um curso de Ensino Fundamental tá Quais são as
+33:4333 minutos e 43 segundosdisciplinas que vão estar vinculada àquele curso Então é aqui que você vai adicionando elas tá poderia ser por exemplo um curso técnico né de ti e aí
+33:5233 minutos e 52 segundosas disciplinas que vão conter naquele curso técnico de ti seriam programação redes manutenção de computadores pacote
+33:5933 minutos e 59 segundosOffice então você poderia colocar essas disciplinas para ter um controle melhor depois de notas de frequências e de qualquer outra situação ali dentro então
+34:0734 minutos e 7 segundosvocê consegue montar toda a estrutura né do jeito que você preferia aí tá inclusive após montar uma uma um um
+34:1534 minutos e 15 segundoscurso você pode definir quais vão ser os períodos para aquele curso né então vamos supor que no ensino fundamental eu quero aqui que sejam quatro períodos né
+34:2434 minutos e 24 segundosQuatro bimestres de 25 pontos cada um deles totalizando 100 e depois isso aqui ele vai utilizar para poder pegar aquelas médias de aprovação e reprovação
+34:3334 minutos e 33 segundostá então o mínimo aqui da Média que ele vai ter em cada um teria que ser 15 para totalizar o 60 para que ele possa ser aprovado Então é isso aqui que eu vou
+34:4134 minutos e 41 segundosverificar na hora de gerar um boletim se ele atingiu o mínimo que é 60 pontos se ele não atingiu eh ele vai estar reprovado mas poderia ser uma outra
+34:4934 minutos e 49 segundossituação Sim vamos supor que eu faça aqui um curso de redes né E nesse curso de redes eu não tenho esse tanto de período eu só tenho um período então
+34:5734 minutos e 57 segundosposso colocar aqui ó eh período único total de pontos 100 média 60 Pronto ele não vai criar vários bimestres ou vários trimestres ou vários períodos separados
+35:0635 minutos e 6 segundostá então isso é você quem vai definir quando você adicionar um curso né Lembrando que aqui ele vai ter as disciplinas que estarão relacionadas a
+35:1435 minutos e 14 segundosesse curso é interessante você cadastrar os anos letivos também turnos que podem ser recuperados tá E aqui também tem uma outra opção que eu coloquei que é as
+35:2335 minutos e 23 segundosocorrências então se você aplicar uma ocorrência a algum aluno você vai ter aqui que digit tá a descrição né a providência ser tomada o responsável que
+35:3035 minutos e 30 segundosaplicou tem a opção de relatórios também você consegue gerar um PDF aqui daquela ocorrência então tem todo o controle aqui também de ocorrência dentro do
+35:3935 minutos e 39 segundossistema tá inclusive com a as opções ali de relatórios conforme eu havia dito Vamos focar um pouquinho mais agora aqui
+35:4635 minutos e 46 segundosna parte das turmas Então quando você montar uma turma né que você relacionou aquele curso Ele já vai pegar os períodos do curso e as disciplinas que
+35:5435 minutos e 54 segundosestiverem relacionadas nele aí aqui além de ter as informações de poder visualizar dados excluir editar que é todo aquele cru de anexo de arquivos você vai ter uma opção para gerenciar
+36:0236 minutos e 2 segundosessas disciplinas isso aqui é importante por quê se eu coloquei que ela é que ele é um curso de Ensino Médio na hora que eu clicar aqui ó ele já puxa Quais são
+36:1036 minutos e 10 segundosas disciplinas que eu relacionei pro Ensino Médio Maravilha só que eu tenho que definir Quais são os professores que vão ministrar aquelas disciplinas então eu posso relacionar aqui ó os
+36:1936 minutos e 19 segundosprofessores e posso também se necessário relacionar um Professor Substituto porque imagina Esse professor ele tira um recesso né Eu preciso de outro
+36:2736 minutos e 27 segundosprofessor que vai fazer a gestão Daquela turma e é aqui que eu coloco ele tá então ele também vai visualizar aquela turma quando ele entrar no seu painel
+36:3436 minutos e 34 segundosdaqui a pouco nós vamos pro painel do professor então quando você for relacionar os professores você pode colocar o professor aqui para cada uma
+36:4236 minutos e 42 segundosdas disciplinas ó Professor 4 né aqui Professor três eu não coloquei nomes lá não tá então chamei os nomes dele disso mas aqui vai estar sendo apresentad os
+36:4936 minutos e 49 segundosnomes do professor e inclusive você vai poder filtrar ele aqui tá então fica dessa forma né para você conseguir buscar e relacionar ele aqui vai ter a
+36:5736 minutos e 57 segundosopção para você matricular aluno ó Então você acabou de montar a turma 301 por exemplo do ensino médio aqui você vai fazer a matrícula de alunos Daquela turma né então você vai selecionar os
+37:0637 minutos e 6 segundosalunos que estiverem cadastrados e vai aqui acho que aqui não tem o quatro ó vai colocar o aluno naquela turma pronto aí ele vai estar matriculado nessa turma
+37:1337 minutos e 13 segundosse ele estiver matriculado nessa turma você pode transferir ele de turma pode excluir ele da turma pode gerar uma declaração de matrícula gerar aqui um boletinho escolar dele tá gerar um
+37:2237 minutos e 22 segundoscontrato de matrícula dele e a declaração de frequência eu se eu não me engano já mostrei para vocês essas opções dentro lá do cadastro de aluno é as mesm coisa tá é as mesmas informações
+37:3137 minutos e 31 segundossó que exibidas aqui eu posso também mudar o status dele ali ó dentro dessa turma né trancado é matrícula cancelada
+37:3837 minutos e 38 segundostá ou matrícula ativa Então tudo isso vai ser possível também né está sendo buscada aqui tá então são as informações
+37:4737 minutos e 47 segundosque nós temos relacionada à matrícula do aluno eu esqueci de falar do financeiro né Não apareceu aqui porque essa essa
+37:5637 minutos e 56 segundosturma não tem financeiro se ela tiver financeiro aí vai aparecer esse botão aqui ó e aí eu posso por exemplo pegar aqui e criar uma taxa de matrícula né é
+38:0538 minutos e 5 segundosopcional Então vamos supor que ele teve uma taxa aqui de R 250 pronto e definir Quanto que vai vencer que até quando ele tem que pagar aquela taxa beleza né ah
+38:1338 minutos e 13 segundosquantas mensalidades vão ser esse curso esse curso vão ser 10 mensalidades Qual o valor aqui ó já vai est mostrando o
+38:2038 minutos e 20 segundosvalor do curso deixa eu ver aqui ó porque ele não busca automaticamente né mas o valor que foi definida por
+38:2838 minutos e 28 segundosexemplo para essa turma não sei se foi R1 ou R é R 300 de mensalidade e essa R 250 tá então se eu tiver matriculando
+38:3538 minutos e 35 segundospor exemplo esse aluno aqui foi nessa aqui ó é R 300 a mensalidade dela então na hora que eu for Lançar aqui eu posso colocar outro valor também tá mas seria
+38:4438 minutos e 44 segundoso valor da turma ali mas vamos supor que você deu um desconto para ele por isso que eu não coloquei PR ele puxar né já como padrão aquele valor então se ele tiver um desconto ele vai colocar ali
+38:5238 minutos e 52 segundosentão vamos supor que todo dia 26 ele vai tá pagando por exemplo todo dia três aqui ó ele vai tá pagando aquele
+39:0039 minutosvalor tá então aí você vai pedir para poder gerar e ele vai gerar Todas aquelas mensalidades já né com as datas tudo certinho aqui ó e aqui vão ter
+39:0939 minutos e 9 segundosopções para você por exemplo gerar um carnê então se você clicar aqui em gerar carnê ele vai gerar O carnê já com todas elas ó primeiro vencimento 28/2 segundo
+39:1739 minutos e 17 segundosvencimento 28/3 e assim vai e aqueles dados que eu havia dito que você poderia preencher que são dados bancários e
+39:2339 minutos e 23 segundosinformação de pics vão servir para esse carnê aqui tá não são todas as escolas que utilizam carnês mas se ela utilizar
+39:3139 minutos e 31 segundosela tem essa possibilidade ó aqui ele vai fazer a impressão né Deixa eu colocar aqui numa folha A4 e fica tudo certinho ó E ele já imprime aqueles carnês pode até imprimir numa folha A4
+39:3939 minutos e 39 segundospara poder passar pro aluno ou pode cortar grampear conforme as escolas costumam fazer né É só porque me pediram bastante essa opção de carnê Eu para ser
+39:4739 minutos e 47 segundossincero nem imaginava que hoje em dia atualmente escolas utilizassem isso mas já tem dentro do sistema aí a opção tá aqui você vai ter opção para dar baixa
+39:5539 minutos e 55 segundostambém na conta para poder excluir ou para poder gerar uma cobrança por aqui existem também outras situações nas quais isso pode ser feito então se a
+40:0440 minutos e 4 segundosturma tiver uma estrutura financeira vai estar aparecendo aqui além da matrícula do aluno você tem como gerar um detalhamento da turma que é um PDF que
+40:1340 minutos e 13 segundosvai te mostrar né as informações da turma tá Qual é o ano o curso ali Quais são as disciplinas daquele curso né Quais são os alunos que já estão
+40:2240 minutos e 22 segundosmatriculados nela e os períodos que essa turma vai trabalhar então é basicamente um detalhamento mesmo ali e aqui a secretaria também tem como abrir as
+40:3140 minutos e 31 segundosinformações da turma Olha que legal que é onde o professor vê no painel do professor você tem essa mesma tela aonde aqui você pode se efetuar a chamada do
+40:3940 minutos e 39 segundosaluno então aqui a secretaria consegue verificar isso tá você pode fazer cadastro de aulas você pode fazer aqui ó lançamento de notas para esses alunos de
+40:4840 minutos e 48 segundosacordo com cada uma das disciplinas né inclusive também geração aí do boletim e visualização dos períodos então é uma um
+40:5640 minutos e 56 segundosgerenci ento um pouco maior Daquela turma que vocês vão ver esse gerenciamento quando eu explicar pelo painel do professor e aqui tem a
+41:0441 minutos e 4 segundospossibilidade que é uma coisa também muito interessante de duplicar a turma Imagine que essa turma aqui ela faz o primeiro ano do ensino fundamental tá E
+41:1441 minutos e 14 segundosaí eh na hora que você que que essa turma for passar por exemplo né pro segundo ano geralmente são os mesmos alunos que vão estar então você consegue
+41:2241 minutos e 22 segundosduplicar essa turma aqui colocando aqui um novo nome para ela um novo ano io eh aqui o curso Ele vai manter o mesmo né porque tá duplicando a turma então tem
+41:3141 minutos e 31 segundosque ser o mesmo curso tá senão é uma turma nova o turno dela o horário então você consegue mudar tudo e ele vai trazer tudo que for relacionado aos
+41:4041 minutos e 40 segundosalunos para aquele outro ano então você não precisa ficar matriculando tudo novamente fazendo aquilo manual ele traz todas as informações dele só que ele vai
+41:4941 minutos e 49 segundoszerar né as notas ele vai zerar a frequência isso vai vir tudo Zerado mas todos os alunos já matriculados são passados aí para aquela nova Turma no
+41:5741 minutos e 57 segundospróximo ano Então essa opção também é bem interessante para você poder fazer tá essa dcid assim como a opção que eu
+42:0442 minutos e 4 segundostinha dito aqui também de transferência do aluno que é transferir ele de uma turma para outra quando você transfere ele de uma turma para outra todas as notas né dados de boletim ali de
+42:1342 minutos e 13 segundosfrequência dele tudo isso é passado pra nova Turma tá então ele preserva toda essa situação aqui nós vamos ter opção de lista de matrículas com alguns
+42:2142 minutos e 21 segundosdaqueles recursos que nós já vimos ali que foi explicado tá inclusive com possibilidade também de relatório e filtro por período aí vai ter aqui os
+42:2942 minutos e 29 segundoscadastros de disciplina curso an letivo que foi o que eu já havia explicado então vou pular um pouquinho essa parte de turmas aqui tá E antes de ir pro
+42:3842 minutos e 38 segundospainel do do gestor que é o painel do professor na verdade esse aqui que o maor gestor antes de ir para ele vou mostrar aqui para vocês o financeiro
+42:4542 minutos e 45 segundosvocê pode cadastrar contas a pagar aqui da escola para ele ter um controle financeiro pode gerar também relatórios aí tá relacionado a essas despesas pode
+42:5442 minutos e 54 segundoscadastrar contas a receber e aqui pode ser conta recorrente que que seja cobrada a mesma mesa conta a pagar também que seja cobrada a mesma mesa se
+43:0243 minutos e 2 segundostiver uma conta a pagar que vence no dia o próprio sistema vai te mandar uma notificação pro número que tiver aqui nas configurações que é o número da empresa ó informando que tem uma conta a
+43:1143 minutos e 11 segundosvencer tá a mesma coisa as contas a receber ele notifica aqueles eh alunos ali né ou aqueles clientes vamos se dizer assim do sistema que estiverem
+43:1943 minutos e 19 segundosrelacionados a essas contas aqui tem relatórios financeiros aonde você pode gerar aqui por exemplo tudo que você teve de de de entrada ou de saída dentro
+43:2743 minutos e 27 segundosde um determinado período né então um relatório financeiro que você consegue buscar por data de lançamento vencimento ou pagamento por entradas ou saídas né e
+43:3543 minutos e 35 segundosconsegue pegar contas pendentes contas pagas Então você consegue trazer da forma que você precisar aquelas informações temos aqui o relatório
+43:4343 minutos e 43 segundossintético de despesa que é o que você gastou por exemplo com cada um dos fornecedores né ou cada um aqui das estruturas que você tiver de funcionário
+43:5143 minutos e 51 segundosEntão vamos supor tudo que eu paguei eu acho que não vai ter nenhum porque eu acho que eu não fiz nenhuma conta pagar para eles não mas ele poderia te mostrar tudo que você pagou para cada um dos funcionários aqui desde que você tivesse
+43:5943 minutos e 59 segundoslançado recebimento tudo que eu recebi por exemplo dentro de um período aqui ó de cada um daqueles alunos né aqui tá clientes mas eu vou trocar para alunos
+44:0744 minutos e 7 segundosPorque aqui no caso os clientes do sistema são os nossos alunos aí ele vai mostrar qual que é o valor total que movimentou ali que foi que que tá
+44:1544 minutos e 15 segundosrelacionado à aquele aluno quanto que eu já recebi daquele total e quanto eh ainda está pendente tá então ele mostra todas as informações aqui então esses
+44:2244 minutos e 22 segundossão sintéticos Aqui nós temos o balanço anual que seria mesa a mesa o que você você ganhou né O que teve de entrada e saída então ele vai colocar um gráfico
+44:3044 minutos e 30 segundostambém mostrando isso só que essas informações precisam ter mais dados preenchidos como isso aqui tudo é teste eu não tenho tanta informação assim tá relatório de inadimplente Então quais
+44:3844 minutos e 38 segundosdaqueles alunos estão inadimplentes ó então ele vai mostrar aqui qual é o aluno e as informações aqui relacionados ao aluno e o total de inadimplência dele o que é muito importante para dentro de
+44:4744 minutos e 47 segundosuma escola tá controle de caixa então vamos supor que você tem uma pessoa responsável por receber os valores né aí por fazer pagamento e tudo então você
+44:5544 minutos e 55 segundosconsegue controlar o que ela recebe e o que ela paga tá então aqui deixa eu ver se ele puxa algum caixa aqui
+45:0245 minutos e 2 segundosó aí ó puxou dois exemplos que nós temos aqui né e aqui eu vou ter então algumas informações aqui para poder por exemplo
+45:1045 minutos e 10 segundosgerar uma sangria gerar um detalhamento daquele caixa ele vai mostrar movimentação que aconteceu então isso aqui não é muito comum para um sistema
+45:1845 minutos e 18 segundosescolar mas você tem essa possibilidade dentro do sistema né caso você tenha uma pessoa que fique responsável por controlar esse financeiro tá então é é É
+45:2745 minutos e 27 segundospossível estar fazendo essa gestão aí visualizar também o relatório de caixas com tudo que teve de quebra né com todo o detalhamento dele aqui também então é
+45:3445 minutos e 34 segundosgerado isso aqui também aqui vai ter como controlar tarefas e agendamentos também da escola né então você pode os
+45:4145 minutos e 41 segundosusuários vão poder lançar suas tarefas aqui e seria como um controle mesmo de agenda tá vai ter aqui umas os controles
+45:4945 minutos e 49 segundosde anotações né se essas anotações por exemplo não forem privadas elas vão sendo mostradas aqui então outros usuários que entraram no sistema vai
+45:5745 minutos e 57 segundosconseguir ver essas informações no painel de informações mas eu poderia vir aqui por exemplo ó e colocar para ela não mostrar na home tá E aí ela não
+46:0546 minutos e 5 segundosseria uma anotação que seria apresentada aqui então às vezes é uma informação que um gerente quer passar para todos os usuários do sistema ele acaba fazendo
+46:1346 minutos e 13 segundosisso eh Essa mensagem eu já expliquei né Isso só tá mostrando ali porque essa empresa que é empresa um tem débito Se eu entrar numa outra aqui ó percebam que
+46:2146 minutos e 21 segundosos dados dela é tudo diferente porque eu não lancei muita coisa para essa ela já não tem aquela mensagem por exemplo os alunos que estiverem em relacionadas a elas aqui ó são outros inclusive ele nem
+46:2946 minutos e 29 segundosconseguiu encontrar vou até corrigir isso aqui porque provavelmente não tem nenhum e eu não fiz o o a validação para ele tratar isso aqui quando não tiver n
+46:3846 minutos e 38 segundospronto ajustei ali né Vocês vão receber ele já ajustado deixa eu ver se aqui tem alguma turma mas acredito que não até tem uma tá vendo Então é são outros
+46:4746 minutos e 47 segundosdados né outra escola com outras informações totalmente diferentes dessa primeira aqui que é a que eu lancei mais
+46:5446 minutos e 54 segundosinformações tá aqui vai ter aquela opção de conão do WhatsApp né então a escola aqui ela comprou o sistema lá de você você col cadastrou ela aqui ela tá
+47:0247 minutos e 2 segundosutilizando ela vai fazer a adição do dispositivo dela aqui ó do número dela por aqui então ela vai conectar o telefone pronto não precisa dele fazer
+47:1147 minutos e 11 segundosmais nada todos os disparos que essa escola fizer vai ser a partir do número né do WhatsApp que ele conectou aqui na leitura do QR Code que ele fizer Então
+47:1847 minutos e 18 segundosna hora que ele clicar aqui não vai acontecer nesse mas ele vai abrir o qrcode tá porque aqui eu eu tirei essa funcionalidade para esse meu aqui ó
+47:2547 minutos e 25 segundosporque senão depois os alos noos vão ficar conectando novos dispositivos nessa minha Instância e eu não quero isso então eu fiz um tratamento para ele
+47:3347 minutos e 33 segundosnão aceitar isso mas quando você tiver no seu sistema que você tiver colocado o seu a sua Instância aqui ó que é o seu apc aí ele já vai fazer as conexões a
+47:4347 minutos e 43 segundospartir dele tá E aqui é aquela opção que eu já tinha dito né que são as mensalidades do sistema então a empresa é a escola que que adquiriu o seu
+47:5247 minutos e 52 segundossistema aí ela vai ou que estiver cadastrada aqui se tiver mensalidade ela vai ver aqui porque tem aquela outra situação né se você tá por exemplo
+47:5947 minutos e 59 segundostrabalhando com uma escola única não tem problema nenhum né então você você por exemplo comprou o sistema para sua escola e você não tem nenhuma outra
+48:0648 minutos e 6 segundosfilial tranquilo você cadastra sua escola aqui não vai fazer nenhuma gestão de mensalidade porque você adquiriu o sistema para você mesmo então isso aqui
+48:1348 minutos e 13 segundosvocê vai simplesmente ignorar ó não vai ter nada de mensalidade do sistema tá Isso é para quem tiver trabalhando como SAS e vender esse sistema para Várias
+48:2248 minutos e 22 segundosescolas a mesma situação se você trabalhar com uma escola e outras filiais Então você não tem mensalidade do sistema né então isso é só para quem
+48:3048 minutos e 30 segundostrabalhar no modelo SAS com o sistema vendendo né o o acesso aqui para as demais escolas Então se é só uma escola
+48:3848 minutos e 38 segundosou se é uma escola e filiais essa parte de mensalidade ali nem será utilizada eh deixa eu ver o que que tá faltando né Tá
+48:4648 minutos e 46 segundosfaltando agora o acesso do professor Tá então vamos pegar aqui por exemplo um professor pode ser esse professor um quando Esse professor ele fizer o acesso
+48:5348 minutos e 53 segundosaqui no sistema ele vai conseguir visualizar as turmas que estiverem relacionadas a ele então tô pegando aqui o professor um e tô entrando aqui ó
+49:0249 minutos e 2 segundosquando ele entrar ele vai ver as turmas que estão em andamento e aqui todas as turmas se ele entrar por exemplo na 201 ele vai aqui poder fazer a chamada daqueles alunos que é de forma bem
+49:1049 minutos e 10 segundosrápida tá vendo ele vai colocando aqui ó tem que selecionar a aula primeiro ih entrei num que não tem aula também não quero cadastrar não acho que é 61 tem aula cadastrada Então na hora que ele
+49:1849 minutos e 18 segundosfizer a chamada é também não tem ou é a disciplina que não tem também não tem qual que eu cadastrei Vamos tentar 301
+49:2649 minutos e 26 segundosné se não tiver também vou ter que cadastrar parece que não tem não Educação Física não tem português não tem matemática não tem então vamos lá
+49:3349 minutos e 33 segundosdeixa eu cadastrar aqui ó aula um pronto aí na aula é bom até mostrar e explicar isso você pode cadastrar a aula a data da aula tá a descrição por exemplo nessa
+49:4249 minutos e 42 segundosaula foi visto ou vai ser passado tal determinado conteúdo então cadastrou ali se tiver algum arquivo um zip um PDF
+49:4949 minutos e 49 segundosvocê anexa ali também e aí você pode salvar essa aula que depois os alunos vão conseguir visualizar isso e vão conseguir vamos por exemplo aqui ó aula
+49:5649 minutos e 56 segundosdois que seria o nome da aula né então vamos colocar aqui por exemplo eu tô colocando aula 1 2 mas aqui nem precisaria disso poderia colocar
+50:0450 minutos e 4 segundosassim conhecendo os esportes e aqui viria a descrição né e a
+50:1150 minutos e 11 segundosdata em que foi feita ali aquela aula aqui poderíamos colocar um arquivo então para ela poderia ser um PDF Deixa eu ver se
+50:1850 minutos e 18 segundoseu tenho um PDF aqui de exemplo aqui ó 00 teste pronto
+50:2750 minutos e 27 segundossalvou tá então depois o aluno vai conseguir visualizar esse PDF lá também então como eu já tenho um exemplo de aula eu poderia vir aqui ó e fazer a
+50:3450 minutos e 34 segundoschamada para ele tá vendo Então pra aula um né Ah esse aqui teve presença esse aqui teve falta esse aqui faltou também esse aqui teve então de forma rápida
+50:4150 minutos e 41 segundosvocê consegue fazer isso para dois Ah não todos os alunos vieram hoje então clico aqui ó presença todos aí ele já faz a presença para todos eles então nós
+50:4850 minutos e 48 segundosconseguimos determinar isso né e fazer as chamadas conforme a disciplina e conforme as aulas que estiverem ali
+50:5550 minutos e 55 segundosentão beleza boletim a mesma coisa então boletim você vai selecionar aqui um aluno né você vai por exemplo selecionar a disciplina e colocar Ó teve uma prova
+51:0351 minutos e 3 segundosonde ele tirou oito que era 10 e também teve um trabalho aonde ele tirou aqui 10 e era 10 e assim vai você vai lançando
+51:1051 minutos e 10 segundospara cada um dos trimestres porque a nota ela tem que estar relacionada ao trimestre a chamada tem que estar relacionada à aula tá para que as coisas
+51:1751 minutos e 17 segundosfuncionem bem aqui então é isso né aqui já foi o cadastro de aula que ele vai mostrar quais são a estrutura de períodos que você vai poder distribuir
+51:2451 minutos e 24 segundosesses pontos aí né e quando o aluno entrar no sistema vamos lá pro painel do aluno o aluno entra no endereço que você
+51:3151 minutos e 31 segundoscolocou barra aluno tá desse jeito aqui ó e aqui ele pode entrar tanto com o cpf dele quanto o CPF do responsável entrou aqui no sistema ele vai visualizar as
+51:4051 minutos e 40 segundosturmas que estão em andamento Além disso ele tem todas as turmas que às vezes tem uma turma concluída que ele quer gerar um certificado isso eu já havia explicado para vocês aí tá então ele
+51:4751 minutos e 47 segundosconsegue gerar o certificado dele por aqui também mas esse certificado também é gerado lá pelo painel da da secretaria então tudo que ele consegue acessar aqui
+51:5551 minutos e 55 segundosa Aria também consegue acessar ele pode vir aqui em turmas em andamento e consultar por exemplo acho que a que eu lancei foi essa 301 né ele pode
+52:0452 minutos e 4 segundosconsultar por exemplo as aulas tá vendo se tiver um arquivo olha aqui ó ele já vai conseguir acessar esse arquivo então perfeito ele pode aqui né visualizar as
+52:1252 minutos e 12 segundosinformações dela trocar aqui também as disciplinas para poder verificar aquelas outras aulas verificar o seu boletim tá com as notas aqui que foram lançadas em
+52:2052 minutos e 20 segundoscada uma delas eu não lembro se foi PR educação física ou foi matemática não sei é mas eu tinha lançado uma aula para ele ali
+52:2852 minutos e 28 segundosentão vou ter que olhar ou não foi para esse aluno hum deve ter sido para esse aluno não esse
+52:3552 minutos e 35 segundosaluno ele é o aluno aluno um então provavelmente eu não lancei nota para ele tá mas depois posso verificar ali
+52:4352 minutos e 43 segundoschamada né então ele vai verificar aqui ó que ele tem a presença nessa primeira nessa nessa educação física aqui ó na aula um e na e nessa outra aula aqui ó
+52:5152 minutos e 51 segundosque foi conhecendo os esportes então ele vai mostrar qual foi a data né a situação de sequência dele ali e os períodos tá então fica tudo né E
+53:0053 minutosexemplificado aqui para ele o boletim Só não deu certo porque ele não lançou para esse aluno as notas foi para outro aluno mas posso voltar aqui ó vou voltar lá no
+53:0853 minutos e 8 segundospainel de novo vou entrar com professor um e vou lançar nota para esse aluno que é o aluno um que é o que eu loguei com o
+53:1653 minutos e 16 segundoscpf dele então vou entrar aqui na 301 e boletim e vou aqui ó aluno um pronto e aí aqui em educação física
+53:2453 minutos e 24 segundosprova C de 10 pronto só essa aqui já dá para nós visualizarmos lá tá então quando ele entrar ele vai conseguir ver
+53:3253 minutos e 32 segundosné ou o responsável dele que entrar ele vai conseguir ver aquelas notas além de também ter a possibilidade do boletim
+53:3953 minutos e 39 segundosentão aqui ó quando ele acessar essa turma eu venho aqui em boletim e tá aí a nota dele ó então consegue ver né E aqui ele consegue gerar boletim só que o
+53:4753 minutos e 47 segundosboletim não vai ter nada porque esse boletim ainda não tá nada lançado tá vendo ó então não tem muita informação né Eu precisaria de Preencher esses trimestres essa estrutura para que ele
+53:5653 minutos e 56 segundoscolocasse dados aí dentro do boletim tá então aqui ele também consegue ver as frequências conforme nós já vimos consegue gerar a carteirinha dele também
+54:0454 minutos e 4 segundospor aqui ó né E aqui ele consegue também visualizar as suas mensalidades então o aluno entrou ele consegue ver caso
+54:1254 minutos e 12 segundosexista financeiro relacionado à turma tá lembra daquilo isso aqui não vai aparecer se for uma escola pública que não tiver movimentação financeira Então já tá tudo tratado para isso aí que ele
+54:2054 minutos e 20 segundosconsegue ver o que ele tem ali né de valor data de pagamento ele consegue gerar um recibo tá então nós temos a possibilidade aqui ó do recibo de
+54:2854 minutos e 28 segundospagamento né ele consegue efetuar o pagamento através do link de pagamento tá vendo Então ele vai mostrar aqui para ele poder ser redirecionado ali pagar e
+54:3554 minutos e 35 segundosautomaticamente ele já aprova então ele consegue ter essa estrutura aqui existem outros tipos de recibos também que eu
+54:4354 minutos e 43 segundosacabei não mostrando aqui para vocês Deixa eu voltar aqui pro painel principal da escola e aqui em quantas a receber você consegue também gerar o
+54:5254 minutos e 52 segundosrecibo que é aquele recibo lá que o aluno consegue ver e um recibo também que é um recibo para impressora térmica tá que é esse aqui menorzinho aqui
+54:5954 minutos e 59 segundosparece que ele tá desestruturado mas não tá quando você solicitar para poder fazer uma impressão deixa eu dar um contrl p aqui ele vai ficar certinho na
+55:0755 minutos e 7 segundosimpressora térmica ali na hora de imprimir isso se a escola obviamente trabalhar com essa impressora térmica aí você consegue fazer a impressão do recibo né na impressora térmica também
+55:1655 minutos e 16 segundosoutra coisa que passou aqui e eu não lembrei de mostrar para vocês é isso aqui ó você pode selecionar vários alunos e gerar a carteirinha várias
+55:2455 minutos e 24 segundoscoisas no sistema tem essa opção de selecionar e Tata selecionar e baixar aqui eu coloquei essa opção para para gerar a carteirinha Olha que bacana ele
+55:3155 minutos e 31 segundosvai colocar numa folha a quro Todas aquelas carteirinhas lado a lado ó de cada um dos alunos que aí você consegue fazer a impressão de todas elas e não
+55:3955 minutos e 39 segundosgastar uma folha a quro para fazer a impressão de uma só então isso aqui também é interessante eu vou precisar agora analisar porque é muito são muitos
+55:4655 minutos e 46 segundosrecursos eu passei muito rápido por eles tá Eu vou ver se eu não deixei de explicar alguma coisa e retomo aqui então vamos lá a única coisa que eu
+55:5455 minutos e 54 segundosesqueci aqui de mostrar né Tava analisando aqui eh foi o seguinte aqui eu vou gerar por exemplo uma perceba que alguns t esse botão e outros não t tá
+56:0356 minutos e 3 segundosque eu confirmar a entrada porque desses aqui Já Foi confirmado no dia e aquele que não é confirmado ele pode ser confirmado através do cadastro de alunos ou pela carteirinha que é uma coisa mais
+56:1156 minutos e 11 segundosprática aqui para que um porteiro por exemplo faça tá então se a escola ess essa necessidade ao ler esse QR Code se
+56:1956 minutos e 19 segundosalgum usuário do sistema a nível de secretaria ou portaria ele tiver logado no sistema ou tiver logado pelo menos um uma vez naquele aparelho quando ele
+56:2856 minutos e 28 segundosfizer aqui ó aqui por exemplo eu fiz o login com o porteiro Tá mas ele não precisa tá logado até mesmo porque ele não vai fazer nada aqui pelo sistema ele só precisa est logado se o aluno
+56:3556 minutos e 35 segundosesquecer a carteirinha e ele for dar uma uma baixa manual Agora se ele não for assim que ele lê o QR Code ele vai ter aqui ó só ele ler o ccode né clicar e
+56:4456 minutos e 44 segundospronto ele já abre os dados daquele aluno e dá entrada confirmada tá vendo Então automaticamente a entrada dele é confirmada né E aqui vai vir as
+56:5156 minutos e 51 segundosinformações de turma que ele tá horário e tudo mais então é bem simples mesmo se eu vol tá aqui no sistema ó esse aluno ele já vem com o ele já fica confirmado
+57:0057 minutose o responsável dele vai receber uma notificação semelhante a essa aqui ó deixa eu ver se vai ter alguma aqui
+57:0857 minutos e 8 segundosdeixa eu ver aqui ó nome do sistema aqui ó notificação de entrada tá vendo com o horário né com a informação do nome do
+57:1557 minutos e 15 segundosaluno tá então já é enviado isso para o responsável dele agora esse qrcode ele se não tiver por exemplo se ele não for
+57:2357 minutos e 23 segundoslido a partir de um de de de um usuário do sistema né ele pode ser lido por qualquer um tá então quando ele for ler ele aqui ó ele vai poder ter a
+57:3257 minutos e 32 segundospossibilidade vamos atualizar aqui ó de visualizar os dados então qualquer um que lê essa informação vai ver os dados agora se tiver acessado aqui por exemplo
+57:4057 minutos e 40 segundoscom o porteiro ele já abre e dá uma notificação de entrada já automaticamente Tá mas ele serve para poder puxar os dados eu acabei
+57:4657 minutos e 46 segundosreaproveitando ele para essa situação eh se tiver mais alguma outra coisa vocês podem também visualizar Aí testando o
+57:5357 minutos e 53 segundossistema ou também assistir a aula um de de cada um dos módulos que desenvolvem o projeto então em cada um dos módulos desde o primeiro que é a parte de login
+58:0158 minutos e 1 segundousuários né depois a parte de cadastro depois relatório eu vou explicando o que é ensinado tá dentro daquele módulo Esse é um vídeo mais explicando mesmo os
+58:0958 minutos e 9 segundosrecursos do sistema escolar mas são vários módulos aqui para quem quer acompanhar aí né as aulas que pode acompanhar passo a passo para
+58:1758 minutos e 17 segundosdesenvolver ele do zero Lembrando que já vem também o sistema Pronto né Se a sua intenção é somente instalar ele para
+58:2458 minutos e 24 segundosutilizar se se você precisar aí né do serviço de instalação também nós fazemos tá então caso você não tenha nenhum conhecimento nós fazemos a instalação aí
+58:3358 minutos e 33 segundosdele no seu domínio qualquer serviço que você precise também relacionado aí a alguma outra coisa externa né Eu gostei do sistemas eu gostaria que fosse
+58:4158 minutos e 41 segundosimplementado tal função porque aqui nessa escola nós utilizamos isso eu também faço aqui tá tem um programador que trabalha comigo também que pega esse
+58:4858 minutos e 48 segundosserviço aí eu te passo um prazo em orçamento para poder fazer essas adaptações qualquer dúvida é só entrar em contato aí conosco
+
+Sincronizar com o tempo do vídeo
+Seguinte:
+Criando Sistemas SAAS - Introdução ao Curso
+Sis essas todas funcionalidades ja estao no sistema que estamos a desenvolver?

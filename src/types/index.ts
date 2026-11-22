@@ -223,6 +223,17 @@ export interface Institution {
   ownerEmail?: string;
   slug?: string;
   slugAliases?: string[];
+  // Configurações SaaS (Plataforma Moztechwave Core)
+  trialDays?: number;
+  trialExpiresAt?: string;
+  monthlyFeeMZN?: number;
+  saasBillingStatus?: 'em_dia' | 'pendente' | 'vencida' | 'bloqueada';
+  saasDueDate?: string;
+  // Preferências operacionais & relatórios/carnê
+  showWatermarkOnReports?: boolean;
+  requireCashRegisterOpen?: boolean;
+  showSignatureOnDocs?: boolean;
+  carnetStaticQrUrl?: string;
 }
 
 export interface PublicInstitution {
@@ -458,6 +469,26 @@ export interface Course {
   level?: string;
   startDate?: string;
   endDate?: string;
+  coursePeriods?: CoursePeriodConfig[];
+  totalPoints?: number;
+  passingScore?: number;
+}
+
+export interface CoursePeriodConfig {
+  id: string;
+  name: string;
+  maxPoints: number;
+  minPassingPoints?: number;
+  order: number;
+}
+
+export interface DisciplineTeacherAssignment {
+  id: string;
+  disciplineName: string;
+  titularTeacherId?: string;
+  titularTeacherName: string;
+  substituteTeacherId?: string;
+  substituteTeacherName?: string;
 }
 
 export type ClassGroupStatus = 'Planejada' | 'Inscrições Abertas' | 'Em Curso' | 'Concluída' | 'Cancelada';
@@ -475,6 +506,7 @@ export interface ClassGroup {
   room: string; // Sala / Laboratório
   teacherName: string; // Professor / Formador Titular
   teacherId?: string;
+  disciplineAssignments?: DisciplineTeacherAssignment[];
   capacity: number; // Capacidade máxima de formandos
   studentIds?: string[]; // IDs de alunos alocados
   academicYear?: string;
@@ -513,6 +545,7 @@ export type StudentStatus =
   | 'Inscrito'
   | 'Matriculado'
   | 'Ativo'
+  | 'Inativo'
   | 'Em curso'
   | 'Suspenso'
   | 'Transferido'
@@ -530,6 +563,7 @@ export const ALL_STUDENT_STATUSES: StudentStatus[] = [
   'Inscrito',
   'Matriculado',
   'Ativo',
+  'Inativo',
   'Em curso',
   'Suspenso',
   'Transferido',
@@ -590,6 +624,8 @@ export function getStudentStatusBadgeStyle(status: StudentStatus): {
       return { bg: 'bg-blue-500/15', text: 'text-blue-300', border: 'border-blue-500/30', label: 'Matriculado', dotColor: 'bg-blue-400' };
     case 'Ativo':
       return { bg: 'bg-emerald-500/15', text: 'text-emerald-300', border: 'border-emerald-500/30', label: 'Ativo', dotColor: 'bg-emerald-400' };
+    case 'Inativo':
+      return { bg: 'bg-slate-600/20', text: 'text-slate-300', border: 'border-slate-500/40', label: 'Inativo', dotColor: 'bg-slate-400' };
     case 'Em curso':
       return { bg: 'bg-teal-500/15', text: 'text-teal-300', border: 'border-teal-500/30', label: 'Em curso', dotColor: 'bg-teal-400' };
     case 'Suspenso':
@@ -1137,6 +1173,44 @@ export interface Student {
   attendanceRate?: number;
   unexcusedAbsences?: number;
   branchName?: string;
+  occurrences?: StudentOccurrence[];
+}
+
+export interface StudentOccurrence {
+  id: string;
+  studentId: string;
+  institutionId: string;
+  date: string;
+  title: string;
+  description: string;
+  actionTaken: string;
+  severity: 'leve' | 'media' | 'grave';
+  recordedBy: string;
+  createdAt: string;
+}
+
+export interface TeamSharedNote {
+  id: string;
+  institutionId: string;
+  title: string;
+  content: string;
+  category: 'geral' | 'secretaria' | 'financeiro' | 'pedagogico';
+  authorName: string;
+  authorRole: string;
+  showOnHome: boolean;
+  priority: 'normal' | 'alta';
+  createdAt: string;
+}
+
+export interface SaasAdminExpense {
+  id: string;
+  description: string;
+  category: 'servidor' | 'dominio' | 'hospedagem' | 'escritorio' | 'suporte' | 'outro';
+  amountMZN: number;
+  date: string;
+  status: 'pago' | 'pendente';
+  notes?: string;
+  createdAt: string;
 }
 
 // ==========================================================

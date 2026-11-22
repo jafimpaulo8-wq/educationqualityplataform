@@ -172,6 +172,7 @@ export interface ContaReceber {
   receiptNumber?: string;
   receiptId?: string;
   paymentRecordId?: string;
+  installmentNumber?: string;
   notes?: string;
   createdAt: string;
   updatedAt?: string;

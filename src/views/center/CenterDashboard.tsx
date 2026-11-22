@@ -45,6 +45,7 @@ import { ProfessionalDataTable, ColumnDef, QuickAction } from '../../components/
 import { FirebaseStateFeedback } from '../../components/common/FirebaseStateFeedback';
 import { InstitutionLogoBadge } from '../../components/common/InstitutionLogoBadge';
 import { resolveInstitutionIdentity } from '../../utils/institutionIdentity';
+import { BirthdaysAndNotesPanel } from '../../components/dashboard/BirthdaysAndNotesPanel';
 
 export const CenterDashboard: React.FC = () => {
   const { 
@@ -528,8 +529,67 @@ export const CenterDashboard: React.FC = () => {
     );
   };
 
+  const saasBillingAlert = useMemo(() => {
+    const billingStatus = activeInstitution?.saasBillingStatus;
+    const trialDate = activeInstitution?.trialExpiresAt ? new Date(activeInstitution.trialExpiresAt) : null;
+    const daysLeft = trialDate ? Math.ceil((trialDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null;
+
+    if (billingStatus === 'vencida' || billingStatus === 'bloqueada' || billingStatus === 'pendente') {
+      return {
+        level: billingStatus === 'bloqueada' || billingStatus === 'vencida' ? 'danger' : 'warning',
+        title:
+          billingStatus === 'bloqueada'
+            ? 'Assinatura SaaS Temporariamente Suspensa'
+            : billingStatus === 'vencida'
+            ? 'Mensalidade SaaS em Atraso (Vencida)'
+            : 'Fatura SaaS Pendente de Liquidação',
+        message: `Plano ${activeInstitution.plan || 'Institucional'}${
+          activeInstitution.monthlyFeeMZN ? ` • Valor: ${activeInstitution.monthlyFeeMZN.toLocaleString('pt-MZ')} MT/mês` : ''
+        }${activeInstitution.saasDueDate ? ` • Vencimento: ${activeInstitution.saasDueDate}` : ''}. Regularize com a administração da plataforma.`
+      };
+    }
+
+    if (daysLeft !== null && daysLeft <= 5) {
+      return {
+        level: daysLeft <= 0 ? 'danger' : 'warning',
+        title: daysLeft <= 0 ? 'Período de Avaliação (Trial) Expirado' : `Período de Avaliação Expira em ${daysLeft} dia(s)`,
+        message: `Data limite: ${activeInstitution.trialExpiresAt}${
+          activeInstitution.monthlyFeeMZN ? ` • Mensalidade prevista: ${activeInstitution.monthlyFeeMZN.toLocaleString('pt-MZ')} MT` : ''
+        }.`
+      };
+    }
+
+    return null;
+  }, [activeInstitution]);
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-8 max-w-7xl mx-auto">
+      {/* BANNER DE AVISO DE COBRANÇA / TRIAL SAAS */}
+      {saasBillingAlert && (
+        <div
+          className={`p-4 sm:p-5 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg ${
+            saasBillingAlert.level === 'danger'
+              ? 'bg-rose-950/60 border-rose-500/50 text-rose-100'
+              : 'bg-amber-950/50 border-amber-500/40 text-amber-100'
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            <AlertTriangle className={`w-5 h-5 shrink-0 mt-0.5 ${saasBillingAlert.level === 'danger' ? 'text-rose-400' : 'text-amber-400'}`} />
+            <div>
+              <h3 className="text-sm font-black">{saasBillingAlert.title}</h3>
+              <p className="text-xs opacity-90 mt-0.5">{saasBillingAlert.message}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate('mozcoin_wallet')}
+            className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold border border-white/20 cursor-pointer shrink-0 transition"
+          >
+            Consultar Assinatura / Mozcoin →
+          </button>
+        </div>
+      )}
+
       {/* =====================================================================
           HEADER PRINCIPAL DO DASHBOARD
           ===================================================================== */}
@@ -1572,7 +1632,7 @@ export const CenterDashboard: React.FC = () => {
         </div>
 
         {/* Avisos Oficiais & Comunicados */}
-        <div className="lg:col-span-6 bg-slate-900/95 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
+        <div className="lg:col-span-12 bg-slate-900/95 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <h3 className="text-base font-bold text-white flex items-center gap-2">
               <FileText className="w-4 h-4 text-yellow-400" />
@@ -1596,7 +1656,7 @@ export const CenterDashboard: React.FC = () => {
             </div>
           </div>
 
-          <div className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {dashboardNotices.slice(0, 3).map((notice) => (
               <div 
                 key={notice.id}
@@ -1624,58 +1684,14 @@ export const CenterDashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Aniversariantes do Mês / Semana */}
-        <div className="lg:col-span-6 bg-slate-900/95 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <Cake className="w-4 h-4 text-pink-400" />
-              Aniversariantes em Destaque
-            </h3>
-            <span className="text-xs text-slate-400 font-semibold">
-              Mês de {new Date().toLocaleDateString('pt-MZ', { month: 'long' })}
-            </span>
-          </div>
-
-          <div className="space-y-3">
-            {aniversariantes.length === 0 ? (
-              <p className="text-xs text-slate-500 text-center py-6">
-                Nenhum aluno comemora aniversário esta semana.
-              </p>
-            ) : (
-              aniversariantes.slice(0, 4).map((student) => (
-                <div
-                  key={student.id}
-                  className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-950 border border-slate-800 hover:border-pink-500/50 transition-all"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <img
-                      src={student.photoUrl}
-                      alt={student.fullName}
-                      className="w-10 h-10 rounded-xl object-cover border border-slate-700 shrink-0"
-                    />
-                    <div className="min-w-0">
-                      <h5 className="text-xs font-bold text-white truncate">{student.fullName}</h5>
-                      <p className="text-[10px] text-slate-400 truncate">{student.courseName}</p>
-                      <span className="text-[10px] font-mono text-pink-400 font-bold">
-                        Nascimento: {student.birthDate}
-                      </span>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={() => {
-                      const msg = `Olá ${student.fullName}! Em nome da Direção e de toda a equipe do ${activeInstitution.name}, desejamos-lhe um Feliz Aniversário! Que este novo ciclo seja de muito sucesso nos seus estudos e realizações. 🎉🎂`;
-                      openWhatsAppMessage(student.phone, msg);
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs cursor-pointer transition-all shrink-0 shadow"
-                  >
-                    <MessageCircle className="w-3.5 h-3.5" />
-                    <span>WhatsApp</span>
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
+        {/* Aniversariantes (Hoje / Este Mês + Impressão A4) & Anotações da Equipa (Mostrar na Home) */}
+        <div className="lg:col-span-12">
+          <BirthdaysAndNotesPanel
+            institution={activeInstitution}
+            students={students}
+            teachers={allTeachers}
+            openWhatsAppMessage={openWhatsAppMessage}
+          />
         </div>
       </div>
 

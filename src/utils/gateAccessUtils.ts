@@ -746,7 +746,7 @@ export function resolveStudentFromQrPayload(
     try {
       const url = new URL(trimmed);
       candidateToken = url.searchParams.get('token')?.trim() || undefined;
-      candidateCode = url.searchParams.get('code')?.trim() || undefined;
+      candidateCode = url.searchParams.get('code')?.trim() || url.searchParams.get('card')?.trim() || undefined;
       candidateId = url.searchParams.get('id')?.trim() || undefined;
       candidateHash = url.searchParams.get('hash')?.trim() || undefined;
       payloadInstitutionId = url.searchParams.get('inst')?.trim() || undefined;

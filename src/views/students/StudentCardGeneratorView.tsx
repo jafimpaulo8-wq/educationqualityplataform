@@ -618,7 +618,10 @@ export const StudentCardGeneratorView: React.FC = () => {
                       {/* QR Code de Leitura Rápida */}
                       <div className="shrink-0 flex flex-col items-center">
                         <div className="w-14 h-14 bg-white p-0.5 rounded-lg border border-slate-300 flex items-center justify-center shadow-xs">
-                          <RealQRCode value={currentStudent.code} size={50} />
+                          <RealQRCode
+                            value={`${typeof window !== 'undefined' ? window.location.origin : ''}/verify?card=${encodeURIComponent(currentStudent.code)}&inst=${encodeURIComponent(activeInstitution.id)}`}
+                            size={50}
+                          />
                         </div>
                         <span className="text-[7px] font-mono text-slate-400 mt-0.5">SCAN PORTARIA</span>
                       </div>
@@ -705,7 +708,10 @@ export const StudentCardGeneratorView: React.FC = () => {
                       {/* QR de Validação Pública SIVERC no Verso */}
                       <div className="col-span-4 flex flex-col items-center justify-center border-l border-slate-200 pl-2">
                         <div className="w-14 h-14 bg-white p-0.5 rounded-lg border border-slate-300 flex items-center justify-center shadow-xs">
-                          <RealQRCode value={currentStudent.code} size={50} />
+                          <RealQRCode
+                            value={`${typeof window !== 'undefined' ? window.location.origin : ''}/verify?card=${encodeURIComponent(currentStudent.code)}&inst=${encodeURIComponent(activeInstitution.id)}`}
+                            size={50}
+                          />
                         </div>
                         <span className="text-[6.5px] font-mono font-bold text-slate-500 mt-0.5 text-center">
                           AUTENTICAÇÃO SIVERC
@@ -931,7 +937,10 @@ export const StudentCardGeneratorView: React.FC = () => {
 
                       <div className="shrink-0 text-center">
                         <div className="w-12 h-12 bg-white p-0.5 border border-slate-200 rounded flex items-center justify-center">
-                          <RealQRCode value={student.code} size={42} />
+                          <RealQRCode
+                            value={`${typeof window !== 'undefined' ? window.location.origin : ''}/verify?card=${encodeURIComponent(student.code)}&inst=${encodeURIComponent(activeInstitution.id)}`}
+                            size={42}
+                          />
                         </div>
                         <span className="text-[6.5px] font-mono text-slate-400 block mt-0.5">SIVERC</span>
                       </div>

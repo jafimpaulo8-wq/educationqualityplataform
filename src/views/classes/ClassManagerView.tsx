@@ -33,7 +33,8 @@ import {
 import { ClassGroup, Student } from '../../types';
 import { ClassFormModal } from './ClassFormModal';
 import { StudentTransferModal } from './StudentTransferModal';
-import { ClassStudentsModal } from './ClassStudentsModal';
+import { ClassStudentsModal, AllocateFinancePlanOptions } from './ClassStudentsModal';
+import { CarnetA4PrintModal } from '../finance/CarnetA4PrintModal';
 import { RecordDetailsModal, DetailField } from '../../components/common/RecordDetailsModal';
 import { RecordHistoryModal } from '../../components/common/RecordHistoryModal';
 import { ConfirmationModal } from '../../components/common/ConfirmationModal';
@@ -44,6 +45,10 @@ export const ClassManagerView: React.FC = () => {
     classes, 
     students, 
     courses, 
+    teachers,
+    financialSettings,
+    contasReceber,
+    addContaReceber,
     classTransfers,
     addClassGroup, 
     updateClassGroup, 
@@ -84,12 +89,92 @@ export const ClassManagerView: React.FC = () => {
   const [preSelectedClassIdForTransfer, setPreSelectedClassIdForTransfer] = useState<string | undefined>(undefined);
 
   const [viewingClassStudents, setViewingClassStudents] = useState<ClassGroup | null>(null);
+  const [carnetStudent, setCarnetStudent] = useState<Student | null>(null);
 
   const [selectedClassToDuplicate, setSelectedClassToDuplicate] = useState<ClassGroup | null>(null);
   const [duplicateModalOpen, setDuplicateModalOpen] = useState(false);
   const [newClassName, setNewClassName] = useState('');
   const [newClassShift, setNewClassShift] = useState<ClassGroup['shift']>('Manhã');
   const [newClassRoom, setNewClassRoom] = useState('Laboratório Tech 2');
+
+  const MONTH_NAMES = [
+    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+  ];
+
+  const handleAllocateWithFinance = (student: Student, opts: AllocateFinancePlanOptions) => {
+    if (!viewingClassStudents) return;
+    addStudentToClass(viewingClassStudents.id, student.id);
+
+    if (!opts.generatePlan) {
+      success('Aluno Alocado', `${student.fullName} foi adicionado à turma ${viewingClassStudents.name}.`);
+      return;
+    }
+
+    const now = new Date();
+    const todayIso = now.toISOString().split('T')[0];
+    let createdCount = 0;
+
+    if (opts.includeRegistrationFee && opts.registrationFeeAmount > 0) {
+      addContaReceber({
+        institutionId: activeInstitution.id,
+        category: 'matricula',
+        title: `Taxa de Matrícula - ${viewingClassStudents.courseName}`,
+        description: `Matrícula / Inscrição (${viewingClassStudents.name})`,
+        studentId: student.id,
+        studentName: student.fullName,
+        studentCode: student.code,
+        classGroupId: viewingClassStudents.id,
+        classGroupName: viewingClassStudents.name,
+        courseName: viewingClassStudents.courseName,
+        amount: opts.registrationFeeAmount,
+        totalAmount: opts.registrationFeeAmount,
+        paidAmount: 0,
+        dueDate: todayIso,
+        issueDate: todayIso,
+        status: 'pendente',
+        installmentNumber: 'MAT'
+      });
+      createdCount += 1;
+    }
+
+    const baseYear = now.getFullYear();
+    const startMonthIdx = now.getMonth();
+    const paddedDay = String(Math.max(1, Math.min(28, opts.dueDay || 10))).padStart(2, '0');
+
+    if (opts.monthlyAmount > 0 && opts.installmentsCount > 0) {
+      for (let i = 0; i < opts.installmentsCount; i++) {
+        const mIdx = (startMonthIdx + i) % 12;
+        const y = baseYear + Math.floor((startMonthIdx + i) / 12);
+        const dueIso = `${y}-${String(mIdx + 1).padStart(2, '0')}-${paddedDay}`;
+        addContaReceber({
+          institutionId: activeInstitution.id,
+          category: 'mensalidade',
+          title: `Propina ${MONTH_NAMES[mIdx]} ${y}`,
+          description: `Mensalidade ${MONTH_NAMES[mIdx]}/${y} • ${viewingClassStudents.courseName}`,
+          studentId: student.id,
+          studentName: student.fullName,
+          studentCode: student.code,
+          classGroupId: viewingClassStudents.id,
+          classGroupName: viewingClassStudents.name,
+          courseName: viewingClassStudents.courseName,
+          amount: opts.monthlyAmount,
+          totalAmount: opts.monthlyAmount,
+          paidAmount: 0,
+          dueDate: dueIso,
+          issueDate: todayIso,
+          status: 'pendente',
+          installmentNumber: `${String(i + 1).padStart(2, '0')}/${String(opts.installmentsCount).padStart(2, '0')}`
+        });
+        createdCount += 1;
+      }
+    }
+
+    success(
+      'Alocação + Plano Financeiro Gerado',
+      `${student.fullName} alocado(a) em ${viewingClassStudents.name} com ${createdCount} parcela(s) lançada(s) no carnê.`
+    );
+  };
 
   const handleExportClassesCsv = () => {
     try {
@@ -473,6 +558,14 @@ export const ClassManagerView: React.FC = () => {
                             {c.teacherName}
                           </span>
                         </div>
+                        {c.disciplineAssignments && c.disciplineAssignments.length > 0 && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-500 text-[11px]">Disciplinas / Substitutos:</span>
+                            <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-bold text-[10px] border border-indigo-200/60">
+                              +{c.disciplineAssignments.length} prof(s)/disc.
+                            </span>
+                          </div>
+                        )}
 
                         <div className="flex items-center justify-between">
                           <span className="flex items-center gap-1.5 text-slate-500">
@@ -696,6 +789,7 @@ export const ClassManagerView: React.FC = () => {
         initialClass={editingClass}
         courses={courses}
         availableStudents={students}
+        teachers={teachers}
       />
 
       {/* MODAL: Transferência de Aluno */}
@@ -721,12 +815,27 @@ export const ClassManagerView: React.FC = () => {
         classGroup={viewingClassStudents}
         students={students}
         allStudents={students}
+        courses={courses}
+        financialSettings={financialSettings}
         onTransferClick={(student) => {
           setViewingClassStudents(null);
           handleOpenTransfer(student, viewingClassStudents?.id);
         }}
         onAddStudent={addStudentToClass}
+        onAllocateWithFinance={handleAllocateWithFinance}
+        onOpenCarnet={(student) => setCarnetStudent(student)}
         onRemoveStudent={removeStudentFromClass}
+      />
+
+      {/* MODAL: Carnê Escolar A4 */}
+      <CarnetA4PrintModal
+        isOpen={!!carnetStudent}
+        onClose={() => setCarnetStudent(null)}
+        student={carnetStudent}
+        institution={activeInstitution}
+        financialSettings={financialSettings}
+        receivables={contasReceber}
+        courses={courses}
       />
 
       {/* MODAL: Duplicar Turma para Próximo Ano Letivo */}
@@ -826,6 +935,16 @@ export const ClassManagerView: React.FC = () => {
           { label: 'Turno', value: viewingClass.shift },
           { label: 'Sala / Espaço', value: viewingClass.room },
           { label: 'Formador Titular', value: viewingClass.teacherName || 'Não atribuído' },
+          ...(viewingClass.disciplineAssignments && viewingClass.disciplineAssignments.length > 0
+            ? [
+                {
+                  label: 'Professores por Disciplina',
+                  value: viewingClass.disciplineAssignments
+                    .map(d => `${d.disciplineName}: ${d.titularTeacherName}${d.substituteTeacherName ? ` (Sub: ${d.substituteTeacherName})` : ''}`)
+                    .join(' | ')
+                }
+              ]
+            : []),
           { label: 'Horário de Aulas', value: viewingClass.schedule || '08:00 - 12:00' },
           { label: 'Capacidade Máxima', value: `${viewingClass.capacity || 25} vagas` },
           { 

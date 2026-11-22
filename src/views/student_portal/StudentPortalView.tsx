@@ -179,6 +179,34 @@ export const StudentPortalView: React.FC = () => {
     );
   }
 
+  const isStudentAccountBlocked = ['Inativo', 'Baixado', 'Suspenso', 'Cancelado'].includes(currentStudent.status);
+  const isActingAsStudent = (activeRole as string) === 'ALUNO' || (activeRole as string) === 'aluno' || Boolean(authenticatedStudent);
+
+  if (isStudentAccountBlocked && isActingAsStudent) {
+    return (
+      <div className="p-8 max-w-2xl mx-auto my-12 bg-slate-900 border border-rose-500/40 rounded-3xl text-center space-y-4 shadow-2xl">
+        <div className="w-16 h-16 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center mx-auto">
+          <AlertCircle className="w-9 h-9 text-rose-400" />
+        </div>
+        <div className="space-y-1">
+          <span className="px-3 py-1 rounded-full text-[11px] font-mono font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 inline-block">
+            ACESSO BLOQUEADO • ESTADO: {currentStudent.status.toUpperCase()}
+          </span>
+          <h2 className="text-xl font-black text-white pt-2">
+            Matrícula {currentStudent.status}
+          </h2>
+        </div>
+        <p className="text-xs sm:text-sm text-slate-300 leading-relaxed max-w-md mx-auto">
+          Olá <strong>{currentStudent.fullName}</strong> ({currentStudent.code}). O acesso ao Portal do Aluno encontra-se temporariamente bloqueado porque o seu processo está marcado como <strong>{currentStudent.status}</strong>.
+        </p>
+        <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 text-xs text-slate-400 max-w-md mx-auto space-y-1">
+          <p className="text-slate-200 font-semibold">Como regularizar o acesso?</p>
+          <p>Contacte a Secretaria Académica ou Tesouraria de <strong>{identity.officialName || activeInstitution.name}</strong>{activeInstitution.phone ? ` (${activeInstitution.phone})` : ''} para reativação da sua matrícula.</p>
+        </div>
+      </div>
+    );
+  }
+
   const realDisplayName = currentStudent.fullName || firebaseUser?.displayName || 'Estudante';
   const realCourse = currentStudent.courseName || 'Curso sob alocação';
   const realTurma = (currentStudent as any).className || (currentStudent as any).classCode || 'Turma não atribuída';

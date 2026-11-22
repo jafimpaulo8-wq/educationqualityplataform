@@ -31,37 +31,68 @@ import { getSivecRegistry, findSivecCertificate, maskPrivateDocument } from './s
 import { QrCodeScannerModal } from './components/QrCodeScannerModal';
 import { normalizeSivecStatus } from './components/SivecRegistryTab';
 import { useApp } from '../../context/AppContext';
+import { getStudentsByInstitution } from '../../services/firestoreService';
+import { Student, Institution } from '../../types';
 
 interface PublicSivecVerifyPageProps {
   initialId?: string;
   onNavigateHome?: () => void;
 }
 
+const STAFF_GATE_ROLES = new Set([
+  'SUPER_ADMIN',
+  'ADMIN_INSTITUICAO',
+  'DIRETOR',
+  'SECRETARIA',
+  'PORTEIRO',
+  'superadmin',
+  'diretor',
+  'secretaria',
+  'porteiro'
+]);
+
+const BLOCKED_STUDENT_STATUSES = new Set(['Inativo', 'Suspenso', 'Baixado', 'Cancelado']);
+
 export const PublicSivecVerifyPage: React.FC<PublicSivecVerifyPageProps> = ({
   initialId,
   onNavigateHome
 }) => {
-  // Extrair ID da prop ou diretamente da URL /verify/:id
-  const getInitialSearchQuery = (): string => {
-    if (initialId) return initialId;
-    if (typeof window !== 'undefined') {
-      const path = window.location.pathname;
-      if (path.startsWith('/verify/')) {
-        const urlId = decodeURIComponent(path.replace('/verify/', '').trim());
-        if (urlId) return urlId;
-      }
-      const searchParams = new URLSearchParams(window.location.search);
-      const queryId = searchParams.get('verify') || searchParams.get('id');
-      if (queryId) return queryId;
+  // Extrair ID/Carteirinha da prop ou diretamente da URL /verify/:id ou ?card=...&inst=...
+  const getInitialUrlParams = () => {
+    if (typeof window === 'undefined') {
+      return { query: initialId || 'SIVEC-MZ-2026-8819', card: '', inst: '' };
     }
-    return 'SIVEC-MZ-2026-8819';
+    const searchParams = new URLSearchParams(window.location.search);
+    const cardParam = searchParams.get('card')?.trim() || '';
+    const instParam = searchParams.get('inst')?.trim() || '';
+    if (cardParam) {
+      return { query: cardParam, card: cardParam, inst: instParam };
+    }
+    if (initialId) {
+      return { query: initialId, card: '', inst: instParam };
+    }
+    const path = window.location.pathname;
+    if (path.startsWith('/verify/')) {
+      const urlId = decodeURIComponent(path.replace('/verify/', '').trim());
+      if (urlId) return { query: urlId, card: '', inst: instParam };
+    }
+    const queryId = searchParams.get('verify') || searchParams.get('id');
+    if (queryId) return { query: queryId, card: '', inst: instParam };
+    return { query: 'SIVEC-MZ-2026-8819', card: '', inst: '' };
   };
 
-  const [searchQuery, setSearchQuery] = useState<string>(getInitialSearchQuery);
+  const initialUrlInfo = getInitialUrlParams();
+  const [searchQuery, setSearchQuery] = useState<string>(initialUrlInfo.query);
+  const [cardQuery, setCardQuery] = useState<string>(initialUrlInfo.card);
+  const [cardInstId, setCardInstId] = useState<string>(initialUrlInfo.inst);
+  const [verifiedCardStudent, setVerifiedCardStudent] = useState<Student | null>(null);
+  const [verifiedCardInstitution, setVerifiedCardInstitution] = useState<Institution | null>(null);
+  const [cardLookupLoading, setCardLookupLoading] = useState<boolean>(false);
+
   const [registry, setRegistry] = useState<SivecRegistryEntry[]>(getSivecRegistry);
   const [currentEntry, setCurrentEntry] = useState<SivecRegistryEntry | null>(() => {
-    const query = getInitialSearchQuery();
-    return findSivecCertificate(query, registry) || registry[0] || null;
+    if (initialUrlInfo.card) return null;
+    return findSivecCertificate(initialUrlInfo.query, registry) || registry[0] || null;
   });
 
   const [copiedHash, setCopiedHash] = useState(false);
@@ -69,8 +100,58 @@ export const PublicSivecVerifyPage: React.FC<PublicSivecVerifyPageProps> = ({
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [hasSearched, setHasSearched] = useState(true);
 
-  const { themeMode } = useApp();
+  const { themeMode, students, allInstitutions, activeInstitution, firebaseUser, activeRole, navigate } = useApp();
   const isLight = themeMode === 'branco';
+  const isStaffGateAuthorized = Boolean(firebaseUser && activeRole && STAFF_GATE_ROLES.has(activeRole));
+
+  // Lookup seguro de carteirinha discente (somente leitura, sem expor dados privados ou gravar logs)
+  const resolvePublicStudentCard = async (rawCode: string, explicitInstId?: string) => {
+    const cleanCode = rawCode.trim().toUpperCase();
+    if (!cleanCode) {
+      setVerifiedCardStudent(null);
+      setVerifiedCardInstitution(null);
+      return;
+    }
+
+    setCardLookupLoading(true);
+    try {
+      const targetInstId = explicitInstId || activeInstitution?.id;
+      const matchedInst = allInstitutions.find(i => i.id === targetInstId) || activeInstitution || null;
+
+      let match = students.find(
+        s =>
+          (!targetInstId || s.institutionId === targetInstId) &&
+          ((s.code || '').trim().toUpperCase() === cleanCode ||
+            (s.numAluno || '').trim().toUpperCase() === cleanCode ||
+            (s.id || '').trim().toUpperCase() === cleanCode)
+      );
+
+      if (!match && targetInstId) {
+        try {
+          const remoteStudents = await getStudentsByInstitution(targetInstId);
+          match = remoteStudents.find(
+            s =>
+              (s.code || '').trim().toUpperCase() === cleanCode ||
+              (s.numAluno || '').trim().toUpperCase() === cleanCode ||
+              (s.id || '').trim().toUpperCase() === cleanCode
+          );
+        } catch {
+          // Modo offline / sem permissão anónima: manter resultado local
+        }
+      }
+
+      setVerifiedCardStudent(match || null);
+      setVerifiedCardInstitution(match ? allInstitutions.find(i => i.id === match.institutionId) || matchedInst : matchedInst);
+    } finally {
+      setCardLookupLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (initialUrlInfo.card) {
+      void resolvePublicStudentCard(initialUrlInfo.card, initialUrlInfo.inst);
+    }
+  }, [students.length, allInstitutions.length]);
 
   // Sincronizar com mudanças externas no localStorage
   useEffect(() => {
@@ -85,22 +166,60 @@ export const PublicSivecVerifyPage: React.FC<PublicSivecVerifyPageProps> = ({
     return () => window.removeEventListener('sivec_registry_updated', handleStorageUpdate);
   }, []);
 
-  // Executar busca por ID / Código
+  // Executar busca por ID / Código / QR URL de Carteirinha
   const executeSearch = (targetQuery: string) => {
-    const clean = targetQuery.trim();
-    if (!clean) return;
-    setSearchQuery(clean);
+    const raw = targetQuery.trim();
+    if (!raw) return;
 
-    const found = findSivecCertificate(clean, registry);
-    setCurrentEntry(found || null);
-    setHasSearched(true);
-
-    // Atualizar URL sem recarregar a página
-    if (typeof window !== 'undefined') {
-      const cleanPath = `/verify/${encodeURIComponent(clean)}`;
-      if (window.location.pathname !== cleanPath) {
-        window.history.pushState(null, '', cleanPath);
+    // Detectar se o QR escaneado é uma URL de carteirinha (/verify?card=...&inst=...)
+    if (raw.startsWith('http://') || raw.startsWith('https://') || raw.includes('card=')) {
+      try {
+        const parsed = new URL(raw.startsWith('http') ? raw : `https://sigar.local/${raw.replace(/^\/+/, '')}`);
+        const cParam = parsed.searchParams.get('card')?.trim();
+        const iParam = parsed.searchParams.get('inst')?.trim() || '';
+        if (cParam) {
+          setSearchQuery(cParam);
+          setCardQuery(cParam);
+          setCardInstId(iParam);
+          setCurrentEntry(null);
+          setHasSearched(true);
+          void resolvePublicStudentCard(cParam, iParam);
+          if (typeof window !== 'undefined') {
+            const nextUrl = `/verify?card=${encodeURIComponent(cParam)}${iParam ? `&inst=${encodeURIComponent(iParam)}` : ''}`;
+            window.history.pushState(null, '', nextUrl);
+          }
+          return;
+        }
+      } catch {
+        // Seguir para verificação normal
       }
+    }
+
+    setSearchQuery(raw);
+    const found = findSivecCertificate(raw, registry);
+    if (found) {
+      setCardQuery('');
+      setVerifiedCardStudent(null);
+      setCurrentEntry(found);
+      setHasSearched(true);
+      if (typeof window !== 'undefined') {
+        const cleanPath = `/verify/${encodeURIComponent(raw)}`;
+        if (window.location.pathname !== cleanPath) {
+          window.history.pushState(null, '', cleanPath);
+        }
+      }
+      return;
+    }
+
+    // Tentar verificar como código de carteirinha discente
+    setCurrentEntry(null);
+    setCardQuery(raw);
+    setHasSearched(true);
+    void resolvePublicStudentCard(raw, cardInstId);
+
+    if (typeof window !== 'undefined') {
+      const nextUrl = `/verify?card=${encodeURIComponent(raw)}${cardInstId ? `&inst=${encodeURIComponent(cardInstId)}` : ''}`;
+      window.history.pushState(null, '', nextUrl);
     }
   };
 
@@ -268,10 +387,108 @@ export const PublicSivecVerifyPage: React.FC<PublicSivecVerifyPageProps> = ({
           </div>
         </div>
 
-        {/* RESULTADO DA CONSULTA NO SIVEC */}
+        {/* RESULTADO DA CONSULTA NO SIVEC OU CARTEIRINHA DISCENTE */}
         {hasSearched && (
           <>
-            {currentEntry ? (
+            {cardQuery && !currentEntry ? (
+              cardLookupLoading ? (
+                <div className="p-10 rounded-3xl bg-slate-900 border border-slate-800 text-center space-y-2 shadow-xl">
+                  <QrCode className="w-10 h-10 text-emerald-400 mx-auto animate-pulse" />
+                  <p className="text-sm font-bold text-white">A validar carteirinha discente ({cardQuery})...</p>
+                </div>
+              ) : verifiedCardStudent ? (() => {
+                const isBlocked = BLOCKED_STUDENT_STATUSES.has(verifiedCardStudent.status);
+                return (
+                  <div className={`p-6 sm:p-8 rounded-3xl bg-slate-900 border-2 shadow-2xl space-y-6 ${
+                    isBlocked ? 'border-rose-500/70 shadow-rose-950/30' : 'border-emerald-500/70 shadow-emerald-950/20'
+                  }`}>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-5">
+                      <div className="flex items-center gap-3.5">
+                        <div className={`p-3 rounded-2xl shrink-0 ${
+                          isBlocked ? 'bg-rose-500/20 text-rose-400' : 'bg-emerald-500/20 text-emerald-400'
+                        }`}>
+                          {isBlocked ? <XCircle className="w-8 h-8" /> : <CheckCircle2 className="w-8 h-8" />}
+                        </div>
+                        <div>
+                          <span className={`text-[10px] font-mono font-black uppercase tracking-wider block ${
+                            isBlocked ? 'text-rose-400' : 'text-emerald-400'
+                          }`}>
+                            {isBlocked
+                              ? 'CARTEIRINHA INATIVA / BLOQUEADA'
+                              : 'CARTEIRINHA DISCENTE ATIVA E VÁLIDA'}
+                          </span>
+                          <h2 className="text-xl sm:text-2xl font-black text-white">
+                            {verifiedCardStudent.fullName}
+                          </h2>
+                          <p className="text-xs font-mono text-slate-400">
+                            Matrícula: <strong className="text-white">{verifiedCardStudent.code}</strong>
+                          </p>
+                        </div>
+                      </div>
+
+                      <span className={`text-xs font-mono font-black px-3.5 py-1.5 rounded-xl border self-start sm:self-center ${
+                        isBlocked
+                          ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                          : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                      }`}>
+                        {isBlocked ? `ESTADO: ${verifiedCardStudent.status.toUpperCase()}` : 'ATIVA / VÁLIDA'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                      <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
+                        <span className="text-[10px] font-mono uppercase text-slate-400 block">Instituição</span>
+                        <strong className="text-white text-sm block">
+                          {verifiedCardInstitution?.name || 'Instituição Credenciada SIGAR'}
+                        </strong>
+                      </div>
+                      <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
+                        <span className="text-[10px] font-mono uppercase text-slate-400 block">Curso / Formação</span>
+                        <strong className="text-white text-sm block">
+                          {verifiedCardStudent.courseName || 'Não especificado'}
+                        </strong>
+                      </div>
+                      <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
+                        <span className="text-[10px] font-mono uppercase text-slate-400 block">Situação da Matrícula</span>
+                        <strong className={`text-sm block ${isBlocked ? 'text-rose-400' : 'text-emerald-400'}`}>
+                          {verifiedCardStudent.status}
+                        </strong>
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800 text-[11px] text-slate-400 flex flex-wrap items-center justify-between gap-3">
+                      <span>
+                        Privacidade salvaguardada: telefone, endereço, BI completo e saldos financeiros não são exibidos na consulta pública.
+                      </span>
+                      {isStaffGateAuthorized && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (typeof window !== 'undefined') {
+                              window.history.pushState(null, '', '/');
+                            }
+                            navigate('controlo_entrada', { studentId: verifiedCardStudent.id });
+                          }}
+                          className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs cursor-pointer transition flex items-center gap-1.5"
+                        >
+                          <span>Registar Entrada/Saída na Portaria →</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })() : (
+                <div className="p-8 sm:p-12 rounded-3xl bg-slate-900 border border-slate-800 text-center space-y-4 shadow-xl">
+                  <AlertCircle className="w-12 h-12 text-amber-400 mx-auto" />
+                  <div className="space-y-1">
+                    <h3 className="text-lg font-black text-white">Carteirinha ou Credencial Não Localizada</h3>
+                    <p className="text-xs sm:text-sm text-slate-400 max-w-lg mx-auto">
+                      Não foi possível validar o código &quot;{cardQuery}&quot;. Verifique o número de matrícula ou consulte a secretaria da instituição emissora.
+                    </p>
+                  </div>
+                </div>
+              )
+            ) : currentEntry ? (
               <div className={`p-6 sm:p-8 rounded-3xl bg-slate-900 border-2 shadow-2xl space-y-6 ${
                 currentStatus === 'ATIVO'
                   ? 'border-emerald-500/70 shadow-emerald-950/20'

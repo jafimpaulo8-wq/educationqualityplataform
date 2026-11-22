@@ -23,20 +23,27 @@ import {
   Building,
   Check,
   Receipt,
-  ExternalLink
+  ExternalLink,
+  Lock
 } from 'lucide-react';
 import { getPublicPaymentPortalUrl } from '../../services/publicInstitutionService';
+import { CarnetA4PrintModal } from './CarnetA4PrintModal';
+import { useToast } from '../../context/ToastContext';
 
 export const FinancialManagerView: React.FC = () => {
   const { 
     students, 
     classes, 
+    courses,
+    contasReceber,
+    activeCashSession,
     activeInstitution, 
     financialSettings, 
     addCashTransaction, 
     addNotification,
     navigate
   } = useApp();
+  const { error: toastError, success: toastSuccess } = useToast();
 
   const [filterStatus, setFilterStatus] = useState<'todos' | 'pago' | 'pendente' | 'atrasado'>('todos');
   const [filterClass, setFilterClass] = useState<string>('todas');
@@ -47,31 +54,35 @@ export const FinancialManagerView: React.FC = () => {
   const [paymentModalStudent, setPaymentModalStudent] = useState<any | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'Dinheiro' | 'M-Pesa' | 'e-Mola' | 'POS'>('M-Pesa');
 
-  // Multiplicador de propinas fictícias para simular mensalidades reais
-  const monthlyFeeBase = 4500;
+  const isCashGateBlocking = Boolean(
+    activeInstitution?.requireCashRegisterOpen && activeCashSession?.status !== 'aberto'
+  );
 
-  // Gerar dados de mensalidades dos alunos com multas e juros calculados
+  // Calcular mensalidades reais por curso do aluno com multas e juros
   const studentInstallments = students.map(student => {
+    const matchedCourse = courses.find(
+      c => c.id === student.courseId || c.name?.toLowerCase() === student.courseName?.toLowerCase()
+    );
+    const studentMonthlyFee = Number(matchedCourse?.monthlyFee ?? matchedCourse?.feeMonthly ?? 4500);
     const isLate = student.paymentStatus === 'Atrasado';
-    const isPending = student.paymentStatus === 'Pendente';
     const isPaid = student.paymentStatus === 'Pago';
 
     const daysLate = isLate ? 14 : 0;
     const fine = isLate ? financialSettings.fineAmount : 0;
-    const interest = isLate ? (monthlyFeeBase * (financialSettings.interestRateDaily / 100) * daysLate) : 0;
-    const totalDue = isPaid ? 0 : monthlyFeeBase + fine + interest;
+    const interest = isLate ? (studentMonthlyFee * (financialSettings.interestRateDaily / 100) * daysLate) : 0;
+    const totalDue = isPaid ? 0 : studentMonthlyFee + fine + interest;
 
     return {
       student,
-      month: 'Setembro / 2026',
-      dueDate: '10/09/2026',
+      month: new Intl.DateTimeFormat('pt-MZ', { month: 'long', year: 'numeric' }).format(new Date()),
+      dueDate: `${String(financialSettings?.dueDay || 10).padStart(2, '0')}/${String(new Date().getMonth() + 1).padStart(2, '0')}/${new Date().getFullYear()}`,
       daysLate,
       fine,
       interest,
-      baseAmount: monthlyFeeBase,
+      baseAmount: studentMonthlyFee,
       totalDue,
       status: student.paymentStatus,
-      receiptRef: `REC-2026-${student.code.slice(-4)}`
+      receiptRef: `REC-${new Date().getFullYear()}-${student.code.slice(-4)}`
     };
   });
 
@@ -92,17 +103,24 @@ export const FinancialManagerView: React.FC = () => {
 
   // Estatísticas do painel
   const totalReceivable = studentInstallments.reduce((acc, curr) => acc + (curr.status !== 'Pago' ? curr.totalDue : 0), 0);
-  const totalReceived = studentInstallments.filter(i => i.status === 'Pago').length * monthlyFeeBase;
+  const totalReceived = studentInstallments
+    .filter(i => i.status === 'Pago')
+    .reduce((acc, curr) => acc + curr.baseAmount, 0);
   const lateCount = studentInstallments.filter(i => i.status === 'Atrasado').length;
   const lateAmount = studentInstallments.filter(i => i.status === 'Atrasado').reduce((acc, curr) => acc + curr.totalDue, 0);
 
   const handleReceivePayment = (item: typeof studentInstallments[0]) => {
+    if (isCashGateBlocking) {
+      toastError('Caixa Escolar Fechado', 'Esta instituição exige caixa aberto para registar recebimentos.');
+      return;
+    }
+
     // Registrar entrada no caixa ativo
     addCashTransaction({
       institutionId: activeInstitution.id,
       type: 'entrada',
       amount: item.totalDue,
-      description: `Propina Setembro/2026 - ${item.student.fullName}`,
+      description: `Propina ${item.month} - ${item.student.fullName}`,
       category: 'Propinas',
       operator: 'Tesoureiro de Turno',
       paymentMethod,
@@ -110,7 +128,7 @@ export const FinancialManagerView: React.FC = () => {
       documentRef: `REC-${Date.now().toString().slice(-6)}`
     });
 
-    // Atualizar status do aluno no mock
+    // Atualizar status do aluno localmente
     item.student.paymentStatus = 'Pago';
     item.student.balanceOwing = 0;
 
@@ -119,6 +137,7 @@ export const FinancialManagerView: React.FC = () => {
       message: `Recebimento de ${item.totalDue.toLocaleString('pt-MZ')} MTn de ${item.student.fullName} registrado.`,
       type: 'payment'
     });
+    toastSuccess('Pagamento Registado', `Recebimento de ${item.totalDue.toLocaleString('pt-MZ')} MTn confirmado.`);
 
     setPaymentModalStudent(null);
   };
@@ -171,6 +190,32 @@ export const FinancialManagerView: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Alerta de Trava de Caixa Fechado */}
+      {isCashGateBlocking && (
+        <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-amber-100 text-amber-800 rounded-xl shrink-0">
+              <Lock className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-amber-950">
+                Caixa Escolar Fechado — Recebimentos Bloqueados por Segurança
+              </p>
+              <p className="text-xs text-amber-800">
+                Esta instituição exige caixa aberto antes de registar recebimentos de propinas no balcão.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate('caixa_escolar')}
+            className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold cursor-pointer whitespace-nowrap shadow-xs"
+          >
+            Abrir Caixa Escolar Primeiro
+          </button>
+        </div>
+      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -359,8 +404,21 @@ export const FinancialManagerView: React.FC = () => {
                         <PermissionGate permission="pagamentos.create">
                           <button
                             id={`btn-pay-${item.student.id}`}
-                            onClick={() => setPaymentModalStudent(item)}
-                            className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-medium transition-all flex items-center gap-1 shadow-xs cursor-pointer"
+                            onClick={() => {
+                              if (isCashGateBlocking) {
+                                toastError(
+                                  'Caixa Escolar Fechado',
+                                  'Esta instituição exige caixa aberto para registar recebimentos.'
+                                );
+                                return;
+                              }
+                              setPaymentModalStudent(item);
+                            }}
+                            className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1 shadow-xs cursor-pointer ${
+                              isCashGateBlocking
+                                ? 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                                : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                            }`}
                           >
                             <DollarSign className="w-3.5 h-3.5" />
                             Receber
@@ -470,140 +528,16 @@ export const FinancialManagerView: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL: Carnê Escolar A4 Formatado com Canhoto & QR Code */}
-      {selectedCarnetStudent && (
-        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full p-6 border border-slate-200 my-8">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-200 mb-6">
-              <div>
-                <h3 className="text-lg font-bold text-slate-900">Carnê de Pagamento Escolar (Folha A4)</h3>
-                <p className="text-xs text-slate-500">Padrão nacional com canhoto destacável, linha digitável e QR Code PIX/M-Pesa</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => window.print()}
-                  className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-xs"
-                >
-                  <Printer className="w-3.5 h-3.5" />
-                  Imprimir Carnê A4
-                </button>
-                <button
-                  onClick={() => setSelectedCarnetStudent(null)}
-                  className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500 text-sm font-bold cursor-pointer"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
-
-            {/* Carnê Visual em Folha A4 */}
-            <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 bg-slate-50/50 space-y-6">
-              {/* Canhoto da Escola */}
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs relative">
-                <div className="flex justify-between items-start border-b border-slate-200 pb-3 mb-3">
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Canhoto do Centro / Instituição</span>
-                    <h4 className="font-bold text-slate-900 text-sm">{activeInstitution.name}</h4>
-                    <p className="text-xs text-slate-500">NUIT: {activeInstitution.nuit} • {activeInstitution.phone}</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-xs font-semibold text-slate-700">Parcela: 09/12</span>
-                    <div className="text-xs text-rose-600 font-bold">Vencimento: 10/09/2026</div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2 text-xs text-slate-700">
-                  <div>
-                    <span className="text-slate-400 block text-[10px]">Formando</span>
-                    <span className="font-semibold">{selectedCarnetStudent.student.fullName}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block text-[10px]">Matrícula</span>
-                    <span className="font-mono">{selectedCarnetStudent.student.code}</span>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-slate-400 block text-[10px]">Valor Base</span>
-                    <span className="font-bold text-slate-900">{selectedCarnetStudent.baseAmount.toLocaleString('pt-MZ')} MTn</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Linha de corte pontilhada */}
-              <div className="border-t-2 border-dashed border-slate-300 relative text-center">
-                <span className="bg-white px-3 text-[10px] text-slate-400 uppercase tracking-widest relative -top-2">
-                  ✂ Destaque aqui no momento do pagamento
-                </span>
-              </div>
-
-              {/* Guia Principal do Aluno / Encarregado */}
-              <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-4">
-                <div className="flex justify-between items-start border-b border-slate-200 pb-4">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <Building className="w-4 h-4 text-emerald-600" />
-                      <h4 className="font-bold text-slate-900 text-base">{activeInstitution.name}</h4>
-                    </div>
-                    <p className="text-xs text-slate-500">{activeInstitution.address} • NUIT: {activeInstitution.nuit}</p>
-                  </div>
-                  <div className="text-right bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-100">
-                    <span className="text-[10px] text-emerald-800 font-bold block">VALOR A LIQUIDAR</span>
-                    <span className="text-base font-bold text-emerald-800">{selectedCarnetStudent.totalDue.toLocaleString('pt-MZ')} MTn</span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs bg-slate-50 p-3 rounded-lg">
-                  <div>
-                    <span className="text-slate-400 block text-[10px]">Número do Aluno</span>
-                    <span className="font-semibold text-slate-800">{selectedCarnetStudent.student.code}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block text-[10px]">Curso Matriculado</span>
-                    <span className="font-semibold text-slate-800">{selectedCarnetStudent.student.courseName}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block text-[10px]">Data de Vencimento</span>
-                    <span className="font-bold text-rose-600">10 de Setembro de 2026</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block text-[10px]">Multa após Vencimento</span>
-                    <span className="font-medium text-slate-700">+{financialSettings.fineAmount} MT + {financialSettings.interestRateDaily}%/dia</span>
-                  </div>
-                </div>
-
-                {/* Dados de Pagamento & QR Code */}
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 border border-slate-200 rounded-xl bg-white">
-                  <div className="space-y-1.5 text-xs text-slate-700">
-                    <div className="font-bold text-slate-900 flex items-center gap-1.5">
-                      <Smartphone className="w-4 h-4 text-emerald-600" />
-                      Pagamento Digital via M-Pesa / e-Mola:
-                    </div>
-                    <p className="font-mono text-xs bg-slate-100 p-1.5 rounded text-slate-800 font-semibold">
-                      Chave M-Pesa: {financialSettings.pixKey}
-                    </p>
-                    <div className="font-bold text-slate-900 pt-1">Transferência Bancária:</div>
-                    <p className="text-slate-600 text-[11px]">{financialSettings.bankInfo}</p>
-                    <p className="text-slate-400 text-[10px]">Referência Obrigatória: <strong>{selectedCarnetStudent.student.code}</strong></p>
-                  </div>
-
-                  <div className="text-center p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                    <div className="w-24 h-24 bg-white border border-slate-200 rounded-lg p-1.5 mx-auto flex items-center justify-center">
-                      <QrCode className="w-20 h-20 text-slate-800" />
-                    </div>
-                    <span className="text-[10px] text-slate-500 font-medium mt-1 block">Escanear para Pagar</span>
-                  </div>
-                </div>
-
-                {/* Código de barras simulado / Linha digitável */}
-                <div className="text-center pt-2">
-                  <p className="font-mono text-xs text-slate-600 tracking-wider">
-                    00190.00009 01202.690412 00000.001842 1 91200000450000
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* MODAL: Carnê Escolar A4 Dinâmico com Canhoto & QR Code */}
+      <CarnetA4PrintModal
+        isOpen={!!selectedCarnetStudent}
+        onClose={() => setSelectedCarnetStudent(null)}
+        student={selectedCarnetStudent?.student || null}
+        institution={activeInstitution}
+        financialSettings={financialSettings}
+        receivables={contasReceber}
+        courses={courses}
+      />
 
       {/* MODAL: Recibo Digital Oficial (Opção A4 e Térmica 80mm) */}
       {selectedReceipt && (

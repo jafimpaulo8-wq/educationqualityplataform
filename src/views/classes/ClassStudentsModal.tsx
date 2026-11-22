@@ -11,9 +11,20 @@ import {
   DoorOpen,
   Award,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  FileText,
+  DollarSign
 } from 'lucide-react';
-import { Student, ClassGroup } from '../../types';
+import { Student, ClassGroup, Course, FinancialSettings } from '../../types';
+
+export interface AllocateFinancePlanOptions {
+  generatePlan: boolean;
+  installmentsCount: number;
+  dueDay: number;
+  monthlyAmount: number;
+  includeRegistrationFee: boolean;
+  registrationFeeAmount: number;
+}
 
 interface ClassStudentsModalProps {
   isOpen: boolean;
@@ -21,8 +32,12 @@ interface ClassStudentsModalProps {
   classGroup: ClassGroup | null;
   students: Student[];
   allStudents: Student[];
+  courses?: Course[];
+  financialSettings?: FinancialSettings;
   onTransferClick: (student: Student) => void;
   onAddStudent: (classId: string, studentId: string) => void;
+  onAllocateWithFinance?: (student: Student, opts: AllocateFinancePlanOptions) => void;
+  onOpenCarnet?: (student: Student) => void;
   onRemoveStudent: (classId: string, studentId: string) => void;
 }
 
@@ -32,13 +47,48 @@ export const ClassStudentsModal: React.FC<ClassStudentsModalProps> = ({
   classGroup,
   students,
   allStudents,
+  courses = [],
+  financialSettings,
   onTransferClick,
   onAddStudent,
+  onAllocateWithFinance,
+  onOpenCarnet,
   onRemoveStudent
 }) => {
+  const matchedCourse = classGroup
+    ? courses.find(
+        c =>
+          c.id === classGroup.courseId ||
+          c.name?.toLowerCase() === classGroup.courseName?.toLowerCase()
+      )
+    : undefined;
+
+  const defaultMonthly = Number(matchedCourse?.monthlyFee ?? matchedCourse?.feeMonthly ?? 0);
+  const defaultRegFee = Number(matchedCourse?.registrationFee ?? matchedCourse?.enrollmentFee ?? 0);
+  const defaultDueDay = Number(financialSettings?.dueDay || 10);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddingMode, setIsAddingMode] = useState(false);
   const [addSearchTerm, setAddSearchTerm] = useState('');
+  const [generatePlan, setGeneratePlan] = useState(true);
+  const [installmentsCount, setInstallmentsCount] = useState<number>(6);
+  const [dueDay, setDueDay] = useState<number>(defaultDueDay);
+  const [monthlyAmount, setMonthlyAmount] = useState<number>(defaultMonthly);
+  const [includeRegistrationFee, setIncludeRegistrationFee] = useState<boolean>(defaultRegFee > 0);
+  const [registrationFeeAmount, setRegistrationFeeAmount] = useState<number>(defaultRegFee);
+
+  React.useEffect(() => {
+    if (classGroup) {
+      const m = Number(matchedCourse?.monthlyFee ?? matchedCourse?.feeMonthly ?? 0);
+      const r = Number(matchedCourse?.registrationFee ?? matchedCourse?.enrollmentFee ?? 0);
+      const durNum = parseInt(String(matchedCourse?.duration || '').replace(/\D/g, ''), 10);
+      setMonthlyAmount(m);
+      setRegistrationFeeAmount(r);
+      setIncludeRegistrationFee(r > 0);
+      setDueDay(Number(financialSettings?.dueDay || 10));
+      setInstallmentsCount(durNum > 0 && durNum <= 24 ? durNum : 6);
+    }
+  }, [classGroup?.id, matchedCourse?.id, financialSettings?.dueDay]);
 
   if (!isOpen || !classGroup) return null;
 
@@ -146,6 +196,95 @@ export const ClassStudentsModal: React.FC<ClassStudentsModalProps> = ({
                 />
               </div>
 
+              {onAllocateWithFinance && (
+                <div className="p-3.5 rounded-xl bg-emerald-50/70 border border-emerald-200 space-y-3">
+                  <label className="flex items-center justify-between gap-2 cursor-pointer">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={generatePlan}
+                        onChange={(e) => setGeneratePlan(e.target.checked)}
+                        className="w-4 h-4 rounded text-emerald-600"
+                      />
+                      <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                        <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
+                        Gerar Plano Financeiro / Carnê ao Alocar
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-semibold text-emerald-700">
+                      {generatePlan ? `${installmentsCount}x de ${monthlyAmount.toLocaleString('pt-MZ')} MT` : 'Apenas alocar na turma'}
+                    </span>
+                  </label>
+
+                  {generatePlan && (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2 border-t border-emerald-200/70">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                          Nº de Parcelas
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={24}
+                          value={installmentsCount}
+                          onChange={(e) => setInstallmentsCount(Math.max(1, Math.min(24, Number(e.target.value) || 1)))}
+                          className="w-full px-2.5 py-1.5 bg-white border border-emerald-200 rounded-lg text-xs font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                          Dia de Vencimento
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={30}
+                          value={dueDay}
+                          onChange={(e) => setDueDay(Math.max(1, Math.min(30, Number(e.target.value) || 10)))}
+                          className="w-full px-2.5 py-1.5 bg-white border border-emerald-200 rounded-lg text-xs font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                          Mensalidade (MT - Bolsa/Desc.)
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={monthlyAmount}
+                          onChange={(e) => setMonthlyAmount(Math.max(0, Number(e.target.value) || 0))}
+                          className="w-full px-2.5 py-1.5 bg-white border border-emerald-200 rounded-lg text-xs font-bold"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-3 flex flex-wrap items-center justify-between gap-2 pt-1">
+                        <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={includeRegistrationFee}
+                            onChange={(e) => setIncludeRegistrationFee(e.target.checked)}
+                            className="w-3.5 h-3.5 rounded text-emerald-600"
+                          />
+                          <span className="font-semibold">Incluir Taxa de Matrícula / Inscrição</span>
+                        </label>
+                        {includeRegistrationFee && (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[11px] text-slate-500">Valor (MT):</span>
+                            <input
+                              type="number"
+                              min={0}
+                              value={registrationFeeAmount}
+                              onChange={(e) => setRegistrationFeeAmount(Math.max(0, Number(e.target.value) || 0))}
+                              className="w-28 px-2 py-1 bg-white border border-emerald-200 rounded-lg text-xs font-bold"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="max-h-72 overflow-y-auto space-y-2">
                 {candidateStudents.length === 0 ? (
                   <p className="text-center py-6 text-xs text-slate-400">
@@ -173,11 +312,25 @@ export const ClassStudentsModal: React.FC<ClassStudentsModalProps> = ({
                       </div>
 
                       <button
-                        onClick={() => onAddStudent(classGroup.id, student.id)}
+                        type="button"
+                        onClick={() => {
+                          if (onAllocateWithFinance) {
+                            onAllocateWithFinance(student, {
+                              generatePlan,
+                              installmentsCount,
+                              dueDay,
+                              monthlyAmount,
+                              includeRegistrationFee,
+                              registrationFeeAmount
+                            });
+                          } else {
+                            onAddStudent(classGroup.id, student.id);
+                          }
+                        }}
                         className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
                       >
                         <UserPlus className="w-3.5 h-3.5" />
-                        Alocar
+                        {generatePlan && onAllocateWithFinance ? 'Alocar + Carnê' : 'Alocar'}
                       </button>
                     </div>
                   ))
@@ -234,7 +387,19 @@ export const ClassStudentsModal: React.FC<ClassStudentsModalProps> = ({
                       </div>
 
                       <div className="flex items-center gap-1.5">
+                        {onOpenCarnet && (
+                          <button
+                            type="button"
+                            onClick={() => onOpenCarnet(student)}
+                            title="Abrir Carnê A4 deste aluno"
+                            className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                            Carnê A4
+                          </button>
+                        )}
                         <button
+                          type="button"
                           onClick={() => onTransferClick(student)}
                           title="Transferir aluno para outra turma com histórico"
                           className="px-2.5 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer transition-colors"
@@ -243,6 +408,7 @@ export const ClassStudentsModal: React.FC<ClassStudentsModalProps> = ({
                           Transferir
                         </button>
                         <button
+                          type="button"
                           onClick={() => onRemoveStudent(classGroup.id, student.id)}
                           title="Desvincular da turma"
                           className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"

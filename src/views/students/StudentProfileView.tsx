@@ -62,6 +62,8 @@ import {
 } from '../../types';
 import { hasPermission } from '../../types/rbac';
 import { StudentInvitationModal } from '../../components/students/StudentInvitationModal';
+import { StudentOccurrencesTab } from './components/StudentOccurrencesTab';
+import { CarnetA4PrintModal } from '../finance/CarnetA4PrintModal';
 
 export const StudentProfileView: React.FC = () => {
   const { 
@@ -79,12 +81,17 @@ export const StudentProfileView: React.FC = () => {
     addStudentHistoryEvent,
     addStudentAuditEntry,
     addStudentDocument,
-    lessons
+    lessons,
+    contasReceber,
+    courses,
+    financialSettings,
+    studentOccurrences
   } = useApp();
 
   const [showInvitationModal, setShowInvitationModal] = useState(false);
+  const [showCarnetModal, setShowCarnetModal] = useState(false);
 
-  // 18 Tabs solicitadas pelo usuário:
+  // 19 Tabs (18 originais + Ocorrências)
   type ProfileTab = 
     | 'dados' 
     | 'matriculas' 
@@ -102,6 +109,7 @@ export const StudentProfileView: React.FC = () => {
     | 'aulas' 
     | 'materiais' 
     | 'notificacoes' 
+    | 'ocorrencias'
     | 'historico' 
     | 'auditoria';
 
@@ -273,6 +281,9 @@ export const StudentProfileView: React.FC = () => {
       ];
 
   const studentAssessments = selectedStudent.assessments || [];
+  const thisStudentOccurrences = studentOccurrences.filter(o => o.studentId === selectedStudent.id);
+  const matchedCourse = courses.find(c => c.id === selectedStudent.courseId || c.name === selectedStudent.courseName);
+  const monthlyTuitionFee = matchedCourse?.monthlyFee ?? matchedCourse?.feeMonthly ?? 0;
 
   const handleConfirmTermination = (e: React.FormEvent) => {
     e.preventDefault();
@@ -710,6 +721,7 @@ export const StudentProfileView: React.FC = () => {
             { key: 'aulas', label: 'Aulas', icon: Calendar },
             { key: 'materiais', label: 'Materiais', icon: Layers },
             { key: 'notificacoes', label: 'Notificações', icon: Bell },
+            { key: 'ocorrencias', label: 'Ocorrências', icon: ShieldAlert, badge: thisStudentOccurrences.length, highlight: thisStudentOccurrences.length > 0 },
             { key: 'historico', label: 'Histórico', icon: History, badge: studentHistory.length, highlight: true },
             { key: 'auditoria', label: 'Auditoria', icon: ShieldCheck, badge: studentAudit.length, highlight: true }
           ].map((tab) => {
@@ -866,11 +878,30 @@ export const StudentProfileView: React.FC = () => {
             </button>
           </div>
 
-          {/* Observações */}
+          {/* Observações & Resumo de Ocorrências */}
           <div className="p-4 rounded-2xl bg-slate-950 border border-slate-850 space-y-2">
-            <span className="text-xs font-bold text-slate-400 block uppercase">Observações &amp; Notas Pedagógicas:</span>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-bold text-slate-400 uppercase">Observações &amp; Notas Pedagógicas:</span>
+              <button
+                type="button"
+                onClick={() => setActiveTab('ocorrencias')}
+                className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border cursor-pointer transition ${
+                  thisStudentOccurrences.length > 0
+                    ? 'bg-amber-500/15 text-amber-300 border-amber-500/30 hover:bg-amber-500/25'
+                    : 'bg-slate-900 text-slate-300 border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                {thisStudentOccurrences.length > 0
+                  ? `${thisStudentOccurrences.length} ocorrência(s) registada(s) — Ver / Imprimir`
+                  : 'Registar Ocorrência Disciplinar / Pedagógica →'}
+              </button>
+            </div>
             <p className="text-xs text-slate-300 leading-relaxed">
-              {selectedStudent.notes || 'Estudante matriculado regularmente no centro de formação técnica. Sem ocorrências disciplinares registradas.'}
+              {selectedStudent.notes || (
+                thisStudentOccurrences.length > 0
+                  ? `Estudante matriculado regularmente. Última ocorrência: "${thisStudentOccurrences[0].title}" (${thisStudentOccurrences[0].date}).`
+                  : 'Estudante matriculado regularmente no centro de formação técnica. Sem ocorrências disciplinares registradas.'
+              )}
             </p>
           </div>
         </div>
@@ -1087,17 +1118,28 @@ export const StudentProfileView: React.FC = () => {
       {/* 8. PAGAMENTOS */}
       {activeTab === 'pagamentos' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 shadow-xl">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
             <h3 className="text-base font-bold text-white flex items-center gap-2">
               <CreditCard className="w-5 h-5 text-emerald-400" />
               Conta Corrente &amp; Propinas
             </h3>
-            <button
-              onClick={() => navigate('financial_manager')}
-              className="text-xs font-bold text-emerald-400 hover:underline cursor-pointer"
-            >
-              Registrar Pagamento na Tesouraria →
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowCarnetModal(true)}
+                className="px-3.5 py-1.5 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Gerar / Imprimir Carnê A4</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('financial_manager')}
+                className="text-xs font-bold text-emerald-400 hover:underline cursor-pointer"
+              >
+                Registrar Pagamento na Tesouraria →
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -1113,13 +1155,15 @@ export const StudentProfileView: React.FC = () => {
             <div className="p-4 rounded-2xl bg-slate-950 border border-slate-850">
               <span className="text-xs text-slate-400 block">Saldo Devedor / Atraso:</span>
               <strong className="text-base font-black text-white">
-                {selectedStudent.balanceOwing > 0 ? `${selectedStudent.balanceOwing.toLocaleString()} MT` : '0 MT (Sem pendências)'}
+                {selectedStudent.balanceOwing > 0 ? `${selectedStudent.balanceOwing.toLocaleString('pt-MZ')} MT` : '0 MT (Sem pendências)'}
               </strong>
             </div>
 
             <div className="p-4 rounded-2xl bg-slate-950 border border-slate-850">
               <span className="text-xs text-slate-400 block">Propina Mensal Vigente:</span>
-              <strong className="text-base font-black text-sky-400">3.800 MT / mês</strong>
+              <strong className="text-base font-black text-sky-400">
+                {monthlyTuitionFee > 0 ? `${monthlyTuitionFee.toLocaleString('pt-MZ')} MT / mês` : (matchedCourse?.price ? `${matchedCourse.price.toLocaleString('pt-MZ')} MT (Curso)` : 'Consulte Tesouraria')}
+              </strong>
             </div>
           </div>
         </div>
@@ -1501,6 +1545,11 @@ export const StudentProfileView: React.FC = () => {
             ))}
           </div>
         </div>
+      )}
+
+      {/* OCORRÊNCIAS DISCIPLINARES / PEDAGÓGICAS */}
+      {activeTab === 'ocorrencias' && (
+        <StudentOccurrencesTab student={selectedStudent} institution={activeInstitution} />
       )}
 
       {/* =====================================================================
@@ -2133,6 +2182,17 @@ export const StudentProfileView: React.FC = () => {
           }}
         />
       )}
+
+      {/* Carnê A4 Data-Driven Modal */}
+      <CarnetA4PrintModal
+        isOpen={showCarnetModal}
+        onClose={() => setShowCarnetModal(false)}
+        student={selectedStudent}
+        institution={activeInstitution}
+        financialSettings={financialSettings}
+        receivables={contasReceber}
+        courses={courses}
+      />
     </div>
   );
 };

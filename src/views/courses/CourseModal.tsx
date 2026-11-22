@@ -4,6 +4,7 @@ import {
   CourseCategory, 
   CourseModality, 
   CoursePeriodType, 
+  CoursePeriodConfig,
   CourseStatus 
 } from '../../types';
 import { 
@@ -167,6 +168,9 @@ export const CourseModal: React.FC<CourseModalProps> = ({
   const [certificate, setCertificate] = useState('Certificado de Capacitação Técnico-Profissional');
   const [status, setStatus] = useState<CourseStatus>('Ativo');
   const [image, setImage] = useState('');
+  const [coursePeriods, setCoursePeriods] = useState<CoursePeriodConfig[]>([]);
+  const [totalPoints, setTotalPoints] = useState<number>(100);
+  const [passingScore, setPassingScore] = useState<number>(60);
   const [activeTab, setActiveTab] = useState<'geral' | 'financeiro' | 'requisitos' | 'certificado'>('geral');
 
   useEffect(() => {
@@ -190,6 +194,9 @@ export const CourseModal: React.FC<CourseModalProps> = ({
       setMonthlyFee(courseToEdit.monthlyFee ?? courseToEdit.feeMonthly ?? 0);
       setCertificate(courseToEdit.certificate || 'Certificado de Formação Profissional');
       setStatus(courseToEdit.status || 'Ativo');
+      setCoursePeriods(courseToEdit.coursePeriods || []);
+      setTotalPoints(courseToEdit.totalPoints ?? 100);
+      setPassingScore(courseToEdit.passingScore ?? 60);
     } else {
       setName('');
       setCode('');
@@ -208,6 +215,12 @@ export const CourseModal: React.FC<CourseModalProps> = ({
       setMonthlyFee(3750);
       setCertificate('Certificado de Capacitação Técnico-Profissional');
       setStatus('Ativo');
+      setCoursePeriods([
+        { id: 'per-1', name: '1º Semestre', maxPoints: 50, minPassingPoints: 30, order: 1 },
+        { id: 'per-2', name: '2º Semestre', maxPoints: 50, minPassingPoints: 30, order: 2 }
+      ]);
+      setTotalPoints(100);
+      setPassingScore(60);
     }
   }, [courseToEdit, isOpen]);
 
@@ -241,6 +254,54 @@ export const CourseModal: React.FC<CourseModalProps> = ({
     setRequirements(prev => prev.filter((_, i) => i !== idx));
   };
 
+  const applyPeriodPreset = (preset: 'bimestres' | 'trimestres' | 'semestres' | 'unico' | 'mz20') => {
+    if (preset === 'bimestres') {
+      setCoursePeriods([
+        { id: 'b1', name: '1º Bimestre', maxPoints: 25, order: 1 },
+        { id: 'b2', name: '2º Bimestre', maxPoints: 25, order: 2 },
+        { id: 'b3', name: '3º Bimestre', maxPoints: 25, order: 3 },
+        { id: 'b4', name: '4º Bimestre', maxPoints: 25, order: 4 }
+      ]);
+      setTotalPoints(100);
+      setPassingScore(60);
+    } else if (preset === 'trimestres') {
+      setCoursePeriods([
+        { id: 't1', name: '1º Trimestre', maxPoints: 30, order: 1 },
+        { id: 't2', name: '2º Trimestre', maxPoints: 35, order: 2 },
+        { id: 't3', name: '3º Trimestre', maxPoints: 35, order: 3 }
+      ]);
+      setTotalPoints(100);
+      setPassingScore(60);
+    } else if (preset === 'semestres') {
+      setCoursePeriods([
+        { id: 's1', name: '1º Semestre', maxPoints: 50, order: 1 },
+        { id: 's2', name: '2º Semestre', maxPoints: 50, order: 2 }
+      ]);
+      setTotalPoints(100);
+      setPassingScore(60);
+    } else if (preset === 'unico') {
+      setCoursePeriods([{ id: 'u1', name: 'Período Único / Final', maxPoints: 100, order: 1 }]);
+      setTotalPoints(100);
+      setPassingScore(60);
+    } else if (preset === 'mz20') {
+      setCoursePeriods([
+        { id: 'mz1', name: '1º Trimestre (0-20)', maxPoints: 20, minPassingPoints: 10, order: 1 },
+        { id: 'mz2', name: '2º Trimestre (0-20)', maxPoints: 20, minPassingPoints: 10, order: 2 },
+        { id: 'mz3', name: '3º Trimestre (0-20)', maxPoints: 20, minPassingPoints: 10, order: 3 }
+      ]);
+      setTotalPoints(20);
+      setPassingScore(10);
+    }
+  };
+
+  const handleAddCustomPeriod = () => {
+    const nextOrder = coursePeriods.length + 1;
+    setCoursePeriods(prev => [
+      ...prev,
+      { id: `per-${Date.now()}`, name: `${nextOrder}º Período`, maxPoints: 25, order: nextOrder }
+    ]);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
@@ -264,6 +325,9 @@ export const CourseModal: React.FC<CourseModalProps> = ({
       feeMonthly: Number(monthlyFee) || 0,
       certificate: certificate.trim(),
       status,
+      coursePeriods,
+      totalPoints: Number(totalPoints) || 100,
+      passingScore: Number(passingScore) || 60,
       modules: courseToEdit?.modules || []
     });
     onClose();
@@ -716,6 +780,138 @@ export const CourseModal: React.FC<CourseModalProps> = ({
                     <span className="text-[11px] text-slate-400">Informe 0 para cursos de valor único</span>
                   </div>
                 </div>
+              </div>
+
+              {/* Períodos Avaliativos & Nota Mínima de Aprovação */}
+              <div className="rounded-xl bg-slate-50 p-4 border border-slate-200 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Layers className="h-4 w-4 text-indigo-600" />
+                    <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                      Períodos Avaliativos &amp; Nota Mínima de Aprovação
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAddCustomPeriod}
+                    className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="h-3 w-3" />
+                    Adicionar Período
+                  </button>
+                </div>
+
+                {/* Presets rápidos */}
+                <div className="flex flex-wrap gap-1.5 text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => applyPeriodPreset('mz20')}
+                    className="px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:border-indigo-500 text-slate-700 font-semibold cursor-pointer"
+                  >
+                    Escala MZ 0–20 (Mín 10)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyPeriodPreset('bimestres')}
+                    className="px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:border-indigo-500 text-slate-700 font-semibold cursor-pointer"
+                  >
+                    4 Bimestres × 25 pts (Mín 60)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyPeriodPreset('trimestres')}
+                    className="px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:border-indigo-500 text-slate-700 font-semibold cursor-pointer"
+                  >
+                    3 Trimestres (100 pts)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyPeriodPreset('semestres')}
+                    className="px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:border-indigo-500 text-slate-700 font-semibold cursor-pointer"
+                  >
+                    2 Semestres (100 pts)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyPeriodPreset('unico')}
+                    className="px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:border-indigo-500 text-slate-700 font-semibold cursor-pointer"
+                  >
+                    Período Único (100 pts)
+                  </button>
+                </div>
+
+                {/* Totais */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs text-slate-600 font-semibold mb-1">
+                      Pontuação Total / Escala Máxima
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={totalPoints}
+                      onChange={e => setTotalPoints(Number(e.target.value))}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm font-bold text-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-600 font-semibold mb-1">
+                      Nota / Pontos Mínimos para Aprovação
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      value={passingScore}
+                      onChange={e => setPassingScore(Number(e.target.value))}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm font-bold text-emerald-700"
+                    />
+                  </div>
+                </div>
+
+                {/* Lista de períodos configuráveis */}
+                {coursePeriods.length > 0 && (
+                  <div className="space-y-2">
+                    {coursePeriods.map((per, idx) => (
+                      <div key={per.id} className="grid grid-cols-12 gap-2 items-center bg-white p-2 rounded-xl border border-slate-200">
+                        <span className="col-span-1 text-center text-[11px] font-mono font-bold text-slate-400">
+                          #{idx + 1}
+                        </span>
+                        <input
+                          type="text"
+                          value={per.name}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setCoursePeriods(prev => prev.map(p => p.id === per.id ? { ...p, name: val } : p));
+                          }}
+                          className="col-span-7 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-800"
+                          placeholder="Nome do período"
+                        />
+                        <div className="col-span-3 flex items-center gap-1">
+                          <input
+                            type="number"
+                            min="1"
+                            value={per.maxPoints}
+                            onChange={e => {
+                              const pts = Number(e.target.value) || 0;
+                              setCoursePeriods(prev => prev.map(p => p.id === per.id ? { ...p, maxPoints: pts } : p));
+                            }}
+                            className="w-full px-2 py-1.5 rounded-lg border border-slate-200 text-xs font-mono font-bold text-slate-800"
+                          />
+                          <span className="text-[10px] text-slate-500">pts</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setCoursePeriods(prev => prev.filter(p => p.id !== per.id))}
+                          className="col-span-1 p-1 text-slate-400 hover:text-rose-600 cursor-pointer flex justify-center"
+                          title="Remover período"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
