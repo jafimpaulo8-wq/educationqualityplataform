@@ -1,70 +1,61 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  KeyRound, 
-  ShieldCheck, 
-  CheckCircle2, 
-  AlertCircle, 
-  Lock, 
-  Eye, 
-  EyeOff, 
-  GraduationCap, 
-  Building2, 
-  ArrowRight, 
-  Mail, 
+import {
+  ShieldCheck,
+  CheckCircle2,
+  AlertCircle,
+  Lock,
+  Eye,
+  EyeOff,
+  Building2,
+  ArrowRight,
+  Mail,
   RefreshCw,
   Sparkles,
-  HelpCircle
+  KeyRound,
+  UserCheck
 } from 'lucide-react';
-import { 
-  createUserWithEmailAndPassword, 
+import {
+  createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  sendEmailVerification,
   sendPasswordResetEmail,
-  updateProfile 
+  updateProfile
 } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../../services/firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { 
-  getStudentInvitationByToken, 
-  markStudentInvitationUsed, 
-  saveStudentToFirestore,
-  COLLECTIONS 
-} from '../../services/firestoreService';
-import { StudentInvitation, Student } from '../../types';
+import { Institution, UserInvitation } from '../../types';
 import { useApp } from '../../context/AppContext';
 import { useToast } from '../../context/ToastContext';
 import { soundManager } from '../../utils/audio';
-
-function toSafeDate(val: any): Date | null {
-  if (!val) return null;
-  if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
-  if (typeof val.toDate === 'function') {
-    const d = val.toDate();
-    return isNaN(d.getTime()) ? null : d;
-  }
-  if (typeof val.seconds === 'number') {
-    const d = new Date(val.seconds * 1000);
-    return isNaN(d.getTime()) ? null : d;
-  }
-  const d = new Date(val);
-  return isNaN(d.getTime()) ? null : d;
-}
+import {
+  LEGACY_STUDENT_INVITATIONS_COLLECTION,
+  USER_INVITATIONS_COLLECTION,
+  consumeUserInvitationViaServer,
+  fetchInviteByToken,
+  validateInviteActivationState,
+  validatePasswordStrength
+} from '../../services/inviteAuthService';
+import { getDefaultRouteForRole, getRoleDisplayName } from '../../security/routeSecurity';
 
 interface AtivarContaViewProps {
   initialToken?: string;
   onActivated?: () => void;
 }
 
-export const AtivarContaView: React.FC<AtivarContaViewProps> = ({ 
-  initialToken, 
-  onActivated 
+export const AtivarContaView: React.FC<AtivarContaViewProps> = ({
+  initialToken,
+  onActivated
 }) => {
-  const { navigate, allInstitutions, setActiveInstitution } = useApp();
+  const { navigate, allInstitutions, setActiveInstitution, setActiveRole } = useApp();
   const { success, error: toastError, info } = useToast();
 
-  const [tokenInput, setTokenInput] = useState(initialToken || '');
+  const [tokenValue, setTokenValue] = useState(initialToken || '');
   const [loading, setLoading] = useState(true);
-  const [invitation, setInvitation] = useState<StudentInvitation | null>(null);
-  const [associatedStudent, setAssociatedStudent] = useState<Student | null>(null);
+  const [invitation, setInvitation] = useState<UserInvitation | null>(null);
+  const [sourceCollection, setSourceCollection] = useState<
+    typeof USER_INVITATIONS_COLLECTION | typeof LEGACY_STUDENT_INVITATIONS_COLLECTION | null
+  >(null);
+  const [resolvedInstitutionName, setResolvedInstitutionName] = useState<string>('');
   const [tokenError, setTokenError] = useState<string | null>(null);
 
   // Form states
@@ -72,10 +63,11 @@ export const AtivarContaView: React.FC<AtivarContaViewProps> = ({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isActivating, setIsActivating] = useState(false);
+  const [awaitingEmailVerification, setAwaitingEmailVerification] = useState(false);
+  const [resendingVerification, setResendingVerification] = useState(false);
   const [activatedSuccess, setActivatedSuccess] = useState(false);
   const [resetEmailSent, setResetEmailSent] = useState(false);
 
-  // Parse token from URL (query, pathname, or hash)
   useEffect(() => {
     let activeToken = initialToken;
     if (!activeToken && typeof window !== 'undefined') {
@@ -95,7 +87,7 @@ export const AtivarContaView: React.FC<AtivarContaViewProps> = ({
     }
 
     if (activeToken) {
-      setTokenInput(activeToken);
+      setTokenValue(activeToken);
       validateToken(activeToken);
     } else {
       setLoading(false);
@@ -107,58 +99,90 @@ export const AtivarContaView: React.FC<AtivarContaViewProps> = ({
     setLoading(true);
     setTokenError(null);
     try {
-      const inv = await getStudentInvitationByToken(tok.trim());
-      if (!inv) {
-        setTokenError('Convite não encontrado ou token inválido. Verifique o link recebido por e-mail.');
-        setLoading(false);
-        return;
-      }
-
-      if (inv.revoked) {
-        setTokenError('Este convite de acesso foi revogado pela administração escolar.');
-        setLoading(false);
-        return;
-      }
-
-      if (inv.used) {
-        const usedDate = toSafeDate(inv.usedAt);
-        setTokenError(`Este convite já foi utilizado em ${usedDate ? usedDate.toLocaleDateString('pt-MZ') : 'data anterior'}. Se esqueceu a sua palavra-passe, utilize a opção de recuperação.`);
-        setInvitation(inv);
-        setLoading(false);
-        return;
-      }
-
-      const expDate = toSafeDate(inv.expiresAt);
-      if (expDate && expDate < new Date()) {
-        setTokenError('Este convite de acesso expirou. Solicite um novo link à secretaria da sua instituição.');
-        setLoading(false);
-        return;
-      }
-
+      const { invitation: inv, sourceCollection: src } = await fetchInviteByToken(tok.trim());
       setInvitation(inv);
+      setSourceCollection(src);
 
-      // Fetch student details from Firestore
-      try {
-        const studentDoc = await getDoc(doc(db, COLLECTIONS.STUDENTS, inv.studentId));
-        if (studentDoc.exists()) {
-          setAssociatedStudent({ ...studentDoc.data(), id: studentDoc.id } as Student);
+      const check = validateInviteActivationState(inv);
+      if (!check.valid) {
+        setTokenError(check.message || 'Convite inválido.');
+        setLoading(false);
+        return;
+      }
+
+      if (inv) {
+        const localInst = allInstitutions.find((i) => i.id === inv.institutionId);
+        if (localInst) {
+          setResolvedInstitutionName(localInst.name);
+        } else if (inv.institutionName) {
+          setResolvedInstitutionName(inv.institutionName);
+        } else if (inv.institutionId) {
+          try {
+            const instSnap = await getDoc(doc(db, 'institutions', inv.institutionId));
+            if (instSnap.exists()) {
+              setResolvedInstitutionName((instSnap.data() as Institution).name || inv.institutionId);
+            }
+          } catch {
+            // fallback silencioso
+          }
         }
-      } catch (e) {
-        console.warn('Could not fetch student doc:', e);
       }
     } catch (err: any) {
-      setTokenError(err.message || 'Falha ao validar o token de convite.');
+      setTokenError(err?.message || 'Falha ao validar o token de convite.');
     } finally {
       setLoading(false);
     }
   };
 
+  const passwordCheck = validatePasswordStrength(password);
+
+  const finalizeVerifiedActivation = async () => {
+    if (!invitation) return;
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      throw new Error('Sessão Firebase não encontrada. Volte a iniciar o passo anterior.');
+    }
+
+    await currentUser.reload();
+    const freshUser = auth.currentUser;
+    if (!freshUser || !freshUser.emailVerified) {
+      setAwaitingEmailVerification(true);
+      throw new Error(
+        `O e-mail ${invitation.email} ainda não foi verificado. Abra a mensagem enviada para a sua caixa de correio e clique no link de confirmação antes de concluir.`
+      );
+    }
+
+    // Força renovação do JWT para garantir email_verified: true antes de chamar a Cloud Function
+    await freshUser.getIdToken(true);
+
+    const serverResult = await consumeUserInvitationViaServer(invitation.token, {
+      emailVerified: freshUser.emailVerified
+    });
+
+    // Renova novamente o token para obter os novos Custom Claims (role + institutionId)
+    await freshUser.getIdToken(true);
+
+    const instObj = allInstitutions.find((i) => i.id === serverResult.institutionId);
+    if (instObj) {
+      setActiveInstitution(instObj);
+    }
+    setActiveRole(serverResult.role || invitation.role);
+
+    soundManager.playSuccess();
+    setAwaitingEmailVerification(false);
+    setActivatedSuccess(true);
+    success(
+      'Conta Activada!',
+      `O seu e-mail foi confirmado e o perfil (${getRoleDisplayName(serverResult.role || invitation.role)}) foi activado no servidor.`
+    );
+  };
+
   const handleActivateAccount = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!invitation) return;
+    if (!invitation || !sourceCollection) return;
 
-    if (password.length < 6) {
-      toastError('Palavra-passe Curta', 'A palavra-passe deve ter pelo menos 6 caracteres.');
+    if (!passwordCheck.valid) {
+      toastError('Palavra-passe Fraca', passwordCheck.errors[0] || 'A senha deve ser mais forte.');
       return;
     }
 
@@ -171,17 +195,19 @@ export const AtivarContaView: React.FC<AtivarContaViewProps> = ({
     soundManager.playClick();
 
     try {
+      const cleanEmail = invitation.email.trim().toLowerCase();
       let userCredential;
       try {
-        // Attempt to create new user in Firebase Auth
-        userCredential = await createUserWithEmailAndPassword(auth, invitation.studentEmail.trim(), password);
+        userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, password);
       } catch (authErr: any) {
         if (authErr.code === 'auth/email-already-in-use') {
-          // If already in use, attempt sign-in with provided password
           try {
-            userCredential = await signInWithEmailAndPassword(auth, invitation.studentEmail.trim(), password);
-          } catch (signErr: any) {
-            toastError('Conta Já Existente', 'O e-mail já possui uma conta no sistema. Se esqueceu sua palavra-passe, use o botão de recuperação abaixo.');
+            userCredential = await signInWithEmailAndPassword(auth, cleanEmail, password);
+          } catch {
+            toastError(
+              'Conta Já Existente',
+              'Este e-mail já possui uma palavra-passe no sistema. Se não se lembra, utilize "Recuperar Palavra-passe" abaixo.'
+            );
             setIsActivating(false);
             return;
           }
@@ -190,237 +216,328 @@ export const AtivarContaView: React.FC<AtivarContaViewProps> = ({
         }
       }
 
-      const uid = userCredential.user.uid;
+      const authUser = userCredential.user;
+      if ((authUser.email || '').trim().toLowerCase() !== cleanEmail) {
+        throw new Error('O e-mail autenticado não corresponde ao e-mail autorizado neste convite.');
+      }
 
-      // Update user display name in Auth
       try {
-        await updateProfile(userCredential.user, {
-          displayName: invitation.studentName
-        });
-      } catch (e) {
-        // ignore profile update error
+        await updateProfile(authUser, { displayName: invitation.fullName });
+      } catch {
+        // non-blocking
       }
 
-      // Create / Update User Profile in /users/{uid}
-      const userProfile = {
-        id: uid,
-        uid: uid,
-        name: invitation.studentName,
-        displayName: invitation.studentName,
-        email: invitation.studentEmail,
-        role: 'ALUNO',
-        roles: ['ALUNO'],
-        institutionId: invitation.institutionId,
-        branchId: invitation.branchId || 'todas',
-        status: 'Ativo',
-        createdAt: new Date().toISOString(),
-        lastLoginAt: new Date().toISOString(),
-        studentId: invitation.studentId,
-        studentCode: invitation.studentCode
-      };
-      await setDoc(doc(db, COLLECTIONS.USERS, uid), userProfile, { merge: true });
-
-      // Link userId in student record in /students/{studentId}
-      if (associatedStudent) {
-        const updatedStudent: Student = {
-          ...associatedStudent,
-          userId: uid,
-          status: associatedStudent.status === 'Pré-inscrito' ? 'Matriculado' : associatedStudent.status,
-          updatedAt: new Date().toISOString(),
-          auditTrail: [
-            {
-              id: `aud-act-${Date.now()}`,
-              timestamp: new Date().toLocaleString('pt-MZ'),
-              actorName: invitation.studentName,
-              actorRole: 'ALUNO',
-              action: 'ATIVACAO_PORTAL_ALUNO',
-              details: `Conta ativada no Portal do Aluno com sucesso via convite oficial (Token ${invitation.token.slice(0, 8)}...).`
-            },
-            ...(associatedStudent.auditTrail || [])
-          ]
-        };
-        await saveStudentToFirestore(updatedStudent);
-      } else {
-        await setDoc(doc(db, COLLECTIONS.STUDENTS, invitation.studentId), {
-          userId: uid,
-          updatedAt: new Date().toISOString()
-        }, { merge: true });
+      await authUser.reload();
+      if (!authUser.emailVerified) {
+        await sendEmailVerification(authUser);
+        setAwaitingEmailVerification(true);
+        info(
+          'Confirme o Seu E-mail',
+          `Enviámos um link de verificação para ${cleanEmail}. A activação só será concluída após clicar nesse link.`
+        );
+        return;
       }
 
-      // Mark token as used in Firestore
-      await markStudentInvitationUsed(invitation.id, uid);
-
-      // Switch active institution in AppContext
-      const inst = allInstitutions.find(i => i.id === invitation.institutionId);
-      if (inst) {
-        setActiveInstitution(inst);
-      }
-
-      soundManager.playSuccess();
-      setActivatedSuccess(true);
-      success('Conta Ativada!', 'O seu acesso ao Portal do Aluno foi configurado com sucesso!');
-
-      if (onActivated) {
-        onActivated();
-      }
+      await finalizeVerifiedActivation();
     } catch (err: any) {
-      console.error('Error activating student account:', err);
-      toastError('Erro na Ativação', err.message || 'Falha ao ativar a conta. Tente novamente.');
+      console.error('Error activating invited account:', err);
+      toastError('Erro na Activação', err?.message || 'Falha ao activar a conta. Tente novamente.');
     } finally {
       setIsActivating(false);
     }
   };
 
-  const handlePasswordReset = async () => {
-    if (!invitation?.studentEmail) return;
+  const handleCheckEmailVerifiedAndFinalize = async () => {
+    setIsActivating(true);
     try {
-      await sendPasswordResetEmail(auth, invitation.studentEmail);
-      setResetEmailSent(true);
-      info('E-mail Enviado', `Um link de redefinição de palavra-passe foi enviado para ${invitation.studentEmail}.`);
+      await finalizeVerifiedActivation();
     } catch (err: any) {
-      toastError('Erro ao Enviar', err.message || 'Falha ao enviar e-mail de redefinição.');
+      soundManager.playError();
+      toastError('Verificação Pendente', err?.message || 'Confirme o link no seu e-mail primeiro.');
+    } finally {
+      setIsActivating(false);
     }
   };
 
-  const institutionObj = allInstitutions.find(i => i.id === invitation?.institutionId);
+  const handleResendVerificationEmail = async () => {
+    if (!auth.currentUser) return;
+    setResendingVerification(true);
+    try {
+      await sendEmailVerification(auth.currentUser);
+      info('E-mail Reenviado', `Novo link de verificação enviado para ${invitation?.email}.`);
+    } catch (err: any) {
+      toastError('Erro ao Reenviar', err?.message || 'Aguarde alguns momentos antes de reenviar.');
+    } finally {
+      setResendingVerification(false);
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    if (!invitation?.email) return;
+    try {
+      await sendPasswordResetEmail(auth, invitation.email);
+      setResetEmailSent(true);
+      info('E-mail Enviado', `Instruções de redefinição enviadas para ${invitation.email}.`);
+    } catch (err: any) {
+      toastError('Erro ao Enviar', err?.message || 'Falha ao enviar e-mail de redefinição.');
+    }
+  };
+
+  const handleEnterDashboard = () => {
+    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/ativar-conta')) {
+      window.history.pushState(null, '', '/');
+    }
+    if (invitation?.role) {
+      navigate(getDefaultRouteForRole(invitation.role));
+    } else if (onActivated) {
+      onActivated();
+    } else {
+      navigate('public_portal');
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#070b14] text-slate-100 flex items-center justify-center p-4 relative overflow-hidden">
-      {/* Background Glow */}
       <div className="absolute top-1/4 -left-32 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute bottom-1/4 -right-32 w-96 h-96 bg-emerald-600/10 rounded-full blur-3xl pointer-events-none" />
 
       <div className="w-full max-w-lg bg-[#0d1527] border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl relative z-10 space-y-6">
-        {/* Institutional Branding */}
         <div className="text-center space-y-2 border-b border-slate-800/80 pb-5">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-600 to-emerald-500 flex items-center justify-center mx-auto text-white shadow-lg shadow-blue-500/20">
-            <GraduationCap className="w-7 h-7" />
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-sky-600 to-emerald-500 flex items-center justify-center mx-auto text-white shadow-lg shadow-sky-500/20">
+            <KeyRound className="w-7 h-7" />
           </div>
           <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-            Ativação de Acesso — Portal do Aluno
+            Activação de Conta — Convite SIGAR PRO
           </h1>
           <p className="text-xs text-slate-400">
-            {institutionObj?.name || 'SIGAR PRO — Sistema Integrado de Gestão Acadêmica'}
+            {resolvedInstitutionName || 'Plataforma Integrada de Gestão Académica'}
           </p>
         </div>
 
-        {/* Loading State */}
-        {loading && (
-          <div className="py-12 text-center space-y-3">
-            <RefreshCw className="w-8 h-8 text-blue-400 animate-spin mx-auto" />
-            <p className="text-xs text-slate-400 font-mono">A validar token oficial de convite...</p>
-          </div>
-        )}
-
-        {/* Error State */}
-        {!loading && tokenError && !activatedSuccess && (
-          <div className="space-y-4">
-            <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-300 space-y-2">
+        {/* Manual token input when user visits /ativar-conta without query */}
+        {!loading && tokenError && !invitation && !activatedSuccess && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (tokenValue.trim()) validateToken(tokenValue.trim());
+            }}
+            className="space-y-3"
+          >
+            <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-300 space-y-1.5">
               <div className="flex items-center gap-2 font-bold text-sm">
-                <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
                 <span>Validação do Convite</span>
               </div>
               <p className="text-xs leading-relaxed">{tokenError}</p>
             </div>
-
-            {invitation && (
-              <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
-                <p className="text-xs text-slate-400">
-                  Já possui palavra-passe cadastrada para este formando (<strong className="text-white">{invitation.studentEmail}</strong>)?
-                </p>
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <button
-                    onClick={handlePasswordReset}
-                    disabled={resetEmailSent}
-                    className="flex-1 py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                  >
-                    <Mail className="w-4 h-4" />
-                    <span>{resetEmailSent ? 'E-mail de Recuperação Enviado!' : 'Recuperar Palavra-passe'}</span>
-                  </button>
-                  <button
-                    onClick={() => navigate('portal_aluno')}
-                    className="py-2 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold cursor-pointer"
-                  >
-                    Ir ao Login
-                  </button>
-                </div>
-              </div>
-            )}
-
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={tokenValue}
+                onChange={(e) => setTokenValue(e.target.value)}
+                placeholder="Cole o token do convite recebido..."
+                className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono focus:outline-hidden focus:border-sky-500"
+              />
+              <button
+                type="submit"
+                className="px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold cursor-pointer"
+              >
+                Validar
+              </button>
+            </div>
             <button
-              onClick={() => navigate('public_portal')}
-              className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer transition-colors"
+              type="button"
+              onClick={() => {
+                if (typeof window !== 'undefined' && window.location.pathname.startsWith('/ativar-conta')) {
+                  window.history.pushState(null, '', '/');
+                }
+                navigate('public_portal');
+              }}
+              className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
             >
               Voltar ao Portal Público
             </button>
+          </form>
+        )}
+
+        {loading && (
+          <div className="py-12 text-center space-y-3">
+            <RefreshCw className="w-8 h-8 text-sky-400 animate-spin mx-auto" />
+            <p className="text-xs text-slate-400 font-mono">A validar token único de convite...</p>
           </div>
         )}
 
-        {/* Success State */}
-        {activatedSuccess && (
+        {/* Convite encontrado mas inválido/usado/revogado/expirado */}
+        {!loading && tokenError && invitation && !activatedSuccess && (
+          <div className="space-y-4">
+            <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-300 space-y-2">
+              <div className="flex items-center gap-2 font-bold text-sm">
+                <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+                <span>Convite Indisponível</span>
+              </div>
+              <p className="text-xs leading-relaxed">{tokenError}</p>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
+              <p className="text-xs text-slate-400">
+                Já activou anteriormente a sua conta para <strong className="text-white">{invitation.email}</strong>?
+              </p>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <button
+                  type="button"
+                  onClick={handlePasswordReset}
+                  disabled={resetEmailSent}
+                  className="flex-1 py-2 px-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <Mail className="w-4 h-4" />
+                  <span>{resetEmailSent ? 'E-mail Enviado!' : 'Recuperar Senha'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/ativar-conta')) {
+                      window.history.pushState(null, '', '/');
+                    }
+                    navigate('public_portal');
+                  }}
+                  className="py-2 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold cursor-pointer"
+                >
+                  Ir ao Login
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Sucesso */}
+        {activatedSuccess && invitation && (
           <div className="text-center space-y-5 py-4">
             <div className="w-16 h-16 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center mx-auto">
               <CheckCircle2 className="w-8 h-8" />
             </div>
 
             <div className="space-y-1">
-              <h2 className="text-xl font-bold text-white">Conta Ativada com Sucesso!</h2>
+              <h2 className="text-xl font-bold text-white">Conta Activada com Sucesso!</h2>
               <p className="text-xs text-slate-300 max-w-sm mx-auto">
-                Olá, <strong className="text-emerald-400">{invitation?.studentName}</strong>! Sua palavra-passe foi gravada e seu acesso ao Portal do Aluno está 100% liberado.
+                Olá, <strong className="text-emerald-400">{invitation.fullName}</strong>! O seu perfil como{' '}
+                <strong className="text-sky-300">{getRoleDisplayName(invitation.role)}</strong> está activo.
               </p>
             </div>
 
             <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 text-left font-mono text-xs space-y-1">
-              <div className="text-slate-400">Código de Aluno: <span className="text-emerald-400 font-bold">{invitation?.studentCode}</span></div>
-              <div className="text-slate-400">E-mail: <span className="text-white">{invitation?.studentEmail}</span></div>
-              <div className="text-slate-400">Instituição: <span className="text-blue-400">{institutionObj?.name || 'Instituição Vinculada'}</span></div>
+              <div className="text-slate-400">E-mail: <span className="text-white">{invitation.email}</span></div>
+              <div className="text-slate-400">Perfil: <span className="text-emerald-400 font-bold">{getRoleDisplayName(invitation.role)}</span></div>
+              <div className="text-slate-400">Instituição: <span className="text-sky-400">{resolvedInstitutionName || invitation.institutionId}</span></div>
             </div>
 
             <button
-              onClick={() => navigate('portal_aluno')}
+              type="button"
+              onClick={handleEnterDashboard}
               className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/20 transition-all"
             >
-              <span>Aceder ao Meu Portal do Aluno</span>
+              <span>Entrar no Meu Painel</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
         )}
 
-        {/* Activation Form */}
-        {!loading && !tokenError && !activatedSuccess && invitation && (
-          <form onSubmit={handleActivateAccount} className="space-y-4">
-            {/* Student Dossier Badge */}
-            <div className="p-4 rounded-2xl bg-[#090e1a] border border-blue-500/20 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400 flex items-center gap-1.5">
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  Dossiê Escolar Vinculado
-                </span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  {invitation.studentCode}
-                </span>
+        {/* Aguardando confirmação efectiva de email_verified */}
+        {!loading && !tokenError && awaitingEmailVerification && !activatedSuccess && invitation && (
+          <div className="space-y-4">
+            <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 space-y-2">
+              <div className="flex items-center gap-2 font-bold text-sm text-amber-300">
+                <Mail className="w-5 h-5 shrink-0" />
+                <span>Confirmação de E-mail Obrigatória</span>
               </div>
-              <h3 className="text-base font-bold text-white">{invitation.studentName}</h3>
-              <p className="text-xs text-slate-400 flex items-center gap-1.5">
-                <Mail className="w-3.5 h-3.5 text-slate-500" />
-                <span>{invitation.studentEmail}</span>
+              <p className="text-xs leading-relaxed">
+                A sua palavra-passe foi criada, mas por segurança o convite só será activado após confirmar o link enviado para{' '}
+                <strong className="text-white">{invitation.email}</strong>.
+              </p>
+              <p className="text-[11px] text-amber-300/80">
+                1. Abra a sua caixa de correio (verifique também Spam/Lixo).
+                <br />
+                2. Clique no link de confirmação do Firebase.
+                <br />
+                3. Volte aqui e clique em <strong>&quot;Já Confirmei o Meu E-mail&quot;</strong>.
               </p>
             </div>
 
-            {/* Password input */}
+            <button
+              type="button"
+              onClick={handleCheckEmailVerifiedAndFinalize}
+              disabled={isActivating}
+              className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-50"
+            >
+              {isActivating ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>A Validar Confirmação no Servidor...</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Já Confirmei o Meu E-mail — Concluir Activação</span>
+                </>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleResendVerificationEmail}
+              disabled={resendingVerification}
+              className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold cursor-pointer disabled:opacity-50"
+            >
+              {resendingVerification ? 'A reenviar...' : 'Reenviar E-mail de Verificação'}
+            </button>
+          </div>
+        )}
+
+        {/* Formulário de Activação */}
+        {!loading && !tokenError && !awaitingEmailVerification && !activatedSuccess && invitation && (
+          <form onSubmit={handleActivateAccount} className="space-y-4">
+            <div className="p-4 rounded-2xl bg-[#090e1a] border border-sky-500/20 space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-sky-400 flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Convite Oficial Validado
+                </span>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                  {getRoleDisplayName(invitation.role)}
+                </span>
+              </div>
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <UserCheck className="w-4 h-4 text-emerald-400" />
+                {invitation.fullName}
+              </h3>
+              <div className="grid grid-cols-1 gap-1 text-xs text-slate-400">
+                <div className="flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5 text-slate-500" />
+                  <span>{invitation.email}</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Building2 className="w-3.5 h-3.5 text-slate-500" />
+                  <span>{resolvedInstitutionName || invitation.institutionId}</span>
+                </div>
+              </div>
+              <div className="text-[10px] font-mono text-slate-500 pt-1 border-t border-slate-800/70">
+                Permissões atribuídas: {invitation.permissions?.length || 0} • Expira em{' '}
+                {new Date(invitation.expiresAt).toLocaleDateString('pt-MZ')}
+              </div>
+            </div>
+
             <div className="space-y-1.5">
               <label className="block text-xs font-semibold text-slate-300">
-                Criar Palavra-passe de Acesso <span className="text-rose-400">*</span>
+                Definir Palavra-passe Segura <span className="text-rose-400">*</span>
               </label>
               <div className="relative">
                 <input
                   type={showPassword ? 'text' : 'password'}
                   required
-                  minLength={6}
+                  minLength={8}
                   value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  placeholder="Mínimo de 6 caracteres"
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 pr-10"
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Mínimo 8 caracteres (letras + número/símbolo)"
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-sky-500 pr-10"
                 />
                 <button
                   type="button"
@@ -430,9 +547,29 @@ export const AtivarContaView: React.FC<AtivarContaViewProps> = ({
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
+              {password.length > 0 && (
+                <div className="space-y-1 pt-1">
+                  <div className="grid grid-cols-5 gap-1 h-1">
+                    {[1, 2, 3, 4, 5].map((lvl) => (
+                      <div
+                        key={lvl}
+                        className={`rounded-full ${
+                          passwordCheck.score >= lvl
+                            ? passwordCheck.valid
+                              ? 'bg-emerald-500'
+                              : 'bg-amber-500'
+                            : 'bg-slate-800'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                  {!passwordCheck.valid && (
+                    <p className="text-[11px] text-amber-400">{passwordCheck.errors[0]}</p>
+                  )}
+                </div>
+              )}
             </div>
 
-            {/* Confirm password */}
             <div className="space-y-1.5">
               <label className="block text-xs font-semibold text-slate-300">
                 Confirmar Palavra-passe <span className="text-rose-400">*</span>
@@ -440,37 +577,35 @@ export const AtivarContaView: React.FC<AtivarContaViewProps> = ({
               <input
                 type={showPassword ? 'text' : 'password'}
                 required
-                minLength={6}
+                minLength={8}
                 value={confirmPassword}
-                onChange={e => setConfirmPassword(e.target.value)}
+                onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Repita a palavra-passe"
-                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-sky-500"
               />
             </div>
 
-            {/* Security Notice */}
             <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 text-[11px] text-slate-400 flex items-start gap-2">
-              <Lock className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+              <Lock className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
               <span>
-                Esta palavra-passe será a sua credencial oficial para entrar no Portal do Aluno em qualquer dispositivo. Guarde-a em local seguro.
+                Este link é de uso único. Após a activação, utilize o login único do SIGAR PRO com o seu e-mail e palavra-passe.
               </span>
             </div>
 
-            {/* Submit Button */}
             <button
               type="submit"
               disabled={isActivating}
-              className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-blue-600/20 active:scale-95 transition-all disabled:opacity-50"
+              className="w-full py-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-sky-600/20 active:scale-95 transition-all disabled:opacity-50"
             >
               {isActivating ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>A Ativar Acesso...</span>
+                  <span>A Activar Conta...</span>
                 </>
               ) : (
                 <>
                   <Sparkles className="w-4 h-4 text-amber-300" />
-                  <span>Ativar Minha Conta & Entrar</span>
+                  <span>Activar Minha Conta &amp; Continuar</span>
                 </>
               )}
             </button>

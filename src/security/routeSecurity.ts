@@ -48,6 +48,17 @@ export const ROUTE_POLICIES: Partial<Record<AppRoute, RouteSecurityPolicy>> = {
     category: 'Public',
     isPublic: true
   },
+  vagas_publicas: {
+    allowedRoles: ['VISITANTE', 'ALUNO', 'PROFESSOR', 'FORMADOR', 'SECRETARIA', 'FINANCEIRO', 'DIRETOR', 'ADMIN_INSTITUICAO', 'SUPER_ADMIN', 'PORTEIRO', 'RESPONSAVEL', 'EMPRESA'],
+    title: 'Portal Público de Vagas e Carreiras',
+    category: 'Public',
+    isPublic: true
+  },
+  vagas_gestao: {
+    allowedRoles: ['SUPER_ADMIN', 'ADMIN_INSTITUICAO', 'DIRETOR', 'CEO', 'SECRETARIA'],
+    title: 'Gestão de Vagas de Emprego e Candidaturas',
+    category: 'Direção'
+  },
   inscricao_privada: {
     allowedRoles: ['SECRETARIA', 'DIRETOR', 'ADMIN_INSTITUICAO', 'SUPER_ADMIN', 'VISITANTE'],
     title: 'Inscrição Privada & Balcão',

@@ -61,6 +61,7 @@ import { soundManager } from '../../utils/audio';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { InstitutionLogoBadge } from '../../components/common/InstitutionLogoBadge';
+import { UserInvitationsPanel } from '../../components/auth/UserInvitationsPanel';
 
 export type CoreTab = 
   | 'dashboard' 
@@ -1157,7 +1158,11 @@ export const MoztechwaveCoreView: React.FC = () => {
 
       {/* 90.3 GESTÃO DE UTILIZADORES (IAM GLOBAL) */}
       {activeTab === 'utilizadores' && (
-        <div className="space-y-5">
+        <div className="space-y-6">
+          <UserInvitationsPanel
+            institution={activeInstitution?.id ? activeInstitution : (allInstitutions[0] || null)}
+            allowAllInstitutions={true}
+          />
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-slate-900/80 border border-slate-800 p-4 rounded-2xl">
             <div className="relative flex-1 max-w-md">
               <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />

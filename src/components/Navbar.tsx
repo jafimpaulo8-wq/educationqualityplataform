@@ -11,7 +11,8 @@ import {
   Lock,
   Sun,
   Moon,
-  KeyRound
+  KeyRound,
+  Briefcase
 } from 'lucide-react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useApp } from '../context/AppContext';
@@ -20,6 +21,7 @@ interface NavbarProps {
   onNavigateToPlatform: (mode?: 'google' | 'credentials') => void;
   onOpenPublicVerify: () => void;
   onOpenOnlineRegistration?: () => void;
+  onOpenJobsPortal?: () => void;
   onOpenRegisterInstitution: () => void;
   onOpenHelp: () => void;
 }
@@ -28,6 +30,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onNavigateToPlatform,
   onOpenPublicVerify,
   onOpenOnlineRegistration,
+  onOpenJobsPortal,
   onOpenRegisterInstitution,
   onOpenHelp,
 }) => {
@@ -96,6 +99,22 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <GraduationCap className="w-4 h-4 text-emerald-500" />
                 <span>Inscrição Online</span>
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              </button>
+            )}
+
+            {/* Vagas de Emprego */}
+            {onOpenJobsPortal && (
+              <button
+                type="button"
+                onClick={onOpenJobsPortal}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  isLight
+                    ? 'text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200'
+                    : 'text-sky-300 hover:text-white bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/25'
+                }`}
+              >
+                <Briefcase className="w-4 h-4 text-sky-400" />
+                <span>Vagas de Emprego</span>
               </button>
             )}
 
@@ -270,6 +289,19 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 <GraduationCap className="w-4 h-4 text-emerald-500" />
                 <span>Inscrição Online (Candidatos)</span>
+              </button>
+            )}
+
+            {onOpenJobsPortal && (
+              <button
+                type="button"
+                onClick={() => { onOpenJobsPortal(); setMobileMenuOpen(false); }}
+                className={`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold ${
+                  isLight ? 'text-sky-700 bg-sky-50 hover:bg-sky-100' : 'text-sky-300 bg-sky-500/10 hover:bg-sky-500/20'
+                }`}
+              >
+                <Briefcase className="w-4 h-4 text-sky-400" />
+                <span>Vagas de Emprego</span>
               </button>
             )}
 

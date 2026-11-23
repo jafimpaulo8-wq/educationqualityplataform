@@ -62,6 +62,8 @@ import { RBACMatrixView } from './views/admin/RBACMatrixView';
 import { CandidatesManagementView } from './views/secretariat/CandidatesManagementView';
 import { PrivateRegistrationView } from './views/secretariat/PrivateRegistrationView';
 import { PublicRegistrationView } from './views/public/PublicRegistrationView';
+import { PublicJobsView } from './views/public/PublicJobsView';
+import { RecruitmentManagerView } from './views/recruitment/RecruitmentManagerView';
 import { AtivarContaView } from './views/auth/AtivarContaView';
 import { PublicSivecVerifyPage } from './views/sivec/PublicSivecVerifyPage';
 import { CoursesManagementView } from './views/courses/CoursesManagementView';
@@ -102,7 +104,7 @@ import { PublicPortalLanding } from './components/public/PublicPortalLanding';
 import { SigarOnboardingTour } from './components/onboarding/SigarOnboardingTour';
 import { AccessDeniedView } from './components/security/AccessDeniedView';
 import { isRouteAllowed } from './security/routeSecurity';
-import { isPublicRegistrationPath } from './services/publicInstitutionService';
+import { isPublicJobsPath, isPublicRegistrationPath } from './services/publicInstitutionService';
 import { Loader2, Sparkles, Lock, ArrowLeft, LogOut } from 'lucide-react';
 
 import { 
@@ -229,6 +231,15 @@ const MainAppContent: React.FC = () => {
     );
   }
 
+  // Portal Público de Vagas de Emprego (/vagas, /empregos, /i/:slug/vagas) — verificado ANTES de inscricao_publica
+  const isPublicJobs =
+    isPublicJobsPath(pathname, hash) ||
+    currentRoute === 'vagas_publicas';
+
+  if (isPublicJobs) {
+    return <PublicJobsView />;
+  }
+
   // If browsing the dedicated Online Registration Public Page (/i/:slug, #i/:slug, /instituicoes/:slug/inscricoes or #instituicoes/:slug/inscricoes)
   const isInstitutionInscricoes =
     isPublicRegistrationPath(pathname, hash) ||
@@ -259,6 +270,7 @@ const MainAppContent: React.FC = () => {
           onNavigateToPlatform={(mode) => handleOpenAuth((mode as any) || 'google')}
           onOpenPublicVerify={() => navigate('public_verify')}
           onOpenOnlineRegistration={() => navigate('inscricao_publica')}
+          onOpenJobsPortal={() => navigate('vagas_publicas')}
           onOpenRegisterInstitution={() => handleOpenAuth('new_inst' as any)}
           onOpenHelp={() => handleOpenAuth('google')}
         />
@@ -274,6 +286,7 @@ const MainAppContent: React.FC = () => {
               ...(courseName ? { course: courseName } : {})
             })
           }
+            onOpenJobsPortal={() => navigate('vagas_publicas')}
             onOpenRegisterInstitution={() => handleOpenAuth('new_inst' as any)}
             onOpenHelp={() => handleOpenAuth('google')}
           />
@@ -472,6 +485,10 @@ const MainAppContent: React.FC = () => {
         return <RBACMatrixView />;
       case 'candidatos_gestao':
         return <CandidatesManagementView />;
+      case 'vagas_gestao':
+        return <RecruitmentManagerView />;
+      case 'vagas_publicas':
+        return <PublicJobsView />;
       case 'cursos_gestao':
         return <CoursesManagementView />;
       case 'inscricao_publica':

@@ -77,19 +77,23 @@ export const PaymentPortalView: React.FC = () => {
   // Mode: 'student_portal' (Efetuar Pagamento) vs 'admin_management' (Homologação Tesouraria)
   const [activeTab, setActiveTab] = useState<'student_portal' | 'admin_management'>('student_portal');
 
-  // Selected student (in student portal mode)
-  const [selectedStudentId, setSelectedStudentId] = useState<string>(() => {
-    return allStudents.length > 0 ? allStudents[0].id : '';
-  });
+  // Selected student (zero automatic fallback to allStudents[0] to prevent cross-student data exposure)
+  const [selectedStudentId, setSelectedStudentId] = useState<string>('');
 
   const selectedStudent = useMemo(() => {
-    if (!canManageFinance && firebaseUser) {
+    if (!canManageFinance) {
+      if (!firebaseUser) return null;
       return (
-        allStudents.find(s => s.userId === firebaseUser.uid || (userProfile as any)?.studentId === s.id) ||
-        allStudents[0]
+        allStudents.find(
+          (s) =>
+            s.userId === firebaseUser.uid ||
+            (userProfile as any)?.studentId === s.id ||
+            (firebaseUser.email && s.email?.toLowerCase() === firebaseUser.email.toLowerCase())
+        ) || null
       );
     }
-    return allStudents.find(s => s.id === selectedStudentId) || allStudents[0];
+    if (!selectedStudentId) return null;
+    return allStudents.find((s) => s.id === selectedStudentId) || null;
   }, [allStudents, selectedStudentId, canManageFinance, firebaseUser, userProfile]);
 
   // Form State for Efetuar Pagamento
@@ -450,7 +454,37 @@ export const PaymentPortalView: React.FC = () => {
         {/* ========================================================= */}
         {/* 1. VISÃO DO ALUNO: EFETUAR PAGAMENTO                      */}
         {/* ========================================================= */}
-        {activeTab === 'student_portal' && (
+        {activeTab === 'student_portal' && !selectedStudent && (
+          <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm text-center space-y-4 max-w-xl mx-auto my-8">
+            <AlertCircle className="w-10 h-10 text-amber-500 mx-auto" />
+            <h2 className="text-lg font-bold text-slate-900">
+              {canManageFinance ? 'Seleccione um Formando para Lançamento Assistido' : 'Sem Registo de Estudante Associado'}
+            </h2>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              {canManageFinance
+                ? 'Escolha explicitamente o formando abaixo para submeter ou consultar pagamentos em seu nome.'
+                : 'A sua conta autenticada não possui matrícula vinculada nesta instituição. Por motivos de privacidade, nenhum dado de outro estudante é apresentado.'}
+            </p>
+            {canManageFinance && allStudents.length > 0 && (
+              <div className="pt-2">
+                <select
+                  value={selectedStudentId}
+                  onChange={(e) => setSelectedStudentId(e.target.value)}
+                  className="w-full max-w-md text-xs bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 font-semibold text-slate-800 cursor-pointer"
+                >
+                  <option value="">Selecionar formando...</option>
+                  {allStudents.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.fullName} ({s.code}) - Saldo: {s.balanceOwing || 0} MT
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'student_portal' && selectedStudent && (
           <div className="space-y-8">
             {/* Student Switcher / Info Card */}
             <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -480,6 +514,7 @@ export const PaymentPortalView: React.FC = () => {
                     onChange={(e) => setSelectedStudentId(e.target.value)}
                     className="text-xs bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 font-medium text-slate-800 focus:outline-emerald-500 cursor-pointer"
                   >
+                    <option value="">Selecionar formando...</option>
                     {allStudents.map(s => (
                       <option key={s.id} value={s.id}>
                         {s.fullName} ({s.code}) - Saldo: {s.balanceOwing || 0} MT

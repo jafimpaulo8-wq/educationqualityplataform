@@ -81,8 +81,8 @@ export const CEU_AZUL_INSTITUTION: Institution & {
     mpesaNumber: '853 181 189',
     emolaNumber: '864 826 647'
   },
-  slug: 'ceu-azul',
-  slugAliases: ['ceu-azul-nacala', 'centro-infantil-ceu-azul', 'ceu-azul-001'],
+  slug: 'ceu-azul-nacala',
+  slugAliases: ['ceu-azul', 'ceu-azul-nacala', 'centro-infantil-ceu-azul', 'ceu-azul-001'],
   onlineRegistrationConfig: {
     institutionId: CEU_AZUL_INSTITUTION_ID,
     isOpen: true,

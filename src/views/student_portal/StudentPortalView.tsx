@@ -117,7 +117,7 @@ export const StudentPortalView: React.FC = () => {
   } = useApp();
   const identity = resolveInstitutionIdentity(activeInstitution);
 
-  // Aluno autenticado real no Firebase (PARTE 10)
+  // Aluno autenticado real no Firebase (sem fallback automático para students[0])
   const currentStudent = useMemo<Student | null>(() => {
     if (authenticatedStudent) return authenticatedStudent;
     if (firebaseUser) {
@@ -127,15 +127,9 @@ export const StudentPortalView: React.FC = () => {
         const matchByEmail = students.find(s => s.email?.toLowerCase() === firebaseUser.email?.toLowerCase());
         if (matchByEmail) return matchByEmail;
       }
-      // Se for papel ALUNO ou estudante logado, não mostrar outros alunos
-      const isStudentRole = (activeRole as string) === 'ALUNO' || (activeRole as string) === 'aluno';
-      if (isStudentRole) {
-        return null;
-      }
     }
-    // Modo de demonstração / visualização administrativa
-    return students[0] || null;
-  }, [authenticatedStudent, firebaseUser, students, activeRole]);
+    return null;
+  }, [authenticatedStudent, firebaseUser, students]);
 
   const activeTab: PortalTabId = VALID_PORTAL_TABS.includes(activeStudentPortalTab as PortalTabId)
     ? (activeStudentPortalTab as PortalTabId)

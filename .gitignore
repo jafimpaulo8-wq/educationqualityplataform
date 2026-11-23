@@ -6,3 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+backups/
+firebase/functions/node_modules/
+firebase/functions/lib/

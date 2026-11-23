@@ -24,7 +24,10 @@ import {
   XCircle,
   BookOpen,
   Camera,
-  HeartHandshake
+  HeartHandshake,
+  Building2,
+  MapPin,
+  KeyRound
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useApp } from '../../context/AppContext';
@@ -33,11 +36,15 @@ import { soundManager } from '../../utils/audio';
 import { PROVINCES_MOZAMBIQUE } from '../../data/mockData';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
-import { RegistrationApplication, PublicInstitution, OnlineCourseConfig } from '../../types';
+import { RegistrationApplication, PublicInstitution, OnlineCourseConfig, Institution } from '../../types';
 import {
   extractSlugFromLocation,
   resolvePublicInstitutionBySlug,
-  compressImageToBase64
+  compressImageToBase64,
+  generateSecureInvitationToken,
+  KNOWN_INSTITUTIONS,
+  normalizeSlug,
+  resolveInstitutionSlug
 } from '../../services/publicInstitutionService';
 import {
   createEmptyOnlineRegistrationConfig,
@@ -104,6 +111,7 @@ export const PublicRegistrationView: React.FC = () => {
     addApplication,
     applications,
     navigate,
+    routeParams,
     openWhatsAppMessage,
     setPublicPortalIdentity,
     themeMode
@@ -112,25 +120,29 @@ export const PublicRegistrationView: React.FC = () => {
 
   const isLight = themeMode === 'branco';
 
-  // URL slug sincronizado dinamicamente com hash/popstate
-  const [urlSlug, setUrlSlug] = useState<string>(() => extractSlugFromBrowser());
+  // URL slug sincronizado dinamicamente com hash/popstate/routeParams
+  const routeParamSlug = normalizeSlug(String(routeParams?.inst || routeParams?.slug || ''));
+  const [urlSlug, setUrlSlug] = useState<string>(() => extractSlugFromBrowser() || routeParamSlug);
 
   useEffect(() => {
     const syncSlug = () => {
-      setUrlSlug(extractSlugFromBrowser());
+      const next = extractSlugFromBrowser() || routeParamSlug;
+      setUrlSlug(next);
     };
+    syncSlug();
     window.addEventListener('hashchange', syncSlug);
     window.addEventListener('popstate', syncSlug);
     return () => {
       window.removeEventListener('hashchange', syncSlug);
       window.removeEventListener('popstate', syncSlug);
     };
-  }, []);
+  }, [routeParamSlug]);
 
   // Resolução Assíncrona e Isolada da Instituição Pública
   const [resolvedPublicInst, setResolvedPublicInst] = useState<PublicInstitution | null>(null);
   const [isLoadingInst, setIsLoadingInst] = useState<boolean>(true);
   const [slugNotFound, setSlugNotFound] = useState<boolean>(false);
+  const [noSlugDirectoryMode, setNoSlugDirectoryMode] = useState<boolean>(false);
 
   // Active Main View Tab & Step State
   const [activeTab, setActiveTab] = useState<'formulario' | 'consultar'>('formulario');
@@ -181,11 +193,13 @@ export const PublicRegistrationView: React.FC = () => {
 
     if (!urlSlug) {
       setResolvedPublicInst(null);
-      setSlugNotFound(true);
+      setSlugNotFound(false);
+      setNoSlugDirectoryMode(true);
       setIsLoadingInst(false);
       return;
     }
 
+    setNoSlugDirectoryMode(false);
     setIsLoadingInst(true);
     resolvePublicInstitutionBySlug(urlSlug, allInstitutions)
       .then(result => {
@@ -617,6 +631,7 @@ export const PublicRegistrationView: React.FC = () => {
       const prefix = (resolvedPublicInst.code || 'CAND').replace(/[^a-zA-Z0-9]/g, '');
       const year = effectiveConfig.academicYear?.match(/\d{4}/)?.[0] || String(new Date().getFullYear());
       const applicationCode = `${prefix}-${year}-${randomSeq}`;
+      const trackingToken = generateSecureInvitationToken();
       const applicationId = `reg-${Date.now()}`;
       const portalSlug = resolvedPublicInst.slug;
       const normalizedTxCode = paymentTxCode.trim().toUpperCase();
@@ -625,6 +640,7 @@ export const PublicRegistrationView: React.FC = () => {
       const candidatePayload: any = sanitizeFirestoreData({
         id: applicationId,
         code: applicationCode,
+        trackingToken,
         slug: portalSlug,
         institutionId: resolvedPublicInst.institutionId,
         branchId: resolvedPublicInst.branches?.[0]?.id || 'branch-main',
@@ -676,9 +692,9 @@ export const PublicRegistrationView: React.FC = () => {
         ...(privateTokenParam ? { privateInviteToken: privateTokenParam } : {})
       });
 
-      // Tracking seguro (sem PII)
+      // Tracking seguro (sem PII) indexado por trackingToken de alta entropia
       const trackingPayload = sanitizeFirestoreData({
-        token: applicationCode,
+        token: trackingToken,
         code: applicationCode,
         applicationId,
         slug: portalSlug,
@@ -701,12 +717,21 @@ export const PublicRegistrationView: React.FC = () => {
       });
 
       try {
-        await setDoc(doc(db, 'applicationTracking', applicationCode), {
+        await setDoc(doc(db, 'applicationTracking', trackingToken), {
           ...trackingPayload,
           createdAt: serverTimestamp()
         });
       } catch (e) {
         console.warn('[Firestore] applicationTracking/{token} sync:', e);
+      }
+
+      try {
+        await setDoc(doc(db, 'applicationTracking', applicationCode), {
+          ...trackingPayload,
+          createdAt: serverTimestamp()
+        });
+      } catch (e) {
+        console.warn('[Firestore] applicationTracking/{code} sync:', e);
       }
 
       try {
@@ -749,42 +774,48 @@ export const PublicRegistrationView: React.FC = () => {
     setLookupAttempted(true);
     const q = searchCode.trim().toLowerCase();
 
-    try {
-      const trackingRef = doc(db, 'applicationTracking', searchCode.trim().toUpperCase());
-      const trackingSnap = await getDoc(trackingRef);
-      if (trackingSnap.exists()) {
-        const trData = trackingSnap.data();
-        if (trData.institutionId === resolvedPublicInst.institutionId || trData.slug === resolvedPublicInst.slug) {
-          setLookedUpApplication({
-            id: trData.applicationId || trData.token,
-            code: trData.code || trData.token,
-            institutionId: trData.institutionId,
-            slug: trData.slug,
-            fullName: trData.maskedName || 'Candidato',
-            documentType: 'BI',
-            documentNumber: '••••••••',
-            email: '••••••••',
-            phone: '••••••••',
-            province: '••••••••',
-            city: '••••••••',
-            birthDate: '••••••••',
-            gender: 'Outro',
-            courseId: trData.courseId || '',
-            courseName: trData.courseName || '',
-            regime: trData.regime || 'Regular',
-            status: trData.status || 'submetida',
-            photoUrl: '',
-            createdAt: formatFirestoreTimestamp(trData.createdAt),
-            paymentStatus: trData.paymentStatus || 'Pendente',
-            paymentReference: '••••••••',
-            documents: []
-          });
-          soundManager.playSuccess();
-          return;
+    const trimmedQuery = searchCode.trim();
+    const candidateKeys = Array.from(new Set([trimmedQuery, trimmedQuery.toUpperCase()]));
+
+    for (const lookupKey of candidateKeys) {
+      try {
+        const trackingRef = doc(db, 'applicationTracking', lookupKey);
+        const trackingSnap = await getDoc(trackingRef);
+        if (trackingSnap.exists()) {
+          const trData = trackingSnap.data();
+          if (trData.institutionId === resolvedPublicInst.institutionId || trData.slug === resolvedPublicInst.slug) {
+            setLookedUpApplication({
+              id: trData.applicationId || trData.token,
+              code: trData.code || trData.token,
+              trackingToken: trData.token,
+              institutionId: trData.institutionId,
+              slug: trData.slug,
+              fullName: trData.maskedName || 'Candidato',
+              documentType: 'BI',
+              documentNumber: '••••••••',
+              email: '••••••••',
+              phone: '••••••••',
+              province: '••••••••',
+              city: '••••••••',
+              birthDate: '••••••••',
+              gender: 'Outro',
+              courseId: trData.courseId || '',
+              courseName: trData.courseName || '',
+              regime: trData.regime || 'Regular',
+              status: trData.status || 'submetida',
+              photoUrl: '',
+              createdAt: formatFirestoreTimestamp(trData.createdAt),
+              paymentStatus: trData.paymentStatus || 'Pendente',
+              paymentReference: '••••••••',
+              documents: []
+            });
+            soundManager.playSuccess();
+            return;
+          }
         }
+      } catch (e) {
+        console.warn('Consulta applicationTracking:', e);
       }
-    } catch (e) {
-      console.warn('Consulta applicationTracking:', e);
     }
 
     const found = applications.find(app => {
@@ -793,18 +824,41 @@ export const PublicRegistrationView: React.FC = () => {
       if (!matchInst) return false;
       return (
         app.code.toLowerCase() === q ||
-        (app.documentNumber && app.documentNumber.toLowerCase() === q) ||
-        (app.phone && q.replace(/\D/g, '').length >= 6 && app.phone.replace(/\D/g, '').includes(q.replace(/\D/g, '')))
+        (app.trackingToken && app.trackingToken.toLowerCase() === q)
       );
     });
 
-    setLookedUpApplication(found || null);
     if (found) {
+      setLookedUpApplication({
+        ...found,
+        fullName: maskCandidateName(found.fullName),
+        documentNumber: '••••••••',
+        email: '••••••••',
+        phone: '••••••••',
+        province: '••••••••',
+        city: '••••••••',
+        address: undefined,
+        birthDate: '••••••••',
+        paymentReference: '••••••••',
+        documents: []
+      });
       soundManager.playSuccess();
     } else {
+      setLookedUpApplication(null);
       soundManager.playNotification();
     }
   };
+
+  // Lista deduplicada de instituições para o diretório público (quando nenhum slug foi especificado)
+  const directoryInstitutions: Institution[] = useMemo(() => {
+    const map = new Map<string, Institution>();
+    [...KNOWN_INSTITUTIONS, ...(allInstitutions || [])].forEach(inst => {
+      if (inst?.id && !map.has(inst.id)) {
+        map.set(inst.id, inst);
+      }
+    });
+    return Array.from(map.values());
+  }, [allInstitutions]);
 
   // 1. Tela de Carregamento da Instituição
   if (isLoadingInst) {
@@ -819,6 +873,91 @@ export const PublicRegistrationView: React.FC = () => {
         </div>
         <h2 className="text-base font-bold">A carregar portal institucional...</h2>
         <p className="text-xs text-slate-400 mt-1 font-mono">SIGAR PRO • Inscrições Online</p>
+      </div>
+    );
+  }
+
+  // 1B. Selecção de Instituição (apenas quando não foi indicado nenhum slug na URL)
+  if (noSlugDirectoryMode) {
+    return (
+      <div
+        className={`min-h-screen font-sans p-4 sm:p-8 ${
+          isLight ? 'bg-slate-50 text-slate-900' : 'bg-slate-950 text-slate-100'
+        }`}
+      >
+        <div className="max-w-4xl mx-auto space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-widest font-mono">
+                SIGAR PRO • INSCRIÇÕES ONLINE POR INSTITUIÇÃO
+              </span>
+              <h1 className="text-2xl sm:text-3xl font-black tracking-tight mt-1">
+                Escolha a Instituição de Ensino
+              </h1>
+              <p className={`text-xs sm:text-sm mt-1 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+                Cada centro ou escola possui o seu próprio endereço isolado (<span className="font-mono">/i/slug</span>). Seleccione abaixo a instituição pretendida.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate('public_portal')}
+              className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 border cursor-pointer ${
+                isLight ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100' : 'bg-slate-900 border-slate-800 text-slate-200 hover:bg-slate-800'
+              }`}
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Voltar ao Portal
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {directoryInstitutions.map((inst) => {
+              const slug = resolveInstitutionSlug(inst);
+              return (
+                <div
+                  key={inst.id}
+                  className={`p-5 rounded-3xl border flex flex-col justify-between gap-4 transition-all ${
+                    isLight ? 'bg-white border-slate-200 hover:border-emerald-400 shadow-sm' : 'bg-slate-900/90 border-slate-800 hover:border-emerald-500/40'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0 overflow-hidden">
+                      {inst.logoUrl ? (
+                        <img src={inst.logoUrl} alt={inst.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <Building2 className="w-6 h-6 text-emerald-400" />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="font-bold text-sm sm:text-base truncate">{inst.name}</h3>
+                      <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-slate-400">
+                        <span className="flex items-center gap-1">
+                          <MapPin className="w-3.5 h-3.5 text-sky-400" />
+                          {inst.city || inst.province || 'Moçambique'}
+                        </span>
+                        <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-slate-800 text-emerald-300">
+                          /i/{slug}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      soundManager.playClick();
+                      navigate('inscricao_publica', { inst: slug });
+                    }}
+                    className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition-colors"
+                  >
+                    <span>Aceder ao Portal de Inscrições</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
     );
   }
@@ -1071,6 +1210,15 @@ export const PublicRegistrationView: React.FC = () => {
                   <div className="text-left sm:text-right">
                     <span className="text-xs text-slate-400 block">Número da Inscrição</span>
                     <span className="font-mono text-xl font-bold text-emerald-400">{submittedCandidate.code}</span>
+                    {submittedCandidate.trackingToken && (
+                      <div className="mt-1 flex flex-col sm:items-end gap-0.5 text-[10px] text-slate-400 font-mono">
+                        <span className="flex items-center gap-1">
+                          <KeyRound className="w-3 h-3 text-sky-400 shrink-0" />
+                          Token Seguro de Consulta:
+                        </span>
+                        <span className="text-sky-300 select-all break-all">{submittedCandidate.trackingToken}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 

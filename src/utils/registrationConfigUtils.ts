@@ -377,3 +377,18 @@ export function sanitizeFirestoreData<T>(input: T): T {
   }
   return input;
 }
+
+/**
+ * Oculta PII do nome completo do candidato para consulta pública segura.
+ * Mostra apenas as iniciais e o último apelido (ex.: "Ca•••••• Munguambe").
+ */
+export function maskCandidateName(fullName: string): string {
+  if (!fullName) return '';
+  const parts = fullName.trim().split(/\s+/);
+  if (parts.length === 1) {
+    return parts[0].slice(0, 2) + '••••••';
+  }
+  const first = parts[0];
+  const last = parts[parts.length - 1];
+  return `${first.slice(0, 2)}•••••• ${last}`;
+}

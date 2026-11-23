@@ -1412,12 +1412,152 @@ export interface PrivateInvite {
   createdBy?: string;
 }
 
+export interface UserInvitation {
+  id: string;
+  token: string;
+  fullName: string;
+  email: string;
+  phone?: string;
+  institutionId: string;
+  institutionName?: string;
+  branchId?: string;
+  role: UserRole;
+  permissions: string[];
+  linkedEntityType?: 'student' | 'teacher' | 'staff';
+  linkedEntityId?: string;
+  status: 'pendente' | 'ativado' | 'revogado' | 'expirado';
+  used: boolean;
+  revoked?: boolean;
+  expiresAt: string; // ISO string
+  expiresAtMs: number;
+  createdAt: string;
+  createdByUid: string;
+  createdByName?: string;
+  createdByEmail?: string;
+  createdByRole: string;
+  usedAt?: string;
+  usedByUid?: string;
+  revokedAt?: string;
+  revokedByUid?: string;
+}
+
+export type JobVacancyStatus = 'rascunho' | 'publicada' | 'encerrada';
+export type JobContractType =
+  | 'Tempo Inteiro'
+  | 'Tempo Parcial'
+  | 'Estágio Profissional'
+  | 'Prestação de Serviços / Consultoria';
+
+export interface JobVacancy {
+  id: string;
+  institutionId: string;
+  institutionName: string;
+  institutionSlug?: string;
+  institutionLogoUrl?: string;
+  branchId?: string;
+  title: string;
+  department?: string;
+  description: string;
+  requirements: string[];
+  qualifications?: string;
+  experienceRequired?: string;
+  location: string;
+  contractType: JobContractType;
+  salaryRange?: string;
+  vacanciesCount?: number;
+  deadline: string; // YYYY-MM-DD
+  requiredAttachments: string[];
+  status: JobVacancyStatus;
+  applicationsCount?: number;
+  createdAt: string;
+  updatedAt: string;
+  publishedAt?: string;
+  closedAt?: string;
+  createdByUid: string;
+  createdByName?: string;
+}
+
+export type JobApplicationStatus =
+  | 'RECEBIDA'
+  | 'EM ANÁLISE'
+  | 'PRÉ-SELECCIONADA'
+  | 'ENTREVISTA'
+  | 'APROVADA'
+  | 'REJEITADA'
+  | 'RETIRADA';
+
+export interface JobApplicationAttachment {
+  id: string;
+  label: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  dataUrl?: string;
+  uploadedAt: string;
+}
+
+export interface JobApplicationAuditEntry {
+  id: string;
+  action: 'SUBMITTED' | 'STATUS_CHANGED' | 'NOTE_ADDED' | 'WITHDRAWN';
+  fromStatus?: JobApplicationStatus;
+  toStatus: JobApplicationStatus;
+  note?: string;
+  actorUid: string;
+  actorName: string;
+  actorRole: string;
+  timestamp: string;
+}
+
+export interface JobApplication {
+  id: string;
+  applicationCode: string;
+  trackingToken: string;
+  vacancyId: string;
+  vacancyTitle: string;
+  institutionId: string;
+  institutionName: string;
+  fullName: string;
+  email: string;
+  phone: string;
+  academicLevel: string;
+  experienceSummary: string;
+  coverLetter?: string;
+  attachments: JobApplicationAttachment[];
+  status: JobApplicationStatus;
+  internalNotes?: string;
+  statusHistory: JobApplicationAuditEntry[];
+  submittedAt: string;
+  updatedAt: string;
+  updatedByUid?: string;
+  updatedByName?: string;
+}
+
+export interface JobApplicationTracking {
+  token: string;
+  applicationCode: string;
+  applicationId: string;
+  vacancyId: string;
+  vacancyTitle: string;
+  institutionId: string;
+  institutionName: string;
+  maskedCandidateName: string;
+  status: JobApplicationStatus;
+  publicHistory: Array<{
+    status: JobApplicationStatus;
+    timestamp: string;
+    summary: string;
+  }>;
+  submittedAt: string;
+  updatedAt: string;
+}
+
 export interface RegistrationApplication {
   id: string;
   institutionId: string;
   branchId?: string;
   slug?: string;
   code: string; // e.g. SIGAR-MZ-2026-8941 ou CAND-2026-8941
+  trackingToken?: string;
   fullName: string;
   documentType: 'BI' | 'Passaporte' | 'DIRE' | 'Cédula';
   documentNumber: string;
@@ -1635,7 +1775,9 @@ export type AppRoute =
   | 'portaria'
   | 'sala_online'
   | 'sivec_portal'
-  | 'moztechwave_ia';
+  | 'moztechwave_ia'
+  | 'vagas_publicas'
+  | 'vagas_gestao';
 
 // Cash Register (Caixa Escolar - Módulo 33)
 export type CashMovementType = 'entrada' | 'saida' | 'sangria' | 'reforco' | 'transferencia';

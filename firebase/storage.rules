@@ -1,36 +1,130 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // Helper functions
+    // =========================================================================
+    // STORAGE RULES SIGAR PRO — ISOLAMENTO MULTI-INSTITUCIONAL & DEFAULT-DENY
+    // =========================================================================
+
     function isSignedIn() {
       return request.auth != null;
     }
-    
+
+    function isVerifiedEmail() {
+      return isSignedIn() &&
+        ('email_verified' in request.auth.token) &&
+        request.auth.token.email_verified == true;
+    }
+
+    // SUPER_ADMIN exclusivo: moztechwavenacala8@gmail.com com e-mail verificado
     function isSuperAdmin() {
-      return isSignedIn() && request.auth.token.email == 'jafimpaulo8@gmail.com';
+      return isVerifiedEmail() &&
+        ('email' in request.auth.token) &&
+        request.auth.token.email == 'moztechwavenacala8@gmail.com';
     }
 
-    // Student profile photos
+    function hasUserProfileDoc() {
+      return isSignedIn() &&
+        firestore.exists(/databases/(default)/documents/users/$(request.auth.uid));
+    }
+
+    function userProfileDoc() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function belongsToInstitution(instId) {
+      return isSignedIn() &&
+        instId is string &&
+        instId.size() > 0 && (
+          (('institutionId' in request.auth.token) && request.auth.token.institutionId == instId) ||
+          (hasUserProfileDoc() && ('institutionId' in userProfileDoc()) && userProfileDoc().institutionId == instId)
+        );
+    }
+
+    function hasInstitutionRole(instId, allowedRoles) {
+      return isSuperAdmin() || (
+        belongsToInstitution(instId) && (
+          (('role' in request.auth.token) && request.auth.token.role in allowedRoles) ||
+          (hasUserProfileDoc() && ('role' in userProfileDoc()) && userProfileDoc().role in allowedRoles)
+        )
+      );
+    }
+
+    function isInstSecretaria(instId) {
+      return hasInstitutionRole(instId, [
+        'ADMIN_INSTITUICAO', 'DIRETOR', 'director', 'CEO', 'SECRETARIA', 'secretaria'
+      ]);
+    }
+
+    function isInstFinanceiro(instId) {
+      return hasInstitutionRole(instId, [
+        'ADMIN_INSTITUICAO', 'DIRETOR', 'director', 'CEO', 'FINANCEIRO', 'financeiro'
+      ]);
+    }
+
+    function isInstStaff(instId) {
+      return hasInstitutionRole(instId, [
+        'ADMIN_INSTITUICAO', 'DIRETOR', 'director', 'CEO',
+        'SECRETARIA', 'secretaria',
+        'FINANCEIRO', 'financeiro',
+        'PROFESSOR', 'FORMADOR', 'professor', 'formador',
+        'PORTEIRO', 'porteiro'
+      ]);
+    }
+
+    function isValidCvUpload(fileName) {
+      return request.resource != null &&
+        request.resource.size > 0 &&
+        request.resource.size <= 450 * 1024 &&
+        fileName.matches('.*\\.(pdf|doc|docx|PDF|DOC|DOCX)$') &&
+        (
+          request.resource.contentType == 'application/pdf' ||
+          request.resource.contentType == 'application/msword' ||
+          request.resource.contentType == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        );
+    }
+
+    // Currículos e anexos de candidaturas de emprego (privado à secretaria/direcção da instituição)
+    match /institutions/{instId}/jobApplications/{applicationId}/{fileName} {
+      allow read: if isSuperAdmin() || isInstSecretaria(instId);
+      allow write: if (isSuperAdmin() || isInstSecretaria(instId)) && isValidCvUpload(fileName);
+    }
+
+    // Fotografias de perfil de estudantes (isoladas por instituição)
     match /institutions/{instId}/students/{studentId}/photos/{fileName} {
-      allow read: if true;
-      allow write: if isSignedIn();
+      allow read: if isSuperAdmin() || isInstStaff(instId);
+      allow write: if (isSuperAdmin() || isInstSecretaria(instId)) &&
+        request.resource != null &&
+        request.resource.size > 0 &&
+        request.resource.size <= 2 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/(jpeg|png|webp)');
     }
 
-    // Official Certificates & Diplomas (PDFs)
+    // Certificados & Diplomas Oficiais SIVEC (verificáveis publicamente por URL/QR, escrita restrita)
     match /institutions/{instId}/certificates/{certId}/{fileName} {
-      allow read: if true; // Publicly verifiable via QR code
-      allow write: if isSignedIn();
+      allow read: if true;
+      allow write: if (isSuperAdmin() || isInstSecretaria(instId)) &&
+        request.resource != null &&
+        request.resource.size > 0 &&
+        request.resource.size <= 5 * 1024 * 1024 &&
+        request.resource.contentType == 'application/pdf';
     }
 
-    // Financial Invoices & Receipts
+    // Faturas e Recibos Financeiros (estritamente restrito ao Financeiro/Direcção da instituição)
     match /institutions/{instId}/finance/{receiptId}/{fileName} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow read: if isSuperAdmin() || isInstFinanceiro(instId);
+      allow write: if (isSuperAdmin() || isInstFinanceiro(instId)) &&
+        request.resource != null &&
+        request.resource.size > 0 &&
+        request.resource.size <= 5 * 1024 * 1024 &&
+        (
+          request.resource.contentType == 'application/pdf' ||
+          request.resource.contentType.matches('image/(jpeg|png|webp)')
+        );
     }
 
-    // Default deny for all other files
+    // Default-Deny estrito para todos os demais caminhos
     match /{allPaths=**} {
-      allow read, write: if isSuperAdmin();
+      allow read, write: if false;
     }
   }
 }

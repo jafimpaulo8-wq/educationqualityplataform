@@ -160,6 +160,8 @@ service cloud.firestore {
         data.institutionId.size() > 0 &&
         userInstitution() == data.institutionId && (
           (('userId' in data) && data.userId == request.auth.uid) ||
+          (('id' in data) && ('studentId' in getUserData()) && getUserData().studentId == data.id) ||
+          (('id' in data) && ('studentIds' in getUserData()) && getUserData().studentIds is list && data.id in getUserData().studentIds) ||
           (('guardianUserId' in data) && data.guardianUserId == request.auth.uid) ||
           (('guardianUids' in data) && data.guardianUids is list && request.auth.uid in data.guardianUids) ||
           (('guardianEmail' in data) && ('email' in request.auth.token) && ('email_verified' in request.auth.token) && request.auth.token.email_verified == true && data.guardianEmail == request.auth.token.email)
@@ -341,6 +343,70 @@ service cloud.firestore {
       );
     }
 
+    // Helpers para ativação única via convite (/userInvitations/{token} ou legado /studentInvitations/{token})
+    function matchesUserInviteAndConsumes(d, token) {
+      let inv = get(/databases/$(database)/documents/userInvitations/$(token)).data;
+      let invAfter = getAfter(/databases/$(database)/documents/userInvitations/$(token)).data;
+      return inv.used == false &&
+        (!('revoked' in inv) || inv.revoked != true) &&
+        (!('expiresAtMs' in inv) || (inv.expiresAtMs is int && inv.expiresAtMs > request.time.toMillis())) &&
+        ('email' in inv) &&
+        inv.email is string &&
+        ('email_verified' in request.auth.token) &&
+        request.auth.token.email_verified == true &&
+        request.auth.token.email.lower() == inv.email.lower() &&
+        ('institutionId' in d) &&
+        d.institutionId == inv.institutionId &&
+        ('role' in d) &&
+        d.role == inv.role &&
+        (!('roles' in d) || (d.roles is list && d.roles.size() == 1 && d.roles[0] == inv.role)) &&
+        (!('permissions' in inv) || (('permissions' in d) && d.permissions == inv.permissions)) &&
+        (!('institutionIds' in d) || (d.institutionIds is list && d.institutionIds.hasOnly([inv.institutionId]))) &&
+        invAfter.used == true &&
+        invAfter.usedByUid == request.auth.uid;
+    }
+
+    function matchesLegacyStudentInviteAndConsumes(d, token) {
+      let inv = get(/databases/$(database)/documents/studentInvitations/$(token)).data;
+      let invAfter = getAfter(/databases/$(database)/documents/studentInvitations/$(token)).data;
+      return inv.used != true &&
+        inv.revoked != true &&
+        ('studentEmail' in inv) &&
+        inv.studentEmail is string &&
+        ('email_verified' in request.auth.token) &&
+        request.auth.token.email_verified == true &&
+        request.auth.token.email.lower() == inv.studentEmail.lower() &&
+        ('institutionId' in d) &&
+        d.institutionId == inv.institutionId &&
+        ('role' in d) &&
+        d.role == 'ALUNO' &&
+        (!('roles' in d) || (d.roles is list && d.roles.size() == 1 && d.roles[0] == 'ALUNO')) &&
+        (!('institutionIds' in d) || (d.institutionIds is list && d.institutionIds.hasOnly([inv.institutionId]))) &&
+        invAfter.used == true &&
+        invAfter.usedByUid == request.auth.uid;
+    }
+
+    function isValidUserInviteActivation(userId, d) {
+      return isSignedIn() &&
+        isSelf(userId) &&
+        ('inviteToken' in d) &&
+        isValidId(d.inviteToken) &&
+        isNonSuperAdminPayload(d) &&
+        ('email' in request.auth.token) &&
+        ('email_verified' in request.auth.token) &&
+        request.auth.token.email_verified == true &&
+        (
+          (
+            exists(/databases/$(database)/documents/userInvitations/$(d.inviteToken)) &&
+            matchesUserInviteAndConsumes(d, d.inviteToken)
+          ) ||
+          (
+            exists(/databases/$(database)/documents/studentInvitations/$(d.inviteToken)) &&
+            matchesLegacyStudentInviteAndConsumes(d, d.inviteToken)
+          )
+        );
+    }
+
     // -------------------------------------------------------------------------
     // FASE A: Utilizadores (/users/{userId}) — sem leitura pública nem auto-promoção
     // -------------------------------------------------------------------------
@@ -362,7 +428,9 @@ service cloud.firestore {
         isSecretaria(resource.data.institutionId)
       );
       allow create: if isSignedIn() && isValidId(userId) && (
-        isSuperAdmin() || (
+        isSuperAdmin() ||
+        isValidUserInviteActivation(userId, request.resource.data) ||
+        (
           userId != request.auth.uid &&
           ('institutionId' in request.resource.data) &&
           request.resource.data.institutionId is string &&
@@ -455,6 +523,48 @@ service cloud.firestore {
           (!('institutionId' in request.resource.data) || request.resource.data.institutionId == institutionId);
         allow delete: if isSuperAdmin() || isInstAdmin(institutionId);
       }
+
+      // Fluxo 3: Vagas de Emprego e Candidaturas Institucionais (Estritamente isoladas por instituição)
+      match /jobVacancies/{vacancyId} {
+        allow get, list: if (resource != null && resource.data.status == 'publicada') || isSuperAdmin() || isSecretaria(institutionId);
+        allow create: if isValidId(vacancyId) &&
+          (isSuperAdmin() || isSecretaria(institutionId)) &&
+          ('institutionId' in request.resource.data) &&
+          request.resource.data.institutionId == institutionId &&
+          ('title' in request.resource.data) && request.resource.data.title is string && request.resource.data.title.size() >= 3 &&
+          ('status' in request.resource.data) && request.resource.data.status in ['rascunho', 'publicada', 'encerrada'];
+        allow update: if isValidId(vacancyId) &&
+          resource != null &&
+          (isSuperAdmin() || isSecretaria(institutionId)) &&
+          request.resource.data.institutionId == resource.data.institutionId &&
+          ('status' in request.resource.data) && request.resource.data.status in ['rascunho', 'publicada', 'encerrada'];
+        allow delete: if isSuperAdmin() || isInstAdmin(institutionId);
+      }
+
+      // Submissões públicas são processadas exclusivamente via Cloud Function Callable (Admin SDK)
+      // para garantir controlo de duplicados, prazo, rate-limit e incremento atómico de applicationsCount.
+      match /jobApplications/{applicationId} {
+        allow get, list: if isSuperAdmin() || isSecretaria(institutionId);
+        allow create: if isValidId(applicationId) && (isSuperAdmin() || isSecretaria(institutionId));
+        allow update: if isValidId(applicationId) &&
+          resource != null &&
+          (isSuperAdmin() || isSecretaria(institutionId)) &&
+          request.resource.data.institutionId == resource.data.institutionId &&
+          request.resource.data.vacancyId == resource.data.vacancyId &&
+          ('status' in request.resource.data) &&
+          request.resource.data.status in ['RECEBIDA', 'EM ANÁLISE', 'PRÉ-SELECCIONADA', 'ENTREVISTA', 'APROVADA', 'REJEITADA', 'RETIRADA'];
+        allow delete: if isSuperAdmin() || isInstAdmin(institutionId);
+      }
+
+      // Registos de deduplicação geridos exclusivamente por Cloud Functions (Admin SDK)
+      match /jobApplicationDedup/{dedupId} {
+        allow read, write: if false;
+      }
+    }
+
+    // Collection group para portal público de vagas (/vagas): leitura apenas se status == 'publicada'
+    match /{path=**}/jobVacancies/{vacancyId} {
+      allow get, list: if resource != null && resource.data.status == 'publicada';
     }
 
     // FASE C: Portais Públicos por Slug — NUNCA expõe números privados M-Pesa, e-Mola ou mKesh
@@ -548,10 +658,21 @@ service cloud.firestore {
         isSecretaria(request.resource.data.institutionId);
       allow update: if isValidId(studentId) &&
         resource != null && (
-          isSecretaria(resource.data.institutionId) ||
-          isFinanceiro(resource.data.institutionId)
-        ) &&
-        request.resource.data.institutionId == resource.data.institutionId;
+          (
+            (isSecretaria(resource.data.institutionId) || isFinanceiro(resource.data.institutionId)) &&
+            request.resource.data.institutionId == resource.data.institutionId
+          ) ||
+          (
+            isSignedIn() &&
+            ('email' in request.auth.token) &&
+            ('email' in resource.data) &&
+            resource.data.email is string &&
+            request.auth.token.email.lower() == resource.data.email.lower() &&
+            (!('userId' in resource.data) || resource.data.userId == null || resource.data.userId == '') &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['userId', 'updatedAt']) &&
+            request.resource.data.userId == request.auth.uid
+          )
+        );
       allow delete: if resource != null && (isSuperAdmin() || isInstAdmin(resource.data.institutionId));
     }
 
@@ -884,14 +1005,17 @@ service cloud.firestore {
         !('convertedStudentCode' in d) &&
         !('role' in d);
 
-      let hasRegisteredSlug =
+      let hasValidRegisteredSlug =
         ('slug' in d) &&
-        d.slug is string &&
-        d.slug.size() > 0 &&
-        d.slug.size() <= 128 &&
-        exists(/databases/$(database)/documents/publicInstitutions/$(d.slug));
+        isValidId(d.slug) &&
+        exists(/databases/$(database)/documents/publicInstitutions/$(d.slug)) &&
+        isMatchingPublicConfigSubmission(d, d.slug);
 
-      return baseOk && (!hasRegisteredSlug || isMatchingPublicConfigSubmission(d, d.slug));
+      // Nunca aceitar validação mínima para submissão pública quando o slug é inválido ou não está registado
+      return baseOk && (
+        hasValidRegisteredSlug ||
+        isSecretaria(d.institutionId)
+      );
     }
 
     match /applications/{appId} {
@@ -926,11 +1050,12 @@ service cloud.firestore {
         !('birthDate' in request.resource.data) &&
         !('photoUrl' in request.resource.data) &&
         (
-          !('slug' in request.resource.data) ||
-          !(request.resource.data.slug is string) ||
-          request.resource.data.slug.size() == 0 ||
-          !exists(/databases/$(database)/documents/publicInstitutions/$(request.resource.data.slug)) ||
-          get(/databases/$(database)/documents/publicInstitutions/$(request.resource.data.slug)).data.institutionId == request.resource.data.institutionId
+          isSecretaria(request.resource.data.institutionId) || (
+            ('slug' in request.resource.data) &&
+            isValidId(request.resource.data.slug) &&
+            exists(/databases/$(database)/documents/publicInstitutions/$(request.resource.data.slug)) &&
+            get(/databases/$(database)/documents/publicInstitutions/$(request.resource.data.slug)).data.institutionId == request.resource.data.institutionId
+          )
         );
       allow update: if isValidId(token) &&
         resource != null &&
@@ -967,8 +1092,10 @@ service cloud.firestore {
         (
           isSignedIn() &&
           ('email' in request.auth.token) &&
+          ('email_verified' in request.auth.token) &&
+          request.auth.token.email_verified == true &&
           ('studentEmail' in resource.data) &&
-          request.auth.token.email == resource.data.studentEmail &&
+          request.auth.token.email.lower() == resource.data.studentEmail.lower() &&
           resource.data.used != true &&
           resource.data.revoked != true &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['used', 'usedAt', 'usedByUid']) &&
@@ -977,6 +1104,90 @@ service cloud.firestore {
         )
       );
       allow delete: if resource != null && (isSuperAdmin() || isInstAdmin(resource.data.institutionId));
+    }
+
+    // Convites unificados para todos os perfis autorizados (/userInvitations/{invId})
+    function isAllowedInvitationCreate(d) {
+      return ('institutionId' in d) &&
+        d.institutionId is string &&
+        d.institutionId.size() > 0 &&
+        ('role' in d) &&
+        d.role is string &&
+        ('email' in d) &&
+        d.email is string &&
+        d.email.size() >= 5 &&
+        d.used == false &&
+        (!('revoked' in d) || d.revoked == false) &&
+        isNonSuperAdminPayload(d) &&
+        (
+          isSuperAdmin() ||
+          isInstAdmin(d.institutionId) ||
+          (
+            isSecretaria(d.institutionId) &&
+            (d.role in ['ALUNO', 'RESPONSAVEL', 'PROFESSOR', 'FORMADOR', 'PORTEIRO'])
+          )
+        );
+    }
+
+    match /userInvitations/{invId} {
+      allow get: if isValidId(invId);
+      allow list: if isSuperAdmin() || (
+        isSignedIn() &&
+        resource != null &&
+        ('institutionId' in resource.data) &&
+        isSecretaria(resource.data.institutionId)
+      );
+      allow create: if isValidId(invId) && isAllowedInvitationCreate(request.resource.data);
+      allow update: if isValidId(invId) && resource != null && (
+        (
+          (
+            isSuperAdmin() ||
+            isInstAdmin(resource.data.institutionId) ||
+            (isSecretaria(resource.data.institutionId) && (resource.data.role in ['ALUNO', 'RESPONSAVEL', 'PROFESSOR', 'FORMADOR', 'PORTEIRO']))
+          ) &&
+          request.resource.data.institutionId == resource.data.institutionId &&
+          isNonSuperAdminPayload(request.resource.data)
+        ) ||
+        (
+          isSignedIn() &&
+          ('email' in request.auth.token) &&
+          ('email_verified' in request.auth.token) &&
+          request.auth.token.email_verified == true &&
+          ('email' in resource.data) &&
+          request.auth.token.email.lower() == resource.data.email.lower() &&
+          resource.data.used == false &&
+          (!('revoked' in resource.data) || resource.data.revoked != true) &&
+          (!('expiresAtMs' in resource.data) || (resource.data.expiresAtMs is int && resource.data.expiresAtMs > request.time.toMillis())) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['used', 'usedAt', 'usedByUid', 'status']) &&
+          request.resource.data.used == true &&
+          request.resource.data.usedByUid == request.auth.uid
+        )
+      );
+      allow delete: if resource != null && (isSuperAdmin() || isInstAdmin(resource.data.institutionId));
+    }
+
+    // Tracking seguro e sem PII de candidaturas de emprego (/jobApplicationTracking/{trackingToken})
+    // Criação exclusiva via servidor (Admin SDK) ou Secretaria autorizada
+    match /jobApplicationTracking/{trackingToken} {
+      allow get: if isValidId(trackingToken) && trackingToken.size() >= 24;
+      allow list: if false;
+      allow create: if isValidId(trackingToken) &&
+        trackingToken.size() >= 24 &&
+        ('institutionId' in request.resource.data) &&
+        (isSuperAdmin() || isSecretaria(request.resource.data.institutionId)) &&
+        !('email' in request.resource.data) &&
+        !('phone' in request.resource.data) &&
+        !('attachments' in request.resource.data) &&
+        !('internalNotes' in request.resource.data);
+      allow update: if isValidId(trackingToken) &&
+        resource != null &&
+        (isSuperAdmin() || isSecretaria(resource.data.institutionId)) &&
+        request.resource.data.institutionId == resource.data.institutionId &&
+        !('email' in request.resource.data) &&
+        !('phone' in request.resource.data) &&
+        !('attachments' in request.resource.data) &&
+        !('internalNotes' in request.resource.data);
+      allow delete: if isSuperAdmin() || (resource != null && isInstAdmin(resource.data.institutionId));
     }
 
     // -------------------------------------------------------------------------

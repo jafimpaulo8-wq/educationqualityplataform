@@ -29,24 +29,29 @@ import {
   Stamp,
   PenTool,
   Globe,
-  Palette
+  Palette,
+  UserPlus
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { useToast } from '../../context/ToastContext';
 import { useTranslation } from '../../i18n/LanguageContext';
 import { soundManager } from '../../utils/audio';
-import { Institution, InstitutionPrefixes, FinancialSettings, OnlineRegistrationConfig } from '../../types';
+import { Institution, InstitutionPrefixes, FinancialSettings, OnlineRegistrationConfig, toCanonicalRole } from '../../types';
 import { OnlineRegistrationSettingsPanel } from '../../components/settings/OnlineRegistrationSettingsPanel';
+import { UserInvitationsPanel } from '../../components/auth/UserInvitationsPanel';
 import { InstitutionLogoBadge } from '../../components/common/InstitutionLogoBadge';
 import { DEFAULT_INSTITUTION_COLORS, resolveInstitutionIdentity } from '../../utils/institutionIdentity';
 
 export const InstitutionSettingsView: React.FC = () => {
-  const { activeInstitution, updateInstitution } = useApp();
+  const { activeInstitution, updateInstitution, activeRole } = useApp();
   const { success, error } = useToast();
   const { t, language } = useTranslation();
 
-  const [activeTab, setActiveTab] = useState<'geral' | 'prefixos' | 'assinatura_carimbo' | 'modelos' | 'regras_mensagens' | 'inscricoes_online'>('geral');
+  const [activeTab, setActiveTab] = useState<'geral' | 'prefixos' | 'assinatura_carimbo' | 'modelos' | 'regras_mensagens' | 'inscricoes_online' | 'utilizadores_convites'>('geral');
   const [saving, setSaving] = useState(false);
+  const canIssueInvites = ['SUPER_ADMIN', 'ADMIN_INSTITUICAO', 'DIRETOR', 'CEO', 'SECRETARIA'].includes(
+    toCanonicalRole(String(activeRole))
+  );
 
   const identity = resolveInstitutionIdentity(activeInstitution);
 
@@ -444,6 +449,20 @@ export const InstitutionSettingsView: React.FC = () => {
             <Globe className="w-4 h-4 text-emerald-400" />
             <span>Inscrições Online</span>
           </button>
+
+          {canIssueInvites && (
+            <button
+              onClick={() => setActiveTab('utilizadores_convites')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                activeTab === 'utilizadores_convites'
+                  ? 'bg-sky-600 text-white shadow-md'
+                  : 'bg-[#0d1527] text-slate-400 hover:text-white border border-slate-800'
+              }`}
+            >
+              <UserPlus className="w-4 h-4 text-sky-400" />
+              <span>Utilizadores &amp; Convites</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1564,6 +1583,11 @@ export const InstitutionSettingsView: React.FC = () => {
             });
           }}
         />
+      )}
+
+      {/* Tab 7: Utilizadores & Convites (Autenticação Única por Convite) */}
+      {activeTab === 'utilizadores_convites' && canIssueInvites && (
+        <UserInvitationsPanel institution={activeInstitution} />
       )}
     </div>
   );

@@ -14,12 +14,12 @@ export const PUBLIC_INSTITUTIONS_COLLECTION = 'publicInstitutions';
  * Resolve o slug canónico de uma instituição para portais públicos.
  */
 export function resolveInstitutionSlug(inst: Partial<Institution>): string {
+  if (inst.id === 'ceu-azul-nacala') return 'ceu-azul-nacala';
+  if (inst.id === 'inst-1') return 'moztechwave';
   if (inst.slug && inst.slug.trim()) {
     const cleaned = normalizeSlug(inst.slug);
     if (cleaned) return cleaned;
   }
-  if (inst.id === 'ceu-azul-nacala') return 'ceu-azul';
-  if (inst.id === 'inst-1') return 'cftpm-moztechwave';
   if (inst.id === 'inst-peniel') return 'peniel';
   const rawName = (inst.shortName || inst.name || inst.id || 'instituicao')
     .toLowerCase()
@@ -48,19 +48,45 @@ export function normalizeSlug(rawSlug: string): string {
     .replace(/^[#/]+|[#/]+$/g, '')
     .replace(/^i\//, '')
     .replace(/^instituico?e?s\//, '')
-    .replace(/\/(inscricoes|inscricao|pagamentos|pagamento).*$/, '')
+    .replace(/\/(inscricoes|inscricao|pagamentos|pagamento|vagas|empregos).*$/, '')
     .replace(/[^a-z0-9-_]/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '');
 }
 
 /**
+ * Indica se a localização atual corresponde ao Portal Público de Vagas de Emprego
+ * (`/vagas`, `/empregos`, `/i/<slug>/vagas`, `#vagas`, `#i/<slug>/vagas`).
+ */
+export function isPublicJobsPath(pathname?: string, hash?: string): boolean {
+  const path = (pathname ?? (typeof window !== 'undefined' ? window.location.pathname : '')).toLowerCase();
+  const h = (hash ?? (typeof window !== 'undefined' ? window.location.hash : '')).toLowerCase();
+
+  if (path === '/vagas' || path.startsWith('/vagas/') || path === '/empregos' || path.startsWith('/empregos/')) {
+    return true;
+  }
+  if (/^#?\/?(?:vagas|empregos)(?:\/|$|\?)/.test(h)) {
+    return true;
+  }
+  if (/(?:^|\/)i\/[^/?#]+\/(?:vagas|empregos)(?:\/|$|\?)/.test(path)) {
+    return true;
+  }
+  if (/(?:^#?\/?)i\/[^/?#]+\/(?:vagas|empregos)(?:\/|$|\?)/.test(h)) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Indica se a localização atual corresponde a uma rota de Portal Público de Inscrições
  * (`/i/<slug>`, `#i/<slug>`, `#/i/<slug>`, `/instituicoes/<slug>/inscricoes`, `#instituicoes/<slug>/inscricoes`).
+ * Exclui rotas de vagas (`/i/<slug>/vagas`).
  */
 export function isPublicRegistrationPath(pathname?: string, hash?: string): boolean {
   const path = (pathname ?? (typeof window !== 'undefined' ? window.location.pathname : '')).toLowerCase();
   const h = (hash ?? (typeof window !== 'undefined' ? window.location.hash : '')).toLowerCase();
+
+  if (isPublicJobsPath(path, h)) return false;
 
   if (/(?:^|\/)i\/[^/?#]+/.test(path)) return true;
   if (/(?:^#?\/?)i\/[^/?#]+/.test(h)) return true;
@@ -178,8 +204,16 @@ export function sanitizePublicInstitutionPayload<T extends Record<string, any>>(
 export function buildPublicInstitutionFromModel(inst: Institution): PublicInstitution {
   const primarySlug = resolveInstitutionSlug(inst);
 
+  const extraKnownAliases: string[] =
+    inst.id === 'inst-1'
+      ? ['moztechwave', 'cftpm-moztechwave', 'cftpm', 'cftpm-nacala']
+      : inst.id === 'ceu-azul-nacala'
+        ? ['ceu-azul-nacala', 'ceu-azul', 'centro-infantil-ceu-azul']
+        : [];
+
   const aliases = Array.from(new Set([
     ...(inst.slugAliases || []).map(a => normalizeSlug(a)).filter(Boolean),
+    ...extraKnownAliases,
     primarySlug,
     ...(inst.code ? [normalizeSlug(inst.code)] : []),
     ...(inst.id ? [inst.id.toLowerCase()] : [])
@@ -275,10 +309,36 @@ export async function syncPublicInstitutionMetadata(inst: Institution): Promise<
 /**
  * Lista de instituições padrão para fallback de identidade pública quando offline ou sem registo em publicInstitutions.
  */
-const KNOWN_INSTITUTIONS: Institution[] = [
+export const KNOWN_INSTITUTIONS: Institution[] = [
   CEU_AZUL_INSTITUTION as Institution,
   ...INITIAL_INSTITUTIONS
 ];
+
+/**
+ * Prepara os payloads estritamente públicos e sanitizados prontos para sincronização em:
+ * - publicInstitutions/moztechwave
+ * - publicInstitutions/ceu-azul-nacala
+ * Não executa nenhuma escrita remota.
+ */
+export function preparePublicInstitutionsSyncPayloads(
+  pool?: Institution[]
+): Record<'moztechwave' | 'ceu-azul-nacala', PublicInstitution> {
+  const source = pool && pool.length > 0 ? pool : KNOWN_INSTITUTIONS;
+  const cftpm = source.find(i => i.id === 'inst-1') || (INITIAL_INSTITUTIONS.find(i => i.id === 'inst-1') as Institution);
+  const ceuAzul = source.find(i => i.id === 'ceu-azul-nacala') || (CEU_AZUL_INSTITUTION as Institution);
+
+  const moztechwavePayload = sanitizeFirestoreData(
+    buildPublicInstitutionFromModel({ ...cftpm, slug: 'moztechwave' })
+  );
+  const ceuAzulPayload = sanitizeFirestoreData(
+    buildPublicInstitutionFromModel({ ...ceuAzul, slug: 'ceu-azul-nacala' })
+  );
+
+  return {
+    moztechwave: moztechwavePayload,
+    'ceu-azul-nacala': ceuAzulPayload
+  };
+}
 
 /**
  * Resolve e valida a instituição a partir do slug do endereço público.
@@ -331,7 +391,7 @@ export async function resolvePublicInstitutionBySlug(
     );
     if (slugifiedName && slugifiedName === slug) return true;
 
-    if ((slug === 'cftpm' || slug === 'cftpm-moztechwave' || slug === 'cftpm-nacala') && inst.id === 'inst-1') {
+    if ((slug === 'moztechwave' || slug === 'cftpm' || slug === 'cftpm-moztechwave' || slug === 'cftpm-nacala') && inst.id === 'inst-1') {
       return true;
     }
 
@@ -351,15 +411,25 @@ export async function resolvePublicInstitutionBySlug(
 }
 
 /**
- * Gera URL oficial formatada para o portal público de inscrição.
- * Formato estável: #i/<slug> (com total compatibilidade para #instituicoes/<slug>/inscricoes e /i/<slug>).
+ * Gera URL oficial formatada para o portal público de inscrição (`/i/<slug>`).
  */
 export function getPublicRegistrationUrl(inst: Institution, preview = false): string {
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://sigar.moztechwave.com';
-  const pathname = typeof window !== 'undefined' ? window.location.pathname : '/';
   const slug = resolveInstitutionSlug(inst);
   const previewQuery = preview ? '?preview=true' : '';
-  return `${origin}${pathname}#i/${slug}${previewQuery}`;
+  return `${origin}/i/${slug}${previewQuery}`;
+}
+
+/**
+ * Gera URL oficial formatada para o Portal Público de Vagas de Emprego (`/vagas` ou `/i/<slug>/vagas`).
+ */
+export function getPublicJobsUrl(inst?: Partial<Institution>): string {
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://sigar.moztechwave.com';
+  if (inst && (inst.id || inst.slug || inst.name)) {
+    const slug = resolveInstitutionSlug(inst);
+    return `${origin}/i/${slug}/vagas`;
+  }
+  return `${origin}/vagas`;
 }
 
 /**

@@ -286,6 +286,93 @@
         "createdAt": { "type": "string", "maxLength": 50 }
       },
       "required": ["id", "token", "studentId", "studentEmail", "institutionId", "expiresAt", "used"]
+    },
+    "UserInvitation": {
+      "title": "UserInvitation",
+      "description": "Single-use expiring invitation token binding user email, role, permissions, and institution",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "token": { "type": "string", "maxLength": 128 },
+        "fullName": { "type": "string", "maxLength": 200 },
+        "email": { "type": "string", "maxLength": 150 },
+        "institutionId": { "type": "string", "maxLength": 128 },
+        "branchId": { "type": "string", "maxLength": 128 },
+        "role": { "type": "string", "maxLength": 50 },
+        "permissions": { "type": "array", "items": { "type": "string" } },
+        "status": { "type": "string", "maxLength": 30 },
+        "used": { "type": "boolean" },
+        "revoked": { "type": "boolean" },
+        "expiresAt": { "type": "string", "maxLength": 50 },
+        "expiresAtMs": { "type": "integer" },
+        "usedAt": { "type": "string", "maxLength": 50 },
+        "usedByUid": { "type": "string", "maxLength": 128 },
+        "createdByUid": { "type": "string", "maxLength": 128 },
+        "createdByRole": { "type": "string", "maxLength": 50 },
+        "createdAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "token", "fullName", "email", "institutionId", "role", "expiresAt", "used", "createdByUid"]
+    },
+    "JobVacancy": {
+      "title": "JobVacancy",
+      "description": "Institutional employment vacancy published within an institution's subcollection",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "institutionId": { "type": "string", "maxLength": 128 },
+        "institutionName": { "type": "string", "maxLength": 200 },
+        "title": { "type": "string", "maxLength": 200 },
+        "description": { "type": "string", "maxLength": 4000 },
+        "requirements": { "type": "array", "items": { "type": "string" } },
+        "location": { "type": "string", "maxLength": 150 },
+        "contractType": { "type": "string", "maxLength": 80 },
+        "deadline": { "type": "string", "maxLength": 30 },
+        "status": { "type": "string", "maxLength": 30 },
+        "createdByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "institutionId", "institutionName", "title", "description", "location", "contractType", "deadline", "status"]
+    },
+    "JobApplication": {
+      "title": "JobApplication",
+      "description": "Candidate job application scoped to a published institutional vacancy",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "applicationCode": { "type": "string", "maxLength": 64 },
+        "trackingToken": { "type": "string", "maxLength": 128 },
+        "vacancyId": { "type": "string", "maxLength": 128 },
+        "vacancyTitle": { "type": "string", "maxLength": 200 },
+        "institutionId": { "type": "string", "maxLength": 128 },
+        "fullName": { "type": "string", "maxLength": 200 },
+        "email": { "type": "string", "maxLength": 150 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "academicLevel": { "type": "string", "maxLength": 150 },
+        "experienceSummary": { "type": "string", "maxLength": 4000 },
+        "status": { "type": "string", "maxLength": 40 },
+        "submittedAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "applicationCode", "trackingToken", "vacancyId", "institutionId", "fullName", "email", "phone", "status"]
+    },
+    "JobApplicationTracking": {
+      "title": "JobApplicationTracking",
+      "description": "PII-free tracking record accessible by unguessable tracking token",
+      "type": "object",
+      "properties": {
+        "token": { "type": "string", "maxLength": 128 },
+        "applicationCode": { "type": "string", "maxLength": 64 },
+        "applicationId": { "type": "string", "maxLength": 128 },
+        "vacancyId": { "type": "string", "maxLength": 128 },
+        "vacancyTitle": { "type": "string", "maxLength": 200 },
+        "institutionId": { "type": "string", "maxLength": 128 },
+        "maskedCandidateName": { "type": "string", "maxLength": 120 },
+        "status": { "type": "string", "maxLength": 40 },
+        "submittedAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["token", "applicationCode", "applicationId", "vacancyId", "institutionId", "status"]
     }
   },
   "firestore": {
@@ -293,9 +380,25 @@
       "schema": "Institution",
       "description": "Registered institutions and technical training centers"
     },
+    "/institutions/{institutionId}/jobVacancies/{vacancyId}": {
+      "schema": "JobVacancy",
+      "description": "Employment vacancies per institution"
+    },
+    "/institutions/{institutionId}/jobApplications/{applicationId}": {
+      "schema": "JobApplication",
+      "description": "Job applications submitted to an institution's vacancies"
+    },
+    "/jobApplicationTracking/{trackingToken}": {
+      "schema": "JobApplicationTracking",
+      "description": "PII-free candidate tracking records keyed by high-entropy token"
+    },
     "/users/{userId}": {
       "schema": "UserProfile",
       "description": "User profiles with institution tenancy and role definitions"
+    },
+    "/userInvitations/{invitationId}": {
+      "schema": "UserInvitation",
+      "description": "Single-use expiring invitations for all authorized SIGAR PRO roles"
     },
     "/students/{studentId}": {
       "schema": "Student",

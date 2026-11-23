@@ -13,6 +13,7 @@ import {
   getDocFromServer,
   Firestore 
 } from 'firebase/firestore';
+import { getFunctions } from 'firebase/functions';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Initialize Firebase App for SIVERC (siverc-94da3)
@@ -26,9 +27,10 @@ export const db: Firestore = (targetDbId && targetDbId !== '(default)' && target
 
 export { firebaseConfig };
 
-// Auth
+// Auth & Cloud Functions
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+export const functions = getFunctions(app);
 
 // Operation Types for error logging
 export enum OperationType {

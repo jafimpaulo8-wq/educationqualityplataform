@@ -1,0 +1,23 @@
+{
+  "name": "sigar-pro-functions",
+  "private": true,
+  "description": "Firebase Cloud Functions reais do SIGAR PRO (convites seguros, candidaturas e auditoria)",
+  "main": "lib/index.js",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "lint": "tsc --noEmit",
+    "build": "tsc",
+    "serve": "npm run build && firebase emulators:start --only functions",
+    "shell": "npm run build && firebase functions:shell",
+    "deploy": "firebase deploy --only functions"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.4.0",
+    "firebase-functions": "^6.3.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.2"
+  }
+}

@@ -34,7 +34,8 @@ import {
   LogOut,
   Home,
   HelpCircle,
-  MessageSquare
+  MessageSquare,
+  Briefcase
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { AppRoute, UserRole } from '../types';
@@ -145,6 +146,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
           { label: 'Professores', route: 'professores_gestao', icon: <School className="w-4 h-4 text-emerald-200" /> },
           { label: 'Turmas', route: 'turmas_gestao', icon: <Layers className="w-4 h-4 text-emerald-200" /> },
           { label: 'Matrículas', route: 'alunos_cadastrar', icon: <PlusCircle className="w-4 h-4 text-emerald-200" />, badge: 'Novo' },
+          { label: 'Vagas & Recrutamento', route: 'vagas_gestao', icon: <Briefcase className="w-4 h-4 text-emerald-200" />, badge: 'RH' },
           { label: 'Pagamentos', route: 'pagamentos', icon: <DollarSign className="w-4 h-4 text-emerald-200" /> },
           { label: 'Pautas', route: 'pautas', icon: <FileSpreadsheet className="w-4 h-4 text-emerald-200" /> },
           { label: 'Certificados', route: 'studio', icon: <Award className="w-4 h-4 text-emerald-200" />, badge: 'SIVEC' },
@@ -184,6 +186,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
         return [
           { label: 'Dashboard Geral', route: 'centro_dashboard', icon: <School className="w-4 h-4 text-blue-400" /> },
           { label: 'Inscrições & Candidaturas', route: 'candidatos_gestao', icon: <ClipboardList className="w-4 h-4 text-sky-400" /> },
+          { label: 'Vagas & Recrutamento', route: 'vagas_gestao', icon: <Briefcase className="w-4 h-4 text-sky-400" />, badge: 'RH' },
           { label: 'Inscrição Privada / Links', route: 'inscricao_privada', icon: <Lock className="w-4 h-4 text-amber-400" /> },
           { label: 'Visão Académica', route: 'relatorios_academicos', icon: <BookOpen className="w-4 h-4 text-sky-400" /> },
           { label: 'Visão Financeira', route: 'relatorios_financeiros', icon: <DollarSign className="w-4 h-4 text-emerald-400" /> },
@@ -200,6 +203,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
         return [
           { label: 'Dashboard Global', route: 'moztechwave_core', icon: <ShieldCheck className="w-4 h-4 text-amber-400" />, badge: 'HQ' },
           { label: 'Instituições', route: 'admin_instituicoes', icon: <Building2 className="w-4 h-4 text-blue-400" /> },
+          { label: 'Vagas & Recrutamento', route: 'vagas_gestao', icon: <Briefcase className="w-4 h-4 text-sky-400" />, badge: 'RH' },
           { label: 'Planos / Limites', route: 'sistema_planos', icon: <Sliders className="w-4 h-4 text-emerald-400" /> },
           { label: 'SIVEC Geral', route: 'sivec_verify', icon: <Award className="w-4 h-4 text-purple-400" /> },
           { label: 'Auditoria & Matriz RBAC', route: 'rbac_matrix', icon: <FileText className="w-4 h-4 text-indigo-400" /> },
@@ -214,7 +218,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
         return [
           { label: 'Portal Público', route: 'public_portal', icon: <Globe className="w-4 h-4 text-blue-400" /> },
           { label: 'Verificação Pública', route: 'public_verify', icon: <Award className="w-4 h-4 text-amber-400" /> },
-          { label: 'Inscrição Online', route: 'inscricao_publica', icon: <FileText className="w-4 h-4 text-emerald-400" /> }
+          { label: 'Inscrição Online', route: 'inscricao_publica', icon: <FileText className="w-4 h-4 text-emerald-400" /> },
+          { label: 'Vagas de Emprego', route: 'vagas_publicas', icon: <Briefcase className="w-4 h-4 text-sky-400" /> }
         ];
     }
   };

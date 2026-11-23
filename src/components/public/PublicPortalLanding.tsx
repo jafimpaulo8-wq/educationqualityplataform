@@ -30,7 +30,8 @@ import {
   Phone,
   Mail,
   Info,
-  MessageCircle
+  MessageCircle,
+  Briefcase
 } from 'lucide-react';
 import { soundManager } from '../../utils/audio';
 import { useApp } from '../../context/AppContext';
@@ -43,6 +44,7 @@ interface PublicPortalLandingProps {
   onOpenAuthModal: (mode?: 'google' | 'credentials') => void;
   onOpenPublicVerify: () => void;
   onOpenOnlineRegistration?: (courseName?: string, instSlug?: string) => void;
+  onOpenJobsPortal?: () => void;
   onOpenRegisterInstitution: () => void;
   onOpenHelp: () => void;
 }
@@ -51,6 +53,7 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
   onOpenAuthModal,
   onOpenPublicVerify,
   onOpenOnlineRegistration,
+  onOpenJobsPortal,
   onOpenRegisterInstitution,
   onOpenHelp,
 }) => {
@@ -217,6 +220,21 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
               <Search className="w-4 h-4 text-sky-500" />
               <span>Verificação SIVEC</span>
             </button>
+
+            {onOpenJobsPortal && (
+              <button
+                type="button"
+                onClick={onOpenJobsPortal}
+                className={`flex items-center gap-2 px-5 py-3.5 rounded-2xl font-bold text-sm border transition-all cursor-pointer ${
+                  isLight
+                    ? 'bg-sky-50 hover:bg-sky-100 text-sky-700 border-sky-200 shadow-2xs'
+                    : 'bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border-sky-500/30'
+                }`}
+              >
+                <Briefcase className="w-4 h-4 text-sky-400" />
+                <span>Vagas de Emprego</span>
+              </button>
+            )}
           </div>
 
           {/* Quick Certificate Verification Box */}
@@ -867,6 +885,11 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
           </div>
 
           <div className="flex items-center gap-6">
+            {onOpenJobsPortal && (
+              <button onClick={onOpenJobsPortal} className={`transition-colors cursor-pointer font-semibold ${isLight ? 'hover:text-slate-900' : 'hover:text-white'}`}>
+                Vagas de Emprego
+              </button>
+            )}
             <button onClick={onOpenHelp} className={`transition-colors cursor-pointer ${isLight ? 'hover:text-slate-900' : 'hover:text-white'}`}>
               Ajuda
             </button>

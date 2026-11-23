@@ -215,7 +215,12 @@ import {
   saveUserPreferences,
   checkIsSuperAdmin
 } from '../services/firestoreService';
-import { isPublicRegistrationPath, syncPublicInstitutionMetadata } from '../services/publicInstitutionService';
+import {
+  extractSlugFromLocation,
+  isPublicJobsPath,
+  isPublicRegistrationPath,
+  syncPublicInstitutionMetadata
+} from '../services/publicInstitutionService';
 import {
   hasFinancialPermission,
   fetchOwnStudentRecordsForPortal,
@@ -805,6 +810,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (urlRoute) return urlRoute as AppRoute;
       const path = window.location.pathname;
       const hash = window.location.hash;
+      if (path.startsWith('/ativar-conta') || hash.includes('ativar-conta')) return 'ativar_conta';
+      if (isPublicJobsPath(path, hash)) return 'vagas_publicas';
       if (path.includes('/pagamentos') || hash.includes('/pagamentos')) return 'portal_pagamentos';
       if (isPublicRegistrationPath(path, hash) || path.includes('/inscricao') || path.includes('/candidatura')) {
         return 'inscricao_publica';
@@ -813,20 +820,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     return 'public_portal';
   });
-  const [routeParams, setRouteParams] = useState<Record<string, any>>({});
+  const [routeParams, setRouteParams] = useState<Record<string, any>>(() => {
+    if (typeof window !== 'undefined') {
+      const slug = extractSlugFromLocation(window.location.pathname, window.location.hash, window.location.search);
+      return slug ? { inst: slug } : {};
+    }
+    return {};
+  });
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const syncRouteFromLocation = () => {
       const searchParams = new URLSearchParams(window.location.search);
       const urlRoute = searchParams.get('route');
+      const slug = extractSlugFromLocation(window.location.pathname, window.location.hash, window.location.search);
+      if (slug) {
+        setRouteParams(prev => ({ ...prev, inst: slug }));
+      }
       if (urlRoute) {
         setCurrentRoute(urlRoute as AppRoute);
         return;
       }
       const path = window.location.pathname;
       const hash = window.location.hash;
-      if (path.includes('/pagamentos') || hash.includes('/pagamentos')) {
+      if (path.startsWith('/ativar-conta') || hash.includes('ativar-conta')) {
+        setCurrentRoute('ativar_conta');
+      } else if (isPublicJobsPath(path, hash)) {
+        setCurrentRoute('vagas_publicas');
+      } else if (path.includes('/pagamentos') || hash.includes('/pagamentos')) {
         setCurrentRoute('portal_pagamentos');
       } else if (isPublicRegistrationPath(path, hash) || path.includes('/inscricao') || path.includes('/candidatura')) {
         setCurrentRoute('inscricao_publica');
@@ -2424,16 +2445,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       if (typeof window !== 'undefined' && window.history) {
         const url = new URL(window.location.href);
-        if (route === 'public_portal') {
+        url.hash = '';
+
+        if (route === 'inscricao_publica') {
           url.searchParams.delete('route');
-        } else {
-          url.searchParams.set('route', route);
-        }
-        if (params.inst) {
-          url.searchParams.set('inst', params.inst);
-        } else if (route !== 'inscricao_publica' && route !== 'portal_pagamentos') {
           url.searchParams.delete('inst');
+          if (params.inst) {
+            url.pathname = `/i/${encodeURIComponent(String(params.inst))}`;
+          } else {
+            url.pathname = '/';
+            url.searchParams.set('route', 'inscricao_publica');
+          }
+        } else if (route === 'vagas_publicas') {
+          url.searchParams.delete('route');
+          url.searchParams.delete('inst');
+          url.searchParams.delete('course');
+          url.pathname = params.inst ? `/i/${encodeURIComponent(String(params.inst))}/vagas` : '/vagas';
+        } else if (route === 'ativar_conta') {
+          url.pathname = '/ativar-conta';
+          url.searchParams.delete('route');
+          if (params.token) url.searchParams.set('token', String(params.token));
+        } else if (route === 'public_portal') {
+          url.pathname = '/';
+          url.searchParams.delete('route');
+          url.searchParams.delete('inst');
+          url.searchParams.delete('course');
+          url.searchParams.delete('token');
+        } else {
+          if (url.pathname.startsWith('/i/') || url.pathname.startsWith('/vagas') || url.pathname.startsWith('/empregos') || url.pathname.startsWith('/ativar-conta') || url.pathname.startsWith('/verify')) {
+            url.pathname = '/';
+          }
+          url.searchParams.set('route', route);
+          if (params.inst) {
+            url.searchParams.set('inst', params.inst);
+          } else if (route !== 'portal_pagamentos') {
+            url.searchParams.delete('inst');
+          }
         }
+
         if (params.course) url.searchParams.set('course', params.course);
         window.history.pushState(null, '', url.toString());
       }

@@ -176,7 +176,11 @@ export type Permission =
   // 57. Backup & Restauro
   | 'backup.view'
   | 'backup.create'
-  | 'backup.restore';
+  | 'backup.restore'
+  // 58. Recrutamento & Vagas de Emprego
+  | 'vagas.view'
+  | 'vagas.manage'
+  | 'vagas.review_applications';
 
 export interface RoleDefinition {
   role: CanonicalRole;
@@ -241,7 +245,8 @@ export const ROLE_DEFINITIONS: Record<CanonicalRole, RoleDefinition> = {
       'relatorios_administrativos.view', 'relatorios_administrativos.export',
       'auditoria.view', 'auditoria.export', 'auditoria.purge',
       'storage.view', 'storage.upload', 'storage.archive',
-      'backup.view', 'backup.create', 'backup.restore'
+      'backup.view', 'backup.create', 'backup.restore',
+      'vagas.view', 'vagas.manage', 'vagas.review_applications'
     ]
   },
   ADMIN_INSTITUICAO: {
@@ -277,7 +282,8 @@ export const ROLE_DEFINITIONS: Record<CanonicalRole, RoleDefinition> = {
       'relatorios_administrativos.view', 'relatorios_administrativos.export',
       'auditoria.view', 'auditoria.export',
       'storage.view', 'storage.upload', 'storage.archive',
-      'backup.view', 'backup.create', 'backup.restore'
+      'backup.view', 'backup.create', 'backup.restore',
+      'vagas.view', 'vagas.manage', 'vagas.review_applications'
     ]
   },
   DIRETOR: {
@@ -311,7 +317,8 @@ export const ROLE_DEFINITIONS: Record<CanonicalRole, RoleDefinition> = {
       'comunicados.view', 'comunicados.publish', 'comunicados.delete',
       'relatorios_academicos.view', 'relatorios_academicos.export',
       'relatorios_administrativos.view', 'relatorios_administrativos.export',
-      'auditoria.view', 'auditoria.export'
+      'auditoria.view', 'auditoria.export',
+      'vagas.view', 'vagas.manage', 'vagas.review_applications'
     ]
   },
   CEO: {
@@ -344,7 +351,8 @@ export const ROLE_DEFINITIONS: Record<CanonicalRole, RoleDefinition> = {
       'comunicados.view', 'comunicados.publish', 'comunicados.delete',
       'relatorios_academicos.view', 'relatorios_academicos.export',
       'relatorios_administrativos.view', 'relatorios_administrativos.export',
-      'auditoria.view', 'auditoria.export'
+      'auditoria.view', 'auditoria.export',
+      'vagas.view', 'vagas.manage', 'vagas.review_applications'
     ]
   },
   SECRETARIA: {
@@ -375,7 +383,8 @@ export const ROLE_DEFINITIONS: Record<CanonicalRole, RoleDefinition> = {
       'automacoes.view', 'automacoes.trigger',
       'comunicados.view', 'comunicados.publish', 'comunicados.delete',
       'relatorios_academicos.view', 'relatorios_academicos.export',
-      'relatorios_administrativos.view', 'relatorios_administrativos.export'
+      'relatorios_administrativos.view', 'relatorios_administrativos.export',
+      'vagas.view', 'vagas.manage', 'vagas.review_applications'
     ]
   },
   FINANCEIRO: {
@@ -527,7 +536,8 @@ export const ROLE_DEFINITIONS: Record<CanonicalRole, RoleDefinition> = {
     permissions: [
       'cursos.view',
       'candidatos.create',
-      'comunicados.view'
+      'comunicados.view',
+      'vagas.view'
     ]
   }
 };
