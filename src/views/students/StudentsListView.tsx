@@ -20,7 +20,8 @@ import {
   History,
   Trash2,
   UserCheck,
-  Download
+  Download,
+  KeyRound
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { useToast } from '../../context/ToastContext';
@@ -31,6 +32,7 @@ import { RecordDetailsModal, DetailField } from '../../components/common/RecordD
 import { RecordHistoryModal, HistoryEvent } from '../../components/common/RecordHistoryModal';
 import { ConfirmationModal } from '../../components/common/ConfirmationModal';
 import { StudentEditModal } from './StudentEditModal';
+import { StudentInvitationModal } from '../../components/students/StudentInvitationModal';
 
 export const StudentsListView: React.FC = () => {
   const { students, courses, navigate, activeInstitution, openWhatsAppMessage, deleteStudent, changeStudentStatus } = useApp();
@@ -40,6 +42,7 @@ export const StudentsListView: React.FC = () => {
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [historyStudent, setHistoryStudent] = useState<Student | null>(null);
   const [deletingStudent, setDeletingStudent] = useState<Student | null>(null);
+  const [invitingStudent, setInvitingStudent] = useState<Student | null>(null);
 
   const countActive = students.filter(s => s.status === 'Ativo').length;
   const countPending = students.filter(s => s.status === 'Aguardando Pagamento').length;
@@ -233,6 +236,12 @@ export const StudentsListView: React.FC = () => {
       onClick: (s) => setHistoryStudent(s)
     },
     {
+      id: 'convite_portal',
+      label: 'Convidar para o Portal do Aluno',
+      icon: <KeyRound className="w-3.5 h-3.5 text-indigo-400" />,
+      onClick: (s) => setInvitingStudent(s)
+    },
+    {
       id: 'whatsapp',
       label: 'Contactar via WhatsApp',
       icon: <MessageCircle className="w-3.5 h-3.5 text-emerald-400" />,
@@ -334,6 +343,14 @@ export const StudentsListView: React.FC = () => {
             title="Ver Histórico"
           >
             <History className="w-4 h-4" />
+          </button>
+
+          <button
+            onClick={() => setInvitingStudent(s)}
+            className="p-2 rounded-xl bg-[#111c35] text-indigo-400 border border-slate-700/80 hover:bg-indigo-600 hover:text-white transition-colors"
+            title="Convidar para o Portal do Aluno"
+          >
+            <KeyRound className="w-4 h-4" />
           </button>
 
           <button
@@ -536,6 +553,16 @@ export const StudentsListView: React.FC = () => {
           }
         }}
       />
+
+      {/* Convite Único de Acesso ao Portal do Aluno */}
+      {invitingStudent && (
+        <StudentInvitationModal
+          student={invitingStudent}
+          institution={activeInstitution}
+          isOpen={!!invitingStudent}
+          onClose={() => setInvitingStudent(null)}
+        />
+      )}
     </div>
   );
 };

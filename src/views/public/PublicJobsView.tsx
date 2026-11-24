@@ -16,7 +16,8 @@ import {
   AlertTriangle,
   Loader2,
   X,
-  GraduationCap
+  GraduationCap,
+  RefreshCw
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { useToast } from '../../context/ToastContext';
@@ -39,6 +40,8 @@ import {
   resolvePublicInstitutionBySlug
 } from '../../services/publicInstitutionService';
 import {
+  formatRecruitmentErrorMessage,
+  isVacancyWithinDeadline,
   listAllPublishedJobVacancies,
   lookupJobApplicationByToken,
   readFileAsValidatedAttachment,
@@ -73,6 +76,7 @@ export const PublicJobsView: React.FC = () => {
   const [scopedInstitution, setScopedInstitution] = useState<PublicInstitution | null>(null);
   const [slugNotFound, setSlugNotFound] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [vacancies, setVacancies] = useState<JobVacancy[]>([]);
 
   // Filtros
@@ -94,6 +98,7 @@ export const PublicJobsView: React.FC = () => {
   const [cvAttachment, setCvAttachment] = useState<JobApplicationAttachment | null>(null);
   const [extraAttachment, setExtraAttachment] = useState<JobApplicationAttachment | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [submissionResult, setSubmissionResult] = useState<{
     application: JobApplication;
     trackingToken: string;
@@ -106,16 +111,15 @@ export const PublicJobsView: React.FC = () => {
   const [lookupAttempted, setLookupAttempted] = useState(false);
   const [trackingResult, setTrackingResult] = useState<JobApplicationTracking | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadPublicVacancies = async (cancelledCheck?: () => boolean) => {
+    setIsLoading(true);
+    setSlugNotFound(false);
+    setLoadError(null);
 
-    const load = async () => {
-      setIsLoading(true);
-      setSlugNotFound(false);
-
+    try {
       if (urlSlug) {
         const resolved = await resolvePublicInstitutionBySlug(urlSlug, allInstitutions);
-        if (cancelled) return;
+        if (cancelledCheck?.()) return;
         if (!resolved) {
           setScopedInstitution(null);
           setSlugNotFound(true);
@@ -125,7 +129,7 @@ export const PublicJobsView: React.FC = () => {
         }
         setScopedInstitution(resolved);
         const list = await listAllPublishedJobVacancies(resolved.institutionId);
-        if (!cancelled) {
+        if (!cancelledCheck?.()) {
           setVacancies(list);
           setIsLoading(false);
         }
@@ -134,13 +138,24 @@ export const PublicJobsView: React.FC = () => {
 
       setScopedInstitution(null);
       const list = await listAllPublishedJobVacancies();
-      if (!cancelled) {
+      if (!cancelledCheck?.()) {
         setVacancies(list);
         setIsLoading(false);
       }
-    };
+    } catch (err: any) {
+      if (!cancelledCheck?.()) {
+        setVacancies([]);
+        setLoadError(
+          formatRecruitmentErrorMessage(err, 'Não foi possível consultar as vagas publicadas neste momento.')
+        );
+        setIsLoading(false);
+      }
+    }
+  };
 
-    void load();
+  useEffect(() => {
+    let cancelled = false;
+    void loadPublicVacancies(() => cancelled);
     return () => {
       cancelled = true;
     };
@@ -162,6 +177,7 @@ export const PublicJobsView: React.FC = () => {
   const filteredVacancies = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
     return vacancies.filter(v => {
+      if (!isVacancyWithinDeadline(v)) return false;
       const matchInst = scopedInstitution
         ? v.institutionId === scopedInstitution.institutionId
         : instFilter === 'todas' || v.institutionId === instFilter;
@@ -200,6 +216,7 @@ export const PublicJobsView: React.FC = () => {
     setDetailVacancy(null);
     setApplyVacancy(vacancy);
     setSubmissionResult(null);
+    setSubmitError(null);
     setFullName('');
     setEmail('');
     setPhone('');
@@ -219,6 +236,7 @@ export const PublicJobsView: React.FC = () => {
     if (extraAttachment) attachments.push(extraAttachment);
 
     setIsSubmitting(true);
+    setSubmitError(null);
     try {
       const res = await submitPublicJobApplication(applyVacancy, {
         fullName,
@@ -233,8 +251,10 @@ export const PublicJobsView: React.FC = () => {
       soundManager.playSuccess();
       toastSuccess('Candidatura submetida!', `Código: ${res.application.applicationCode}`);
     } catch (err: any) {
+      const msg = formatRecruitmentErrorMessage(err, 'Verifique os dados e o anexo do currículo.');
+      setSubmitError(msg);
       soundManager.playError();
-      toastError('Não foi possível submeter', err?.message || 'Verifique os dados e o anexo do currículo.');
+      toastError('Não foi possível submeter', msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -431,6 +451,20 @@ export const PublicJobsView: React.FC = () => {
               <div className="p-12 text-center">
                 <Loader2 className="w-8 h-8 animate-spin text-sky-400 mx-auto mb-2" />
                 <p className="text-xs text-slate-400">A carregar oportunidades publicadas...</p>
+              </div>
+            ) : loadError ? (
+              <div className="p-8 rounded-3xl border border-rose-500/40 bg-rose-500/10 text-center space-y-3">
+                <AlertTriangle className="w-10 h-10 text-rose-400 mx-auto" />
+                <h2 className="text-lg font-bold text-rose-200">Não foi possível carregar as vagas publicadas</h2>
+                <p className="text-xs text-rose-300 max-w-xl mx-auto font-mono break-words">{loadError}</p>
+                <button
+                  type="button"
+                  onClick={() => void loadPublicVacancies()}
+                  className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Tentar Novamente
+                </button>
               </div>
             ) : filteredVacancies.length === 0 ? (
               <div className={`p-12 rounded-3xl border text-center space-y-3 ${
@@ -761,6 +795,12 @@ export const PublicJobsView: React.FC = () => {
               </div>
             ) : (
               <form onSubmit={handleSubmitApplication} className="p-5 overflow-y-auto space-y-4 text-xs">
+                {submitError && (
+                  <div className="p-3 rounded-xl border border-rose-500/40 bg-rose-500/10 text-rose-300 font-semibold flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                    <span>{submitError}</span>
+                  </div>
+                )}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block font-semibold mb-1">Nome Completo *</label>

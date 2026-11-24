@@ -77,6 +77,121 @@ export interface RecruitmentActor {
   uid: string;
   name: string;
   role: string;
+  institutionId?: string;
+  institutionIds?: string[];
+  ownedInstitutions?: string[];
+  permissions?: string[];
+  email?: string;
+  emailVerified?: boolean;
+  isSuperAdmin?: boolean;
+}
+
+export function normalizeVacancyStatus(
+  status: JobVacancyStatus | 'draft' | 'published' | 'closed' | string
+): JobVacancyStatus {
+  const norm = String(status || '').trim().toLowerCase();
+  if (norm === 'draft' || norm === 'rascunho') return 'rascunho';
+  if (norm === 'published' || norm === 'publicada') return 'publicada';
+  if (norm === 'closed' || norm === 'encerrada') return 'encerrada';
+  return 'rascunho';
+}
+
+export function isVacancyWithinDeadline(
+  vacancy: Pick<JobVacancy, 'status' | 'deadline'> | null | undefined,
+  nowMs = Date.now()
+): boolean {
+  if (!vacancy || vacancy.status !== 'publicada') return false;
+  const deadline = String(vacancy.deadline || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(deadline)) return false;
+  const todayMaputo = new Date(nowMs + 2 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return deadline >= todayMaputo;
+}
+
+export function formatRecruitmentErrorMessage(err: unknown, fallback: string): string {
+  const raw = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+  if (!raw) return fallback;
+  if (raw.startsWith('{') && raw.includes('"error"')) {
+    try {
+      const parsed = JSON.parse(raw) as { error?: string; operationType?: string; path?: string | null };
+      if (parsed && typeof parsed.error === 'string' && parsed.error.trim()) {
+        const ctx = [
+          parsed.operationType ? `operação: ${parsed.operationType}` : '',
+          parsed.path ? `caminho: ${parsed.path}` : ''
+        ]
+          .filter(Boolean)
+          .join(', ');
+        return ctx ? `${parsed.error} (${ctx})` : parsed.error;
+      }
+    } catch {
+      // ignore invalid JSON
+    }
+  }
+  return raw;
+}
+
+function isActorVerifiedSuperAdmin(actor: RecruitmentActor): boolean {
+  if (actor.emailVerified === false) return false;
+  const canonical = toCanonicalRole(actor.role);
+  return (
+    canonical === 'SUPER_ADMIN' ||
+    actor.isSuperAdmin === true ||
+    actor.uid === '2dRLWqnY1zf1MlR9rZYhAKPvGbV2' ||
+    actor.email?.toLowerCase() === 'moztechwavenacala8@gmail.com'
+  );
+}
+
+function actorBelongsToInstitution(actor: RecruitmentActor, targetInstitutionId: string): boolean {
+  if (!targetInstitutionId) return false;
+  if (actor.institutionId === targetInstitutionId) return true;
+  if (Array.isArray(actor.institutionIds) && actor.institutionIds.includes(targetInstitutionId)) return true;
+  if (Array.isArray(actor.ownedInstitutions) && actor.ownedInstitutions.includes(targetInstitutionId)) return true;
+  return false;
+}
+
+export function canActorManageJobVacancies(
+  actor: RecruitmentActor | undefined,
+  targetInstitutionId: string
+): boolean {
+  if (!actor || !targetInstitutionId) return false;
+  if (isActorVerifiedSuperAdmin(actor)) {
+    return true;
+  }
+  if (!actorBelongsToInstitution(actor, targetInstitutionId)) {
+    return false;
+  }
+  const canonical = toCanonicalRole(actor.role);
+  if (canonical === 'ADMIN_INSTITUICAO' || canonical === 'DIRETOR' || canonical === 'CEO') {
+    return true;
+  }
+  if (canonical === 'SECRETARIA') {
+    const perms = Array.isArray(actor.permissions) ? actor.permissions : [];
+    return perms.some((p) => ['vagas.manage', 'publish_vacancies', 'manage_recruitment'].includes(p));
+  }
+  return false;
+}
+
+export function canActorReviewJobApplications(
+  actor: RecruitmentActor | undefined,
+  targetInstitutionId: string
+): boolean {
+  if (!actor || !targetInstitutionId) return false;
+  if (isActorVerifiedSuperAdmin(actor)) {
+    return true;
+  }
+  if (!actorBelongsToInstitution(actor, targetInstitutionId)) {
+    return false;
+  }
+  const canonical = toCanonicalRole(actor.role);
+  if (canonical === 'ADMIN_INSTITUICAO' || canonical === 'DIRETOR' || canonical === 'CEO') {
+    return true;
+  }
+  if (canonical === 'SECRETARIA') {
+    const perms = Array.isArray(actor.permissions) ? actor.permissions : [];
+    return perms.some((p) =>
+      ['vagas.review_applications', 'vagas.manage', 'review_job_applications', 'manage_recruitment'].includes(p)
+    );
+  }
+  return false;
 }
 
 export function validateAttachmentFile(file: {
@@ -219,7 +334,14 @@ export async function createOrUpdateJobVacancy(
   actor: RecruitmentActor,
   existingVacancy?: JobVacancy | null
 ): Promise<JobVacancy> {
-  const check = validateJobVacancyInput(institution.id, input);
+  if (!canActorManageJobVacancies(actor, institution.id)) {
+    throw new Error(
+      'Permissão insuficiente: apenas Super Admin, Admin/Diretor/CEO da instituição ou Secretaria com permissão explícita (vagas.manage) podem publicar ou editar vagas.'
+    );
+  }
+  const normalizedStatus = normalizeVacancyStatus(input.status);
+  const normalizedInput: JobVacancyFormInput = { ...input, status: normalizedStatus };
+  const check = validateJobApplicationOrVacancyInput(institution.id, normalizedInput);
   if (!check.valid) {
     throw new Error(check.error || 'Dados da vaga inválidos.');
   }
@@ -235,26 +357,26 @@ export async function createOrUpdateJobVacancy(
     institutionSlug: slug,
     institutionLogoUrl: institution.logoUrl || '',
     branchId: institution.branches?.[0]?.id || 'branch-main',
-    title: input.title.trim(),
-    department: input.department?.trim() || '',
-    description: input.description.trim(),
-    requirements: input.requirements.map((r) => r.trim()).filter(Boolean),
-    qualifications: input.qualifications?.trim() || '',
-    experienceRequired: input.experienceRequired?.trim() || '',
-    location: input.location.trim(),
-    contractType: input.contractType,
-    salaryRange: input.salaryRange?.trim() || '',
-    vacanciesCount: Math.max(1, Number(input.vacanciesCount || 1)),
-    deadline: input.deadline,
-    requiredAttachments: input.requiredAttachments.length > 0
-      ? input.requiredAttachments
+    title: normalizedInput.title.trim(),
+    department: normalizedInput.department?.trim() || '',
+    description: normalizedInput.description.trim(),
+    requirements: normalizedInput.requirements.map((r) => r.trim()).filter(Boolean),
+    qualifications: normalizedInput.qualifications?.trim() || '',
+    experienceRequired: normalizedInput.experienceRequired?.trim() || '',
+    location: normalizedInput.location.trim(),
+    contractType: normalizedInput.contractType,
+    salaryRange: normalizedInput.salaryRange?.trim() || '',
+    vacanciesCount: Math.max(1, Number(normalizedInput.vacanciesCount || 1)),
+    deadline: normalizedInput.deadline,
+    requiredAttachments: normalizedInput.requiredAttachments.length > 0
+      ? normalizedInput.requiredAttachments
       : ['Currículo (CV)'],
-    status: input.status,
-    applicationsCount: existingVacancy?.applicationsCount ?? 0,
+    status: normalizedStatus,
+    ...(!existingVacancy ? { applicationsCount: 0 } : {}),
     createdAt: existingVacancy?.createdAt || nowIso,
     updatedAt: nowIso,
-    publishedAt: input.status === 'publicada' ? (existingVacancy?.publishedAt || nowIso) : existingVacancy?.publishedAt,
-    closedAt: input.status === 'encerrada' ? nowIso : undefined,
+    publishedAt: normalizedStatus === 'publicada' ? (existingVacancy?.publishedAt || nowIso) : existingVacancy?.publishedAt,
+    closedAt: normalizedStatus === 'encerrada' ? nowIso : undefined,
     createdByUid: existingVacancy?.createdByUid || actor.uid,
     createdByName: existingVacancy?.createdByName || actor.name
   });
@@ -262,25 +384,38 @@ export async function createOrUpdateJobVacancy(
   const path = `institutions/${institution.id}/jobVacancies/${vacancyId}`;
   try {
     await setDoc(doc(db, 'institutions', institution.id, 'jobVacancies', vacancyId), vacancy, { merge: true });
-    return vacancy;
+    return existingVacancy
+      ? { ...vacancy, applicationsCount: existingVacancy.applicationsCount ?? 0 }
+      : vacancy;
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
     throw err;
   }
 }
 
+function validateJobApplicationOrVacancyInput(institutionId: string, input: JobVacancyFormInput) {
+  return validateJobVacancyInput(institutionId, input);
+}
+
 export async function changeJobVacancyStatus(
   institutionId: string,
   vacancyId: string,
-  newStatus: JobVacancyStatus
+  newStatus: JobVacancyStatus | 'draft' | 'published' | 'closed',
+  actor?: RecruitmentActor
 ): Promise<void> {
+  if (actor && !canActorManageJobVacancies(actor, institutionId)) {
+    throw new Error(
+      'Permissão insuficiente para alterar o estado desta vaga.'
+    );
+  }
+  const canonicalStatus = normalizeVacancyStatus(newStatus);
   const nowIso = new Date().toISOString();
   const updates: Record<string, any> = {
-    status: newStatus,
+    status: canonicalStatus,
     updatedAt: nowIso
   };
-  if (newStatus === 'publicada') updates.publishedAt = nowIso;
-  if (newStatus === 'encerrada') updates.closedAt = nowIso;
+  if (canonicalStatus === 'publicada') updates.publishedAt = nowIso;
+  if (canonicalStatus === 'encerrada') updates.closedAt = nowIso;
 
   const path = `institutions/${institutionId}/jobVacancies/${vacancyId}`;
   try {
@@ -293,17 +428,21 @@ export async function changeJobVacancyStatus(
 
 export async function listInstitutionJobVacancies(institutionId: string): Promise<JobVacancy[]> {
   if (!institutionId) return [];
+  const path = `institutions/${institutionId}/jobVacancies`;
   try {
     const snap = await getDocs(collection(db, 'institutions', institutionId, 'jobVacancies'));
     const list = snap.docs.map((d) => ({ ...(d.data() as JobVacancy), id: d.id }));
     return list.sort((a, b) => (b.updatedAt || b.createdAt).localeCompare(a.updatedAt || a.createdAt));
   } catch (err) {
-    console.warn('[JobRecruitment] Nota ao listar vagas da instituição:', err);
-    return [];
+    handleFirestoreError(err, OperationType.LIST, path);
+    throw err;
   }
 }
 
 export async function listAllPublishedJobVacancies(institutionIdFilter?: string): Promise<JobVacancy[]> {
+  const path = institutionIdFilter
+    ? `institutions/${institutionIdFilter}/jobVacancies`
+    : 'collectionGroup(jobVacancies)';
   try {
     if (institutionIdFilter) {
       const q = query(
@@ -313,6 +452,7 @@ export async function listAllPublishedJobVacancies(institutionIdFilter?: string)
       const snap = await getDocs(q);
       return snap.docs
         .map((d) => ({ ...(d.data() as JobVacancy), id: d.id }))
+        .filter((v) => isVacancyWithinDeadline(v))
         .sort((a, b) => (b.publishedAt || b.createdAt).localeCompare(a.publishedAt || a.createdAt));
     }
 
@@ -320,10 +460,11 @@ export async function listAllPublishedJobVacancies(institutionIdFilter?: string)
     const snap = await getDocs(q);
     return snap.docs
       .map((d) => ({ ...(d.data() as JobVacancy), id: d.id }))
+      .filter((v) => isVacancyWithinDeadline(v))
       .sort((a, b) => (b.publishedAt || b.createdAt).localeCompare(a.publishedAt || a.createdAt));
   } catch (err) {
-    console.warn('[JobRecruitment] Nota ao listar vagas publicadas:', err);
-    return [];
+    handleFirestoreError(err, OperationType.LIST, path);
+    throw err;
   }
 }
 
@@ -387,6 +528,7 @@ export async function listInstitutionJobApplications(
   vacancyId?: string
 ): Promise<JobApplication[]> {
   if (!institutionId) return [];
+  const path = `institutions/${institutionId}/jobApplications`;
   try {
     const colRef = collection(db, 'institutions', institutionId, 'jobApplications');
     const q = vacancyId ? query(colRef, where('vacancyId', '==', vacancyId)) : query(colRef);
@@ -395,8 +537,8 @@ export async function listInstitutionJobApplications(
       .map((d) => ({ ...(d.data() as JobApplication), id: d.id }))
       .sort((a, b) => (b.submittedAt || '').localeCompare(a.submittedAt || ''));
   } catch (err) {
-    console.warn('[JobRecruitment] Nota ao listar candidaturas de emprego:', err);
-    return [];
+    handleFirestoreError(err, OperationType.LIST, path);
+    throw err;
   }
 }
 
@@ -408,6 +550,11 @@ export async function updateJobApplicationStatusAndNotes(
   actor: RecruitmentActor,
   publicSummary?: string
 ): Promise<JobApplication> {
+  if (!canActorReviewJobApplications(actor, institutionId)) {
+    throw new Error(
+      'Permissão insuficiente para rever ou actualizar o estado de candidaturas desta instituição.'
+    );
+  }
   if (application.institutionId !== institutionId) {
     throw new Error('Violação de isolamento institucional.');
   }

@@ -57,6 +57,14 @@ import {
   validateFullRegistration,
   validateRegistrationStep
 } from '../../utils/registrationConfigUtils';
+import {
+  calculateApplicationAttachmentsByteSize,
+  getUtf8Bytes,
+  MAX_PUBLIC_DOC_IMAGE_RAW_BYTES,
+  MAX_PUBLIC_DOC_PDF_BYTES,
+  MAX_PUBLIC_DOCS_TOTAL_BYTES,
+  readPdfFileAsValidatedDataUrl
+} from '../../utils/documentPreviewUtils';
 
 export { validateAndFormatInternationalPhone };
 
@@ -528,37 +536,58 @@ export const PublicRegistrationView: React.FC = () => {
     setPendingDocTitle(null);
     if (!file || !targetTitle) return;
 
-    const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
-    const isPdfByExt = file.name.toLowerCase().endsWith('.pdf');
-    if (!allowedTypes.includes(file.type) && !isPdfByExt) {
+    const allowedImageTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    const isImage = allowedImageTypes.includes(file.type) || file.type.startsWith('image/');
+
+    if (!isPdf && !isImage) {
       toastError('Formato inválido', 'Selecione apenas ficheiros PDF, JPG, PNG ou WEBP.');
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      toastError('Ficheiro demasiado grande', 'O ficheiro excede o limite de 5 MB.');
+    let safeDataUrl: string | undefined;
+    if (isPdf) {
+      try {
+        safeDataUrl = await readPdfFileAsValidatedDataUrl(file, MAX_PUBLIC_DOC_PDF_BYTES);
+      } catch (err: any) {
+        toastError('PDF não aceite', err?.message || 'Não foi possível validar o documento PDF.');
+        return;
+      }
+    } else {
+      if (file.size > MAX_PUBLIC_DOC_IMAGE_RAW_BYTES) {
+        toastError('Ficheiro demasiado grande', 'A imagem excede o limite de 5 MB antes da compressão.');
+        return;
+      }
+      try {
+        safeDataUrl = await compressImageToBase64(file, 100000);
+      } catch (err: any) {
+        toastError('Erro ao processar imagem', err?.message || 'Não foi possível comprimir a imagem selecionada.');
+        return;
+      }
+    }
+
+    const nextEntry = {
+      fileName: file.name,
+      fileSize: formatFileSize(file.size),
+      mimeType: isPdf ? 'application/pdf' : file.type || 'image/jpeg',
+      dataUrl: safeDataUrl,
+      uploadedAt: new Date().toISOString().split('T')[0]
+    };
+
+    const nextDocsPreview = {
+      ...uploadedDocs,
+      [targetTitle]: nextEntry
+    };
+    const totalBytes = calculateApplicationAttachmentsByteSize(candidatePhotoUrl, nextDocsPreview);
+    if (totalBytes > MAX_PUBLIC_DOCS_TOTAL_BYTES) {
+      toastError(
+        'Limite de Anexos Atingido',
+        `O conjunto de foto e documentos (${Math.round(totalBytes / 1024)} KB) excede o máximo de ${Math.round(MAX_PUBLIC_DOCS_TOTAL_BYTES / 1024)} KB para submissão segura. Reduza o tamanho dos PDFs ou envie fotografias comprimidas.`
+      );
       return;
     }
 
-    let safeDataUrl: string | undefined;
-    if (file.type.startsWith('image/')) {
-      try {
-        safeDataUrl = await compressImageToBase64(file, 100000);
-      } catch {
-        safeDataUrl = undefined;
-      }
-    }
-
-    setUploadedDocs(prev => ({
-      ...prev,
-      [targetTitle]: {
-        fileName: file.name,
-        fileSize: formatFileSize(file.size),
-        mimeType: file.type || (isPdfByExt ? 'application/pdf' : 'application/octet-stream'),
-        dataUrl: safeDataUrl,
-        uploadedAt: new Date().toISOString().split('T')[0]
-      }
-    }));
+    setUploadedDocs(nextDocsPreview);
     soundManager.playSuccess();
   };
 
@@ -709,6 +738,16 @@ export const PublicRegistrationView: React.FC = () => {
         documentsCount: documentsList.length,
         maskedName: maskCandidateName(fullName.trim())
       });
+
+      const payloadByteSize = getUtf8Bytes(JSON.stringify(candidatePayload));
+      if (payloadByteSize > 950_000) {
+        toastError(
+          'Candidatura demasiado pesada',
+          'O tamanho total dos anexos excede o limite técnico de envio. Comprima os PDFs ou remova anexos repetidos.'
+        );
+        setIsSubmitting(false);
+        return;
+      }
 
       // 3. Persistência no Firestore
       await setDoc(doc(db, 'institutions', resolvedPublicInst.institutionId, 'applications', applicationId), {
@@ -2141,12 +2180,12 @@ export const PublicRegistrationView: React.FC = () => {
                       4. Documentos da Candidatura
                     </h3>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      Submeta cópias legíveis (PDF ou imagem, máx. 5 MB) conforme definido pela {resolvedPublicInst.name}.
+                      Submeta cópias legíveis: PDF (máx. 450 KB) ou imagem JPG/PNG/WEBP (até 5 MB, comprimida automaticamente), conforme definido pela {resolvedPublicInst.name}.
                     </p>
                     <input
                       ref={docFileInputRef}
                       type="file"
-                      accept=".pdf,image/jpeg,image/png,image/webp"
+                      accept=".pdf,application/pdf,image/jpeg,image/png,image/webp"
                       onChange={handleDocFileChange}
                       className="hidden"
                     />
@@ -2193,7 +2232,7 @@ export const PublicRegistrationView: React.FC = () => {
                                   </p>
                                 ) : (
                                   <p className="text-[11px] text-slate-500 mt-0.5">
-                                    {isDocRequired ? 'Obrigatório' : 'Opcional'} • PDF, JPG ou PNG
+                                    {isDocRequired ? 'Obrigatório' : 'Opcional'} • PDF (até 450 KB), JPG ou PNG
                                   </p>
                                 )}
                               </div>

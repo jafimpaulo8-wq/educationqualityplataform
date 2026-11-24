@@ -24,6 +24,11 @@ import {
   validateInviteCreationInput
 } from '../src/services/inviteAuthService';
 import {
+  canActorManageJobVacancies,
+  canActorReviewJobApplications,
+  formatRecruitmentErrorMessage,
+  isVacancyWithinDeadline,
+  normalizeVacancyStatus,
   validateAttachmentFile,
   validateJobApplicationInput
 } from '../src/services/jobRecruitmentService';
@@ -532,7 +537,183 @@ async function runAll() {
   );
 
   // ---------------------------------------------------------------------------
-  // 8. INTEGRIDADE DE REGRAS, STORAGE, ÍNDICES E CONFIGURAÇÃO FIREBASE
+  // 8. RBAC GRANULAR COMPLETO PARA VAGAS & CANDIDATURAS (8 PERFIS + PRAZOS)
+  // ---------------------------------------------------------------------------
+  const superByUid = canActorManageJobVacancies(
+    {
+      uid: '2dRLWqnY1zf1MlR9rZYhAKPvGbV2',
+      name: 'Super Admin',
+      role: 'SUPER_ADMIN',
+      email: 'moztechwavenacala8@gmail.com',
+      emailVerified: true
+    },
+    'ceu-azul-nacala'
+  );
+  const superByEmail = canActorManageJobVacancies(
+    {
+      uid: '2dRLWqnY1zf1MlR9rZYhAKPvGbV2',
+      name: 'Super Admin',
+      role: 'SUPER_ADMIN',
+      email: 'moztechwavenacala8@gmail.com',
+      emailVerified: true
+    },
+    'inst-1'
+  );
+  const superUnverifiedDenied =
+    !canActorManageJobVacancies(
+      {
+        uid: '2dRLWqnY1zf1MlR9rZYhAKPvGbV2',
+        name: 'Super Admin Não Verificado',
+        role: 'SUPER_ADMIN',
+        email: 'moztechwavenacala8@gmail.com',
+        emailVerified: false
+      },
+      'inst-1'
+    ) &&
+    !canActorReviewJobApplications(
+      {
+        uid: '2dRLWqnY1zf1MlR9rZYhAKPvGbV2',
+        name: 'Super Admin Não Verificado',
+        role: 'SUPER_ADMIN',
+        email: 'moztechwavenacala8@gmail.com',
+        emailVerified: false
+      },
+      'inst-1'
+    );
+
+  const adminInstOwn = canActorManageJobVacancies(
+    { uid: 'adm-1', name: 'Admin Inst1', role: 'ADMIN_INSTITUICAO', institutionId: 'inst-1' },
+    'inst-1'
+  );
+  const adminInstCrossDenied = !canActorManageJobVacancies(
+    { uid: 'adm-1', name: 'Admin Inst1', role: 'ADMIN_INSTITUICAO', institutionId: 'inst-1' },
+    'ceu-azul-nacala'
+  );
+  const directorOwn = canActorManageJobVacancies(
+    { uid: 'dir-1', name: 'Diretor Inst1', role: 'DIRETOR', institutionId: 'inst-1' },
+    'inst-1'
+  );
+  const directorCrossDenied = !canActorManageJobVacancies(
+    { uid: 'dir-1', name: 'Diretor Inst1', role: 'DIRETOR', institutionId: 'inst-1' },
+    'ceu-azul-nacala'
+  );
+  const ceoOwn = canActorManageJobVacancies(
+    { uid: 'ceo-1', name: 'CEO Céu Azul', role: 'CEO', institutionId: 'ceu-azul-nacala' },
+    'ceu-azul-nacala'
+  );
+  const ceoCross = canActorManageJobVacancies(
+    { uid: 'ceo-1', name: 'CEO Céu Azul', role: 'CEO', institutionId: 'ceu-azul-nacala' },
+    'inst-1'
+  );
+  const adminNoInst = canActorManageJobVacancies(
+    { uid: 'adm-sem-inst', name: 'Admin Órfão', role: 'ADMIN_INSTITUICAO', institutionId: '' },
+    'inst-1'
+  );
+  const secWithVagasPerm =
+    canActorManageJobVacancies(
+      { uid: 'sec-ok', name: 'Secretaria Vagas', role: 'SECRETARIA', institutionId: 'ceu-azul-nacala', permissions: ['alunos.view', 'vagas.manage'] },
+      'ceu-azul-nacala'
+    ) &&
+    canActorReviewJobApplications(
+      { uid: 'sec-ok', name: 'Secretaria Vagas', role: 'SECRETARIA', institutionId: 'ceu-azul-nacala', permissions: ['alunos.view', 'vagas.manage'] },
+      'ceu-azul-nacala'
+    );
+  const secReviewOnlyPerm =
+    !canActorManageJobVacancies(
+      { uid: 'sec-rev', name: 'Secretaria Triagem', role: 'SECRETARIA', institutionId: 'ceu-azul-nacala', permissions: ['vagas.review_applications'] },
+      'ceu-azul-nacala'
+    ) &&
+    canActorReviewJobApplications(
+      { uid: 'sec-rev', name: 'Secretaria Triagem', role: 'SECRETARIA', institutionId: 'ceu-azul-nacala', permissions: ['vagas.review_applications'] },
+      'ceu-azul-nacala'
+    );
+  const secWithoutVagasPerm =
+    canActorManageJobVacancies(
+      { uid: 'sec-no', name: 'Secretaria Geral', role: 'SECRETARIA', institutionId: 'ceu-azul-nacala', permissions: ['alunos.view'] },
+      'ceu-azul-nacala'
+    ) ||
+    canActorReviewJobApplications(
+      { uid: 'sec-no', name: 'Secretaria Geral', role: 'SECRETARIA', institutionId: 'ceu-azul-nacala', permissions: ['alunos.view'] },
+      'ceu-azul-nacala'
+    );
+  const profDenied =
+    canActorManageJobVacancies(
+      { uid: 'prof-1', name: 'Professor', role: 'PROFESSOR', institutionId: 'ceu-azul-nacala' },
+      'ceu-azul-nacala'
+    ) ||
+    canActorReviewJobApplications(
+      { uid: 'prof-1', name: 'Professor', role: 'PROFESSOR', institutionId: 'ceu-azul-nacala' },
+      'ceu-azul-nacala'
+    );
+  const formadorDenied =
+    canActorManageJobVacancies(
+      { uid: 'form-1', name: 'Formador', role: 'FORMADOR', institutionId: 'inst-1' },
+      'inst-1'
+    ) ||
+    canActorReviewJobApplications(
+      { uid: 'form-1', name: 'Formador', role: 'FORMADOR', institutionId: 'inst-1' },
+      'inst-1'
+    );
+  const anonDenied =
+    canActorManageJobVacancies(undefined, 'inst-1') ||
+    canActorManageJobVacancies({ uid: '', name: 'Anon', role: 'VISITANTE' }, 'inst-1') ||
+    canActorReviewJobApplications(undefined, 'inst-1');
+
+  const statusMapOk =
+    normalizeVacancyStatus('draft') === 'rascunho' &&
+    normalizeVacancyStatus('published') === 'publicada' &&
+    normalizeVacancyStatus('closed') === 'encerrada';
+
+  const deadlineVisibilityOk =
+    isVacancyWithinDeadline({ status: 'publicada', deadline: futureDateStr }, nowMs) &&
+    isVacancyWithinDeadline({ status: 'publicada', deadline: getMaputoTodayIsoDate(nowMs) }, nowMs) &&
+    !isVacancyWithinDeadline({ status: 'publicada', deadline: pastDateStr }, nowMs) &&
+    !isVacancyWithinDeadline({ status: 'encerrada', deadline: futureDateStr }, nowMs) &&
+    !isVacancyWithinDeadline({ status: 'rascunho', deadline: futureDateStr }, nowMs);
+
+  const formattedPermErr = formatRecruitmentErrorMessage(
+    new Error(
+      JSON.stringify({
+        error: 'Missing or insufficient permissions.',
+        authInfo: { userId: 'u1', email: 'secret@x.mz' },
+        operationType: 'write',
+        path: 'institutions/inst-1/jobVacancies/v1'
+      })
+    ),
+    'fallback'
+  );
+  const errorFormatSafe =
+    formattedPermErr.includes('Missing or insufficient permissions.') &&
+    formattedPermErr.includes('institutions/inst-1/jobVacancies/v1') &&
+    !formattedPermErr.includes('secret@x.mz');
+
+  record(
+    'RBAC Vagas',
+    'Matriz completa dos 8 perfis, isolamento inst-1/ceu-azul-nacala, prazos Maputo e formatação segura de erros',
+    superByUid &&
+      superByEmail &&
+      superUnverifiedDenied &&
+      adminInstOwn &&
+      adminInstCrossDenied &&
+      directorOwn &&
+      directorCrossDenied &&
+      ceoOwn &&
+      !ceoCross &&
+      !adminNoInst &&
+      secWithVagasPerm &&
+      secReviewOnlyPerm &&
+      !secWithoutVagasPerm &&
+      !profDenied &&
+      !formadorDenied &&
+      !anonDenied &&
+      statusMapOk &&
+      deadlineVisibilityOk &&
+      errorFormatSafe,
+    `super=${superByUid && superByEmail}, superUnverifDenied=${superUnverifiedDenied}, adminOwn/Cross=${adminInstOwn}/${adminInstCrossDenied}, dirOwn/Cross=${directorOwn}/${directorCrossDenied}, ceoOwn/Cross=${ceoOwn}/${!ceoCross}, secManage=${secWithVagasPerm}, secReviewOnly=${secReviewOnlyPerm}, secNoPerm=${!secWithoutVagasPerm}, prof/form/anonDenied=${!profDenied && !formadorDenied && !anonDenied}, deadlineOk=${deadlineVisibilityOk}, errSafe=${errorFormatSafe}`
+  );
+
+  // ---------------------------------------------------------------------------
+  // 9. INTEGRIDADE DE REGRAS, STORAGE, ÍNDICES E CONFIGURAÇÃO FIREBASE
   // ---------------------------------------------------------------------------
   const rootDir = process.cwd();
   const rootRules = fs.readFileSync(path.join(rootDir, 'firestore.rules'), 'utf8');
@@ -540,6 +721,7 @@ async function runAll() {
   const storageRules = fs.readFileSync(path.join(rootDir, 'firebase/storage.rules'), 'utf8');
   const indexesJson = JSON.parse(fs.readFileSync(path.join(rootDir, 'firestore.indexes.json'), 'utf8'));
   const firebaseJson = JSON.parse(fs.readFileSync(path.join(rootDir, 'firebase.json'), 'utf8'));
+  const packageJson = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
 
   const openBraces = (rootRules.match(/\{/g) || []).length;
   const closeBraces = (rootRules.match(/\}/g) || []).length;
@@ -548,10 +730,16 @@ async function runAll() {
     rootRules.includes('request.auth.token.email_verified == true') &&
     !rootRules.includes('!isRegisteredPublicSlug') &&
     rootRules.includes('match /jobApplicationDedup/{dedupId}') &&
-    rootRules.includes("request.auth.token.email == 'moztechwavenacala8@gmail.com'");
+    rootRules.includes("request.auth.token.email == 'moztechwavenacala8@gmail.com'") &&
+    rootRules.includes("request.auth.uid == '2dRLWqnY1zf1MlR9rZYhAKPvGbV2'") &&
+    rootRules.includes("'CEO'") &&
+    rootRules.includes('canManageJobVacancies(instId)') &&
+    rootRules.includes("'vagas.manage'");
 
   const storageHardened =
     storageRules.includes("request.auth.token.email == 'moztechwavenacala8@gmail.com'") &&
+    storageRules.includes("request.auth.uid == '2dRLWqnY1zf1MlR9rZYhAKPvGbV2'") &&
+    storageRules.includes('isInstRecruitmentStaff(instId)') &&
     !storageRules.includes('jafimpaulo8@gmail.com') &&
     !/allow write:\s*if\s*isSignedIn\(\)\s*;/.test(storageRules) &&
     storageRules.includes('450 * 1024') &&
@@ -571,11 +759,16 @@ async function runAll() {
     firebaseJson?.firestore?.indexes === 'firestore.indexes.json' &&
     firebaseJson?.storage?.rules === 'firebase/storage.rules' &&
     Array.isArray(firebaseJson?.functions) &&
-    firebaseJson.functions[0]?.source === 'firebase/functions';
+    firebaseJson.functions[0]?.source === 'firebase/functions' &&
+    Boolean(firebaseJson?.emulators?.auth?.port) &&
+    Boolean(firebaseJson?.emulators?.functions?.port) &&
+    Boolean(firebaseJson?.emulators?.firestore?.port) &&
+    Boolean(firebaseJson?.emulators?.storage?.port) &&
+    typeof packageJson?.scripts?.['test:emulators'] === 'string';
 
   record(
     'Regras & Índices Firebase',
-    'firestore.rules sincronizado, storage.rules sem bypass, índice jobVacancies e firebase.json válidos',
+    'firestore.rules sincronizado (UID/CEO/vagas.manage), storage.rules, índice jobVacancies e emulators configurados',
     rulesSynced &&
       openBraces === closeBraces &&
       rulesHardened &&

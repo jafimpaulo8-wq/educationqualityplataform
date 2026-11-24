@@ -46,13 +46,20 @@ service cloud.firestore {
       return hasUserProfile() && ('institutionId' in getUserData()) ? getUserData().institutionId : '';
     }
 
-    // FASE A: Super Admin exclusivo = moztechwavenacala8@gmail.com com email verificado
+    // FASE A: Super Admin exclusivo = moztechwavenacala8@gmail.com ou UID canónico com email verificado
     function isSuperAdmin() {
       return isSignedIn() &&
-        ('email' in request.auth.token) &&
         ('email_verified' in request.auth.token) &&
-        request.auth.token.email == 'moztechwavenacala8@gmail.com' &&
-        request.auth.token.email_verified == true;
+        request.auth.token.email_verified == true && (
+          (
+            ('email' in request.auth.token) &&
+            request.auth.token.email == 'moztechwavenacala8@gmail.com'
+          ) ||
+          (
+            request.auth.uid == '2dRLWqnY1zf1MlR9rZYhAKPvGbV2' &&
+            (!('email' in request.auth.token) || request.auth.token.email == 'moztechwavenacala8@gmail.com')
+          )
+        );
     }
 
     function isNonSuperAdminPayload(d) {
@@ -61,24 +68,54 @@ service cloud.firestore {
              (!('isSuperAdmin' in d) || d.isSuperAdmin == false);
     }
 
+    function belongsToInstitution(instId) {
+      return isSignedIn() &&
+        instId is string &&
+        instId.size() > 0 && (
+          userInstitution() == instId ||
+          (hasUserProfile() && ('institutionIds' in getUserData()) && getUserData().institutionIds is list && instId in getUserData().institutionIds) ||
+          (hasUserProfile() && ('ownedInstitutions' in getUserData()) && getUserData().ownedInstitutions is list && instId in getUserData().ownedInstitutions) ||
+          (('institutionId' in request.auth.token) && request.auth.token.institutionId == instId)
+        );
+    }
+
     function isInstAdmin(instId) {
       return isSuperAdmin() || (
-        isSignedIn() &&
-        instId is string &&
-        instId.size() > 0 &&
-        userInstitution() == instId &&
-        userRole() in ['ADMIN_INSTITUICAO', 'DIRETOR', 'director']
+        belongsToInstitution(instId) &&
+        userRole() in ['ADMIN_INSTITUICAO', 'DIRETOR', 'director', 'CEO', 'ceo']
       );
     }
 
     function isSecretaria(instId) {
       return isSuperAdmin() || (
-        isSignedIn() &&
-        instId is string &&
-        instId.size() > 0 &&
-        userInstitution() == instId &&
-        userRole() in ['ADMIN_INSTITUICAO', 'DIRETOR', 'director', 'SECRETARIA', 'secretaria']
+        belongsToInstitution(instId) &&
+        userRole() in ['ADMIN_INSTITUICAO', 'DIRETOR', 'director', 'CEO', 'ceo', 'SECRETARIA', 'secretaria']
       );
+    }
+
+    function hasExplicitUserPermission(permList) {
+      return hasUserProfile() &&
+        ('permissions' in getUserData()) &&
+        getUserData().permissions is list &&
+        getUserData().permissions.hasAny(permList);
+    }
+
+    function canManageJobVacancies(instId) {
+      return isSuperAdmin() ||
+        isInstAdmin(instId) || (
+          belongsToInstitution(instId) &&
+          userRole() in ['SECRETARIA', 'secretaria'] &&
+          hasExplicitUserPermission(['vagas.manage', 'publish_vacancies', 'manage_recruitment'])
+        );
+    }
+
+    function canReviewJobApplications(instId) {
+      return isSuperAdmin() ||
+        isInstAdmin(instId) || (
+          belongsToInstitution(instId) &&
+          userRole() in ['SECRETARIA', 'secretaria'] &&
+          hasExplicitUserPermission(['vagas.review_applications', 'vagas.manage', 'review_job_applications', 'manage_recruitment'])
+        );
     }
 
     // FASE C: Permissão financeira estrita (exclui SECRETARIA de validações, recibos e contas)
@@ -525,30 +562,39 @@ service cloud.firestore {
       }
 
       // Fluxo 3: Vagas de Emprego e Candidaturas Institucionais (Estritamente isoladas por instituição)
+      // Super Admin: global; Admin/Diretor/CEO: própria instituição; Secretaria: apenas com permissão explícita vagas.manage
       match /jobVacancies/{vacancyId} {
-        allow get, list: if (resource != null && resource.data.status == 'publicada') || isSuperAdmin() || isSecretaria(institutionId);
+        allow get, list: if (resource != null && resource.data.status == 'publicada') ||
+          canManageJobVacancies(institutionId) ||
+          canReviewJobApplications(institutionId);
         allow create: if isValidId(vacancyId) &&
-          (isSuperAdmin() || isSecretaria(institutionId)) &&
+          canManageJobVacancies(institutionId) &&
           ('institutionId' in request.resource.data) &&
           request.resource.data.institutionId == institutionId &&
           ('title' in request.resource.data) && request.resource.data.title is string && request.resource.data.title.size() >= 3 &&
-          ('status' in request.resource.data) && request.resource.data.status in ['rascunho', 'publicada', 'encerrada'];
+          ('status' in request.resource.data) && request.resource.data.status in ['rascunho', 'publicada', 'encerrada'] &&
+          (!('applicationsCount' in request.resource.data) || (request.resource.data.applicationsCount is int && request.resource.data.applicationsCount == 0));
         allow update: if isValidId(vacancyId) &&
           resource != null &&
-          (isSuperAdmin() || isSecretaria(institutionId)) &&
+          canManageJobVacancies(institutionId) &&
           request.resource.data.institutionId == resource.data.institutionId &&
-          ('status' in request.resource.data) && request.resource.data.status in ['rascunho', 'publicada', 'encerrada'];
+          ('title' in request.resource.data) && request.resource.data.title is string && request.resource.data.title.size() >= 3 &&
+          ('status' in request.resource.data) && request.resource.data.status in ['rascunho', 'publicada', 'encerrada'] &&
+          (!('applicationsCount' in resource.data) || request.resource.data.applicationsCount == resource.data.applicationsCount);
         allow delete: if isSuperAdmin() || isInstAdmin(institutionId);
       }
 
       // Submissões públicas são processadas exclusivamente via Cloud Function Callable (Admin SDK)
       // para garantir controlo de duplicados, prazo, rate-limit e incremento atómico de applicationsCount.
       match /jobApplications/{applicationId} {
-        allow get, list: if isSuperAdmin() || isSecretaria(institutionId);
-        allow create: if isValidId(applicationId) && (isSuperAdmin() || isSecretaria(institutionId));
+        allow get, list: if canReviewJobApplications(institutionId);
+        allow create: if isValidId(applicationId) &&
+          canReviewJobApplications(institutionId) &&
+          ('institutionId' in request.resource.data) &&
+          request.resource.data.institutionId == institutionId;
         allow update: if isValidId(applicationId) &&
           resource != null &&
-          (isSuperAdmin() || isSecretaria(institutionId)) &&
+          canReviewJobApplications(institutionId) &&
           request.resource.data.institutionId == resource.data.institutionId &&
           request.resource.data.vacancyId == resource.data.vacancyId &&
           ('status' in request.resource.data) &&
@@ -1167,21 +1213,21 @@ service cloud.firestore {
     }
 
     // Tracking seguro e sem PII de candidaturas de emprego (/jobApplicationTracking/{trackingToken})
-    // Criação exclusiva via servidor (Admin SDK) ou Secretaria autorizada
+    // Criação exclusiva via servidor (Admin SDK) ou gestor de recrutamento autorizado
     match /jobApplicationTracking/{trackingToken} {
       allow get: if isValidId(trackingToken) && trackingToken.size() >= 24;
       allow list: if false;
       allow create: if isValidId(trackingToken) &&
         trackingToken.size() >= 24 &&
         ('institutionId' in request.resource.data) &&
-        (isSuperAdmin() || isSecretaria(request.resource.data.institutionId)) &&
+        canReviewJobApplications(request.resource.data.institutionId) &&
         !('email' in request.resource.data) &&
         !('phone' in request.resource.data) &&
         !('attachments' in request.resource.data) &&
         !('internalNotes' in request.resource.data);
       allow update: if isValidId(trackingToken) &&
         resource != null &&
-        (isSuperAdmin() || isSecretaria(resource.data.institutionId)) &&
+        canReviewJobApplications(resource.data.institutionId) &&
         request.resource.data.institutionId == resource.data.institutionId &&
         !('email' in request.resource.data) &&
         !('phone' in request.resource.data) &&

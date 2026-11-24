@@ -70,13 +70,13 @@ export const PrivateRegistrationView: React.FC = () => {
   const [fullName, setFullName] = useState('');
   const [documentType, setDocumentType] = useState<'BI' | 'DIRE' | 'Passaporte' | 'Cédula'>('BI');
   const [documentNumber, setDocumentNumber] = useState('');
-  const [birthDate, setBirthDate] = useState('2004-03-15');
+  const [birthDate, setBirthDate] = useState('');
   const [gender, setGender] = useState<'Masculino' | 'Feminino' | 'Outro'>('Masculino');
-  const [phone, setPhone] = useState('+258 84 ');
-  const [whatsapp, setWhatsapp] = useState('+258 84 ');
+  const [phone, setPhone] = useState('');
+  const [whatsapp, setWhatsapp] = useState('');
   const [email, setEmail] = useState('');
-  const [province, setProvince] = useState('Nampula');
-  const [city, setCity] = useState('Nacala-Porto');
+  const [province, setProvince] = useState(activeInstitution.province || '');
+  const [city, setCity] = useState(activeInstitution.city || '');
   const [address, setAddress] = useState('');
   const [guardianName, setGuardianName] = useState('');
   const [guardianPhone, setGuardianPhone] = useState('');
@@ -205,12 +205,15 @@ export const PrivateRegistrationView: React.FC = () => {
       toastError('Campos Obrigatórios', 'Preencha o Nome Completo, Número do Documento e Contacto Telefónico.');
       return;
     }
+    if (!selectedCourse) {
+      toastError('Curso Obrigatório', 'Selecione um curso válido da instituição antes de concluir.');
+      return;
+    }
 
     soundManager.playClick();
 
     if (enrollmentMode === 'direta') {
       // Create student directly
-      const generatedCode = `MTW-2026-${Math.floor(1000 + Math.random() * 9000)}`;
       const chosenClass = classes.find(c => c.id === selectedClassId) || availableClasses[0];
 
       const createdStudent = addStudent({
@@ -222,30 +225,28 @@ export const PrivateRegistrationView: React.FC = () => {
         birthDate,
         gender: gender as any,
         phone: phone.trim(),
-        whatsapp: whatsapp.trim() || phone.trim(),
-        email: email.trim() || `${documentNumber.toLowerCase().replace(/[^a-z0-9]/g, '')}@aluno.mz`,
+        whatsapp: whatsapp.trim() || undefined,
+        email: email.trim(),
         province,
         city,
-        address: address.trim() || `${city}, ${province}`,
-        guardianName: guardianName.trim() || 'O Próprio',
-        guardianPhone: guardianPhone.trim() || phone.trim(),
-        emergencyContact: phone.trim(),
-        courseId: selectedCourse?.id || 'crs-default',
-        courseName: selectedCourse?.name || 'Curso Técnico',
-        classGroupId: chosenClass?.id || 'turma-1',
-        classGroupName: chosenClass?.name || 'Turma A',
+        address: address.trim(),
+        guardianName: guardianName.trim() || undefined,
+        guardianPhone: guardianPhone.trim() || undefined,
+        emergencyContact: guardianPhone.trim() || phone.trim(),
+        courseId: selectedCourse.id,
+        courseName: selectedCourse.name,
+        classGroupId: chosenClass?.id || '',
+        classGroupName: chosenClass?.name || 'Sem Turma Alocada',
         regime,
         status: 'Matriculado' as StudentStatus,
         paymentStatus: paymentStatus === 'Pendente' ? 'Pendente' : 'Pago',
         balanceOwing: paymentStatus === 'Pendente' ? paymentAmount : 0,
         attendancePercentage: 100,
-        averageGrade: 14,
+        averageGrade: 0,
         assessments: [],
         enrollmentDate: new Date().toISOString().split('T')[0],
         notes: isScholarship ? `Bolsista Institucional: ${scholarshipNote}` : 'Inscrição presencial no balcão da secretaria.',
-        photoUrl: gender === 'Feminino' 
-          ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80'
-          : 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&auto=format&fit=crop&q=80'
+        photoUrl: ''
       });
 
       // Also record as processed application
@@ -258,17 +259,17 @@ export const PrivateRegistrationView: React.FC = () => {
         birthDate,
         gender: gender as any,
         phone: phone.trim(),
-        email: email.trim() || `${phone.replace(/\D/g, '')}@candidato.mz`,
+        email: email.trim(),
         province,
         city,
         address: address.trim(),
-        courseId: selectedCourse?.id || 'crs-default',
-        courseName: selectedCourse?.name || 'Curso Técnico',
+        guardianName: guardianName.trim() || undefined,
+        guardianPhone: guardianPhone.trim() || undefined,
+        courseId: selectedCourse.id,
+        courseName: selectedCourse.name,
         regime,
         shift,
-        photoUrl: gender === 'Feminino' 
-          ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80'
-          : 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&auto=format&fit=crop&q=80',
+        photoUrl: '',
         status: 'Matriculado',
         convertedStudentId: createdStudent.id,
         convertedStudentCode: createdStudent.code,
@@ -276,7 +277,9 @@ export const PrivateRegistrationView: React.FC = () => {
         paymentAmount: paymentStatus === 'Isento' ? 0 : paymentAmount,
         paymentMethod,
         paymentReference: receiptNumber,
-        analysisNotes: `Matrícula direta no balcão por ${chosenClass?.name}. Recibo ${receiptNumber}.`
+        analysisNotes: chosenClass
+          ? `Matrícula direta no balcão (${chosenClass.name}). Recibo ${receiptNumber}.`
+          : `Matrícula direta no balcão. Recibo ${receiptNumber}.`
       });
 
       confetti({
@@ -311,14 +314,14 @@ export const PrivateRegistrationView: React.FC = () => {
         birthDate,
         gender: gender as any,
         phone: phone.trim(),
-        email: email.trim() || `${phone.replace(/\D/g, '')}@candidato.mz`,
+        email: email.trim(),
         province,
         city,
         address: address.trim(),
         guardianName: guardianName.trim() || undefined,
         guardianPhone: guardianPhone.trim() || undefined,
-        courseId: selectedCourse?.id || 'crs-default',
-        courseName: selectedCourse?.name || 'Curso Técnico',
+        courseId: selectedCourse.id,
+        courseName: selectedCourse.name,
         regime,
         shift,
         photoUrl: '',
@@ -358,9 +361,12 @@ export const PrivateRegistrationView: React.FC = () => {
   const handleResetForm = () => {
     setFullName('');
     setDocumentNumber('');
-    setPhone('+258 84 ');
-    setWhatsapp('+258 84 ');
+    setBirthDate('');
+    setPhone('');
+    setWhatsapp('');
     setEmail('');
+    setProvince(activeInstitution.province || '');
+    setCity(activeInstitution.city || '');
     setAddress('');
     setGuardianName('');
     setGuardianPhone('');

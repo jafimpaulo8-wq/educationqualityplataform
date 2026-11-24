@@ -1,6 +1,6 @@
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db, auth } from './firebase';
-import { Institution, PublicInstitution, OnlineRegistrationConfig } from '../types';
+import { Institution, PublicInstitution, OnlineRegistrationConfig, OnlineCourseConfig } from '../types';
 import { CEU_AZUL_INSTITUTION } from '../data/ceuAzulData';
 import { INITIAL_INSTITUTIONS } from '../data/mockData';
 import {
@@ -148,6 +148,252 @@ export function extractSlugFromLocation(pathname?: string, hash?: string, search
   return '';
 }
 
+export const MAX_INSTITUTION_LOGO_BYTES = 120_000;
+export const MAX_INSTITUTION_FAVICON_BYTES = 60_000;
+export const MAX_INSTITUTION_SEAL_BYTES = 100_000;
+export const MAX_INSTITUTION_BRANDING_TOTAL_BYTES = 450_000;
+
+export function getUtf8ByteLength(value: string): number {
+  if (!value) return 0;
+  if (typeof TextEncoder !== 'undefined') {
+    return new TextEncoder().encode(value).length;
+  }
+  return value.length;
+}
+
+const SAFE_DATA_IMAGE_RE =
+  /^data:image\/(png|jpeg|jpg|webp|gif|x-icon|vnd\.microsoft\.icon|svg\+xml)(;charset=[^;,]+)?(;base64)?,(.+)$/i;
+
+function isSafeSvgContent(svgText: string): boolean {
+  const lower = svgText.toLowerCase();
+  if (
+    lower.includes('<script') ||
+    lower.includes('javascript:') ||
+    lower.includes('<foreignobject') ||
+    /\son[a-z]+\s*=/i.test(lower)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+export function validateInstitutionalImageInput(
+  rawValue: string | undefined | null,
+  options?: { maxBytes?: number; label?: string }
+): { valid: boolean; normalized: string; byteSize: number; error?: string } {
+  const maxBytes = options?.maxBytes ?? MAX_INSTITUTION_LOGO_BYTES;
+  const label = options?.label || 'Imagem institucional';
+  const trimmed = (rawValue || '').trim();
+
+  if (!trimmed) {
+    return { valid: true, normalized: '', byteSize: 0 };
+  }
+
+  const byteSize = getUtf8ByteLength(trimmed);
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    if (byteSize > 2048) {
+      return {
+        valid: false,
+        normalized: trimmed,
+        byteSize,
+        error: `${label}: o endereço URL excede o comprimento máximo permitido.`
+      };
+    }
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return {
+          valid: false,
+          normalized: trimmed,
+          byteSize,
+          error: `${label}: utilize apenas URLs http:// ou https:// válidas.`
+        };
+      }
+      return { valid: true, normalized: trimmed, byteSize };
+    } catch {
+      return {
+        valid: false,
+        normalized: trimmed,
+        byteSize,
+        error: `${label}: o URL inserido não é válido.`
+      };
+    }
+  }
+
+  if (trimmed.toLowerCase().startsWith('data:')) {
+    const match = trimmed.match(SAFE_DATA_IMAGE_RE);
+    if (!match) {
+      return {
+        valid: false,
+        normalized: trimmed,
+        byteSize,
+        error: `${label}: formato data URL inválido. Utilize apenas PNG, JPG, WEBP, GIF, ICO ou SVG seguro.`
+      };
+    }
+    const subtype = (match[1] || '').toLowerCase();
+    const isBase64 = Boolean(match[3]);
+    const payload = match[4] || '';
+    if (subtype === 'svg+xml') {
+      try {
+        const decoded = isBase64 ? atob(payload) : decodeURIComponent(payload);
+        if (!isSafeSvgContent(decoded)) {
+          return {
+            valid: false,
+            normalized: trimmed,
+            byteSize,
+            error: `${label}: o ficheiro SVG contém scripts ou atributos não permitidos.`
+          };
+        }
+      } catch {
+        return {
+          valid: false,
+          normalized: trimmed,
+          byteSize,
+          error: `${label}: SVG malformado.`
+        };
+      }
+    }
+    if (byteSize > maxBytes) {
+      return {
+        valid: false,
+        normalized: trimmed,
+        byteSize,
+        error: `${label} (${Math.round(byteSize / 1024)} KB) excede o limite de ${Math.round(maxBytes / 1024)} KB permitido no Firestore. Carregue o ficheiro para compressão automática.`
+      };
+    }
+    return { valid: true, normalized: trimmed, byteSize };
+  }
+
+  return {
+    valid: false,
+    normalized: trimmed,
+    byteSize,
+    error: `${label}: utilize um endereço https:// ou carregue uma imagem válida.`
+  };
+}
+
+export function validateInstitutionBrandingBudget(
+  assets: {
+    logoUrl?: string;
+    emblemUrl?: string;
+    faviconUrl?: string;
+    signatureUrl?: string;
+    stampUrl?: string;
+    carnetStaticQrUrl?: string;
+  },
+  maxTotalBytes = MAX_INSTITUTION_BRANDING_TOTAL_BYTES
+): { valid: boolean; totalBytes: number; error?: string } {
+  const checks: Array<{ val?: string; maxBytes: number; label: string }> = [
+    { val: assets.logoUrl, maxBytes: MAX_INSTITUTION_LOGO_BYTES, label: 'Logótipo Institucional' },
+    { val: assets.emblemUrl, maxBytes: MAX_INSTITUTION_LOGO_BYTES, label: 'Símbolo / Emblema' },
+    { val: assets.faviconUrl, maxBytes: MAX_INSTITUTION_FAVICON_BYTES, label: 'Favicon' },
+    { val: assets.signatureUrl, maxBytes: MAX_INSTITUTION_SEAL_BYTES, label: 'Assinatura Digital' },
+    { val: assets.stampUrl, maxBytes: MAX_INSTITUTION_SEAL_BYTES, label: 'Carimbo Oficial' },
+    { val: assets.carnetStaticQrUrl, maxBytes: MAX_INSTITUTION_SEAL_BYTES, label: 'QR Estático do Carnê' }
+  ];
+
+  let totalBytes = 0;
+  for (const item of checks) {
+    const res = validateInstitutionalImageInput(item.val, { maxBytes: item.maxBytes, label: item.label });
+    if (!res.valid) {
+      return { valid: false, totalBytes: totalBytes + res.byteSize, error: res.error };
+    }
+    totalBytes += res.byteSize;
+  }
+
+  if (totalBytes > maxTotalBytes) {
+    return {
+      valid: false,
+      totalBytes,
+      error: `O conjunto de imagens institucionais (${Math.round(totalBytes / 1024)} KB) excede o orçamento seguro de ${Math.round(maxTotalBytes / 1024)} KB para o Firestore. Remova ou reduza alguma imagem.`
+    };
+  }
+
+  return { valid: true, totalBytes };
+}
+
+export interface PublishedPublicCourseItem {
+  id: string;
+  courseId: string;
+  institutionId: string;
+  instSlug: string;
+  instName: string;
+  instCode: string;
+  instCity: string;
+  instProvince: string;
+  instWhatsapp?: string;
+  instPhone?: string;
+  name: string;
+  category: string;
+  description: string;
+  duration: string;
+  price: number;
+  monthlyFee: number;
+  modality: string;
+  regimes: string[];
+  shifts: string[];
+  requirements: string[];
+  vacancies: number;
+  filledVacancies: number;
+  certificate: string;
+}
+
+/**
+ * Extrai exclusivamente os cursos públicos activos publicados na configuração pública de cada instituição
+ * (sem consultar allCourses privados, COURSES_DATA estático nem activeInstitution da sessão).
+ */
+export function extractPublishedPublicCourses(publicInsts: PublicInstitution[]): PublishedPublicCourseItem[] {
+  const result: PublishedPublicCourseItem[] = [];
+  const seenKeys = new Set<string>();
+
+  for (const inst of publicInsts || []) {
+    if (!inst || !inst.institutionId || !inst.slug) continue;
+    const cfg = inst.onlineRegistrationConfig;
+    if (!cfg || cfg.isOpen === false) continue;
+
+    const coursesConfig: OnlineCourseConfig[] = Array.isArray(cfg.coursesConfig) ? cfg.coursesConfig : [];
+    for (const c of coursesConfig) {
+      if (!c || c.active === false || !c.courseId || !c.courseName) continue;
+      const compositeId = `${inst.institutionId}::${c.courseId}`;
+      if (seenKeys.has(compositeId)) continue;
+      seenKeys.add(compositeId);
+
+      const regimes = Array.isArray(c.regimes) && c.regimes.length > 0 ? c.regimes : ['Presencial'];
+      const shifts = Array.isArray(c.shifts) && c.shifts.length > 0 ? c.shifts : ['Manhã'];
+      const requirements = Array.isArray(c.requirements) ? c.requirements : [];
+
+      result.push({
+        id: compositeId,
+        courseId: c.courseId,
+        institutionId: inst.institutionId,
+        instSlug: inst.slug,
+        instName: inst.name,
+        instCode: inst.code || '',
+        instCity: inst.city || '',
+        instProvince: inst.province || '',
+        instWhatsapp: cfg.contactWhatsapp || inst.whatsapp,
+        instPhone: cfg.contactPhone || inst.phone,
+        name: c.courseName,
+        category: c.category || 'Profissional',
+        description: `${c.courseName} — ${c.duration || 'Formação acreditada'}. Regime ${regimes.join(', ')}.`,
+        duration: c.duration || 'Consultar',
+        price: typeof c.price === 'number' ? c.price : 0,
+        monthlyFee: typeof c.monthlyFee === 'number' ? c.monthlyFee : 0,
+        modality: regimes[0] || 'Presencial',
+        regimes,
+        shifts,
+        requirements,
+        vacancies: typeof c.vacancies === 'number' ? c.vacancies : 0,
+        filledVacancies: typeof c.filledVacancies === 'number' ? c.filledVacancies : 0,
+        certificate: 'Certificação Oficial Acreditada pelo SIVEC'
+      });
+    }
+  }
+
+  return result;
+}
+
 /**
  * Remove estritamente quaisquer números privados de M-Pesa, e-Mola, mKesh ou dados bancários internos
  * antes de persistir ou expor em configuração pública (publicInstitutions).
@@ -189,8 +435,15 @@ export function sanitizePublicInstitutionPayload<T extends Record<string, any>>(
       : 'Autentique-se no Portal de Pagamentos com a sua conta institucional para consultar as coordenadas oficiais e submeter comprovativos.'
   };
 
+  const logoCheck = validateInstitutionalImageInput(rest.logoUrl, { maxBytes: 250_000, label: 'Logo' });
+  const emblemCheck = validateInstitutionalImageInput(rest.emblemUrl, { maxBytes: 250_000, label: 'Emblema' });
+  const faviconCheck = validateInstitutionalImageInput(rest.faviconUrl, { maxBytes: 150_000, label: 'Favicon' });
+
   return sanitizeFirestoreData({
     ...(rest as PublicInstitution),
+    logoUrl: logoCheck.valid ? logoCheck.normalized : undefined,
+    emblemUrl: emblemCheck.valid ? emblemCheck.normalized : undefined,
+    faviconUrl: faviconCheck.valid ? faviconCheck.normalized : undefined,
     acceptedChannels,
     paymentMethods: sanitizedPaymentMethods,
     updatedAt: (rest.updatedAt as string | undefined) || new Date().toISOString()
@@ -457,52 +710,132 @@ export function generateSecureInvitationToken(): string {
 }
 
 /**
- * Utilitário para compressão de fotografia ou comprovativo para até 150 KB no Spark.
+ * Utilitário para compressão progressiva de fotografia, logótipo ou favicon com limite de bytes verificável.
+ * Reduz qualidade e dimensões progressivamente até garantir que o payload fica <= maxSizeBytes.
  */
 export async function compressImageToBase64(file: File, maxSizeBytes = 150000): Promise<string> {
+  const isSvg =
+    file.type === 'image/svg+xml' ||
+    file.name.toLowerCase().endsWith('.svg');
+
+  if (isSvg) {
+    const text = await new Promise<string>((resolve, reject) => {
+      const r = new FileReader();
+      r.onerror = () => reject(new Error('Erro ao ler ficheiro SVG.'));
+      r.onload = () => resolve(typeof r.result === 'string' ? r.result : '');
+      r.readAsText(file);
+    });
+    if (!isSafeSvgContent(text)) {
+      throw new Error('O ficheiro SVG contém scripts ou atributos não permitidos.');
+    }
+    const encoded = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(text)))}`;
+    const byteSize = getUtf8ByteLength(encoded);
+    if (byteSize > maxSizeBytes) {
+      throw new Error(
+        `O logótipo SVG (${Math.round(byteSize / 1024)} KB) excede o limite máximo de ${Math.round(maxSizeBytes / 1024)} KB. Exporte como PNG ou simplifique o SVG.`
+      );
+    }
+    return encoded;
+  }
+
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error('Erro ao ler arquivo'));
+    reader.onerror = () => reject(new Error('Erro ao ler arquivo de imagem.'));
     reader.onload = () => {
+      const rawDataUrl = typeof reader.result === 'string' ? reader.result : '';
+      if (!rawDataUrl) {
+        reject(new Error('Conteúdo de imagem inválido.'));
+        return;
+      }
+
       const img = new Image();
-      img.onerror = () => reject(new Error('Erro ao carregar imagem'));
+      img.onerror = () => reject(new Error('Erro ao decodificar a imagem selecionada.'));
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        let width = img.width;
-        let height = img.height;
-        const maxDim = 600;
+        const initialMaxDim = maxSizeBytes <= 70000 ? 256 : 640;
+        let width = img.naturalWidth || img.width || initialMaxDim;
+        let height = img.naturalHeight || img.height || initialMaxDim;
 
-        if (width > maxDim || height > maxDim) {
+        if (width > initialMaxDim || height > initialMaxDim) {
           if (width > height) {
-            height = Math.round((height * maxDim) / width);
-            width = maxDim;
+            height = Math.max(1, Math.round((height * initialMaxDim) / width));
+            width = initialMaxDim;
           } else {
-            width = Math.round((width * maxDim) / height);
-            height = maxDim;
+            width = Math.max(1, Math.round((width * initialMaxDim) / height));
+            height = initialMaxDim;
           }
         }
 
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          resolve(reader.result as string);
+        const preferAlpha = file.type === 'image/png' || file.type === 'image/webp' || file.type === 'image/x-icon';
+        let bestCandidate = '';
+        let bestSize = Number.POSITIVE_INFINITY;
+
+        // Loop progressivo de redução de resolução (até 64px no eixo maior)
+        for (let pass = 0; pass < 7; pass += 1) {
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error('Contexto gráfico indisponível para comprimir a imagem.'));
+            return;
+          }
+
+          if (preferAlpha) {
+            ctx.clearRect(0, 0, width, height);
+            ctx.drawImage(img, 0, 0, width, height);
+            for (const q of [0.88, 0.72, 0.55, 0.4]) {
+              const webpUrl = canvas.toDataURL('image/webp', q);
+              if (webpUrl.startsWith('data:image/webp')) {
+                const sz = getUtf8ByteLength(webpUrl);
+                if (sz < bestSize) {
+                  bestSize = sz;
+                  bestCandidate = webpUrl;
+                }
+                if (sz <= maxSizeBytes) {
+                  resolve(webpUrl);
+                  return;
+                }
+              }
+            }
+          }
+
+          // JPEG com fundo branco garante compatibilidade universal e taxa máxima de compressão
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, width, height);
+          ctx.drawImage(img, 0, 0, width, height);
+
+          for (const q of [0.85, 0.72, 0.58, 0.44, 0.32]) {
+            const jpegUrl = canvas.toDataURL('image/jpeg', q);
+            const sz = getUtf8ByteLength(jpegUrl);
+            if (sz < bestSize) {
+              bestSize = sz;
+              bestCandidate = jpegUrl;
+            }
+            if (sz <= maxSizeBytes) {
+              resolve(jpegUrl);
+              return;
+            }
+          }
+
+          if (Math.max(width, height) <= 64) {
+            break;
+          }
+          width = Math.max(48, Math.round(width * 0.72));
+          height = Math.max(48, Math.round(height * 0.72));
+        }
+
+        if (bestCandidate && bestSize <= maxSizeBytes) {
+          resolve(bestCandidate);
           return;
         }
 
-        ctx.drawImage(img, 0, 0, width, height);
-
-        let quality = 0.85;
-        let dataUrl = canvas.toDataURL('image/jpeg', quality);
-
-        while (dataUrl.length > maxSizeBytes && quality > 0.3) {
-          quality -= 0.1;
-          dataUrl = canvas.toDataURL('image/jpeg', quality);
-        }
-
-        resolve(dataUrl);
+        reject(
+          new Error(
+            `Não foi possível comprimir "${file.name}" abaixo de ${Math.round(maxSizeBytes / 1024)} KB (resultado mínimo: ${Math.round(bestSize / 1024)} KB). Utilize uma imagem mais leve.`
+          )
+        );
       };
-      img.src = reader.result as string;
+      img.src = rawDataUrl;
     };
     reader.readAsDataURL(file);
   });

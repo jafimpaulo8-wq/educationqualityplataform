@@ -181,7 +181,8 @@ import {
   getStudentsByInstitution,
   saveStudentToFirestore, 
   getCoursesByInstitution,
-  saveCourseToFirestore, 
+  saveCourseToFirestore,
+  deleteCourseFromFirestore,
   getClassesByInstitution,
   saveClassToFirestore, 
   deleteClassFromFirestore,
@@ -3672,6 +3673,75 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     soundManager.playNotification();
   };
 
+  const syncCourseWithOnlinePortal = (
+    courseObj: Course | null,
+    deletedCourseId?: string
+  ) => {
+    const baseInst = activeInstitution;
+    if (!baseInst?.id) return;
+
+    const currentCfg = baseInst.onlineRegistrationConfig || createEmptyOnlineRegistrationConfig(baseInst);
+    const existingList = Array.isArray(currentCfg.coursesConfig) ? currentCfg.coursesConfig : [];
+    let nextCoursesConfig = [...existingList];
+
+    if (deletedCourseId) {
+      nextCoursesConfig = nextCoursesConfig.filter(c => c.courseId !== deletedCourseId);
+    } else if (courseObj) {
+      const isCourseOpen = courseObj.status !== 'Suspenso';
+      const defaultRegimes: ('Laboral' | 'Pós-Laboral' | 'Online EAD' | 'Híbrido')[] =
+        courseObj.modality === 'Online EAD'
+          ? ['Online EAD']
+          : courseObj.modality === 'Híbrido'
+          ? ['Híbrido', 'Laboral']
+          : ['Laboral', 'Pós-Laboral'];
+
+      const existingIdx = nextCoursesConfig.findIndex(c => c.courseId === courseObj.id);
+      if (existingIdx >= 0) {
+        const prevItem = nextCoursesConfig[existingIdx];
+        nextCoursesConfig[existingIdx] = {
+          ...prevItem,
+          courseName: courseObj.name,
+          category: courseObj.category || prevItem.category || 'Geral',
+          price: courseObj.registrationFee ?? prevItem.price ?? 1500,
+          monthlyFee: courseObj.monthlyFee ?? courseObj.feeMonthly ?? prevItem.monthlyFee ?? 0,
+          duration: courseObj.duration || prevItem.duration,
+          vacancies: courseObj.totalVacancies ?? prevItem.vacancies ?? 40,
+          active: isCourseOpen ? prevItem.active : false
+        };
+      } else {
+        nextCoursesConfig.push({
+          courseId: courseObj.id,
+          courseName: courseObj.name,
+          category: courseObj.category || 'Geral',
+          active: isCourseOpen,
+          price: courseObj.registrationFee ?? 1500,
+          monthlyFee: courseObj.monthlyFee ?? courseObj.feeMonthly ?? 0,
+          duration: courseObj.duration || '6 Meses',
+          requirements: courseObj.requirements || [],
+          vacancies: courseObj.totalVacancies ?? 40,
+          filledVacancies: courseObj.filledVacancies ?? 0,
+          regimes: defaultRegimes,
+          shifts: ['Manhã', 'Tarde', 'Noite']
+        });
+      }
+    }
+
+    const updatedInst: Institution = {
+      ...baseInst,
+      onlineRegistrationConfig: {
+        ...currentCfg,
+        institutionId: baseInst.id,
+        coursesConfig: nextCoursesConfig
+      }
+    };
+
+    setAllInstitutions(prev =>
+      prev.map(inst => (inst.id === baseInst.id ? updatedInst : inst))
+    );
+    saveInstitutionToFirestore(updatedInst).catch(err => console.warn('Firestore sync course portal config:', err));
+    syncPublicInstitutionMetadata(updatedInst).catch(err => console.warn('Public institution course sync note:', err));
+  };
+
   const addCourse = (courseData: Omit<Course, 'id' | 'institutionId'>): Course => {
     const newCourse: Course = {
       ...courseData,
@@ -3682,8 +3752,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setAllCourses(prev => [newCourse, ...prev]);
 
-    // Async persist to Firestore
+    // Async persist to Firestore and synchronize with online/public registration portal
     saveCourseToFirestore(newCourse).catch(err => console.warn('Firestore sync course:', err));
+    syncCourseWithOnlinePortal(newCourse);
 
     addNotification({
       title: `Novo Curso Cadastrado: ${newCourse.name}`,
@@ -3696,28 +3767,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateCourse = (courseId: string, updates: Partial<Course>) => {
-    let updatedCourse: Course | null = null;
-    setAllCourses(prev => prev.map(c => {
-      if (c.id === courseId) {
-        updatedCourse = { ...c, ...updates };
-        return updatedCourse;
-      }
-      return c;
-    }));
-    if (updatedCourse) {
-      saveCourseToFirestore(updatedCourse).catch(err => console.warn('Firestore sync course update:', err));
-      addNotification({
-        title: `Curso Atualizado: ${(updatedCourse as Course).name}`,
-        message: 'Estrutura curricular e parâmetros do curso salvos com sucesso.',
-        type: 'system'
-      });
-      soundManager.playSuccess();
-    }
+    const existing = allCourses.find(c => c.id === courseId);
+    if (!existing) return;
+
+    const updatedCourse: Course = { ...existing, ...updates };
+    setAllCourses(prev => prev.map(c => (c.id === courseId ? updatedCourse : c)));
+
+    saveCourseToFirestore(updatedCourse).catch(err => console.warn('Firestore sync course update:', err));
+    syncCourseWithOnlinePortal(updatedCourse);
+
+    addNotification({
+      title: `Curso Atualizado: ${updatedCourse.name}`,
+      message: 'Estrutura curricular e parâmetros do curso salvos com sucesso.',
+      type: 'system'
+    });
+    soundManager.playSuccess();
   };
 
   const deleteCourse = (courseId: string) => {
     const course = allCourses.find(c => c.id === courseId);
     setAllCourses(prev => prev.filter(c => c.id !== courseId));
+    deleteCourseFromFirestore(courseId).catch(err => console.warn('Firestore sync course delete:', err));
+    syncCourseWithOnlinePortal(null, courseId);
+
     addNotification({
       title: `Curso Removido: ${course?.name || courseId}`,
       message: 'O curso foi desativado do catálogo institucional.',

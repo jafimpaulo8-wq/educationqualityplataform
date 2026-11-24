@@ -15,11 +15,12 @@ service firebase.storage {
         request.auth.token.email_verified == true;
     }
 
-    // SUPER_ADMIN exclusivo: moztechwavenacala8@gmail.com com e-mail verificado
+    // SUPER_ADMIN exclusivo: moztechwavenacala8@gmail.com ou UID canónico com e-mail verificado
     function isSuperAdmin() {
-      return isVerifiedEmail() &&
-        ('email' in request.auth.token) &&
-        request.auth.token.email == 'moztechwavenacala8@gmail.com';
+      return isVerifiedEmail() && (
+        (('email' in request.auth.token) && request.auth.token.email == 'moztechwavenacala8@gmail.com') ||
+        (request.auth.uid == '2dRLWqnY1zf1MlR9rZYhAKPvGbV2' && (!('email' in request.auth.token) || request.auth.token.email == 'moztechwavenacala8@gmail.com'))
+      );
     }
 
     function hasUserProfileDoc() {
@@ -83,10 +84,21 @@ service firebase.storage {
         );
     }
 
-    // Currículos e anexos de candidaturas de emprego (privado à secretaria/direcção da instituição)
+    function isInstRecruitmentStaff(instId) {
+      return isSuperAdmin() ||
+        hasInstitutionRole(instId, ['ADMIN_INSTITUICAO', 'DIRETOR', 'director', 'CEO', 'ceo']) || (
+          hasInstitutionRole(instId, ['SECRETARIA', 'secretaria']) &&
+          hasUserProfileDoc() &&
+          ('permissions' in userProfileDoc()) &&
+          userProfileDoc().permissions is list &&
+          userProfileDoc().permissions.hasAny(['vagas.manage', 'vagas.review_applications', 'publish_vacancies', 'manage_recruitment'])
+        );
+    }
+
+    // Currículos e anexos de candidaturas de emprego (privado a gestores de recrutamento da instituição)
     match /institutions/{instId}/jobApplications/{applicationId}/{fileName} {
-      allow read: if isSuperAdmin() || isInstSecretaria(instId);
-      allow write: if (isSuperAdmin() || isInstSecretaria(instId)) && isValidCvUpload(fileName);
+      allow read: if isInstRecruitmentStaff(instId);
+      allow write: if isInstRecruitmentStaff(instId) && isValidCvUpload(fileName);
     }
 
     // Fotografias de perfil de estudantes (isoladas por instituição)

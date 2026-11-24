@@ -1,29 +1,33 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   ArrowLeft, 
   Users, 
+  User,
   Camera, 
   Check, 
   ShieldCheck, 
   CreditCard, 
-  Sparkles,
-  Phone,
-  Mail,
-  MapPin,
-  Calendar,
-  BookOpen,
-  FileText,
-  UploadCloud,
-  Paperclip,
-  Trash2,
+  Sparkles, 
+  Phone, 
+  Mail, 
+  MapPin, 
+  Calendar, 
+  BookOpen, 
+  FileText, 
+  UploadCloud, 
+  Paperclip, 
+  Trash2, 
   AlertCircle
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { useToast } from '../../context/ToastContext';
+import { compressImageToBase64 } from '../../services/publicInstitutionService';
 import { PROVINCES_MOZAMBIQUE } from '../../data/mockData';
 import { StudentAttachedDocument, StudentStatus } from '../../types';
 
 export const StudentRegistrationForm: React.FC = () => {
   const { courses, classes, addStudent, navigate, activeInstitution, activeBranch, activeBranchId } = useApp();
+  const { error: toastError, success: toastSuccess } = useToast();
 
   // 1. Identificação Pessoal
   const [fullName, setFullName] = useState('');
@@ -49,28 +53,11 @@ export const StudentRegistrationForm: React.FC = () => {
   const [emergencyContact, setEmergencyContact] = useState('');
 
   // 4. Fotografia
-  const [photoUrl, setPhotoUrl] = useState('https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=400&auto=format&fit=crop&q=80');
-
-  const samplePhotos = [
-    'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=400&auto=format&fit=crop&q=80',
-    'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=400&auto=format&fit=crop&q=80',
-    'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&auto=format&fit=crop&q=80',
-    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80',
-    'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=400&auto=format&fit=crop&q=80'
-  ];
+  const [photoUrl, setPhotoUrl] = useState('');
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   // 5. Documentos Anexados
-  const [attachedDocuments, setAttachedDocuments] = useState<StudentAttachedDocument[]>([
-    {
-      id: 'doc-init-bi',
-      name: 'Copia_BI_Frente_Verso.pdf',
-      type: 'BI',
-      url: '#',
-      size: '1.4 MB',
-      uploadDate: new Date().toISOString().split('T')[0],
-      status: 'Pendente'
-    }
-  ]);
+  const [attachedDocuments, setAttachedDocuments] = useState<StudentAttachedDocument[]>([]);
   const [docNameInput, setDocNameInput] = useState('');
   const [docTypeInput, setDocTypeInput] = useState<StudentAttachedDocument['type']>('Certificado de Habilitações');
 
@@ -83,6 +70,41 @@ export const StudentRegistrationForm: React.FC = () => {
   const [regime, setRegime] = useState<'Laboral' | 'Pós-Laboral' | 'Híbrido' | 'Online EAD'>('Pós-Laboral');
   const [paymentStatus, setPaymentStatus] = useState<'Pago' | 'Pendente'>('Pago');
   const [initialStatus, setInitialStatus] = useState<StudentStatus>('Matriculado');
+
+  const availableClassesForCourse = useMemo(() => {
+    if (!selectedCourseId) return classes;
+    const matched = classes.filter(c => c.courseId === selectedCourseId);
+    return matched.length > 0 ? matched : classes;
+  }, [classes, selectedCourseId]);
+
+  useEffect(() => {
+    if (courses.length > 0 && (!selectedCourseId || !courses.some(c => c.id === selectedCourseId))) {
+      setSelectedCourseId(courses[0].id);
+    }
+  }, [courses, selectedCourseId]);
+
+  useEffect(() => {
+    if (
+      availableClassesForCourse.length > 0 &&
+      (!selectedClassId || !availableClassesForCourse.some(cl => cl.id === selectedClassId))
+    ) {
+      setSelectedClassId(availableClassesForCourse[0].id);
+    }
+  }, [availableClassesForCourse, selectedClassId]);
+
+  const handlePhotoUpload = async (file: File | undefined) => {
+    if (!file) return;
+    setUploadingPhoto(true);
+    try {
+      const dataUrl = await compressImageToBase64(file, 100000);
+      setPhotoUrl(dataUrl);
+      toastSuccess('Fotografia Carregada', 'Fotografia anexada com sucesso ao processo do aluno.');
+    } catch (err: any) {
+      toastError('Erro na Fotografia', err?.message || 'Não foi possível carregar a fotografia.');
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
 
   const handleAddDocument = () => {
     if (!docNameInput.trim()) return;
@@ -105,47 +127,47 @@ export const StudentRegistrationForm: React.FC = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName || !documentNumber) {
-      alert('Por favor preencha os campos obrigatórios (Nome Completo e Número de Documento).');
+    if (!fullName.trim() || !documentNumber.trim()) {
+      toastError('Campos Obrigatórios', 'Por favor preencha o Nome Completo e o Número de Documento.');
       return;
     }
 
     const courseObj = courses.find(c => c.id === selectedCourseId);
-    const classObj = classes.find(c => c.id === selectedClassId);
+    const classObj = availableClassesForCourse.find(c => c.id === selectedClassId) || classes.find(c => c.id === selectedClassId);
 
     const targetBranchId = activeBranchId !== 'todas' ? activeBranchId : (activeInstitution.branches?.[0]?.id || 'branch-default');
 
     const createdStudent = addStudent({
       institutionId: activeInstitution.id,
-      fullName,
+      fullName: fullName.trim(),
       socialName: socialName.trim() || undefined,
       gender,
       birthDate,
       documentType,
-      documentNumber,
+      documentNumber: documentNumber.trim(),
       nuit: nuit.trim() || undefined,
-      phone,
-      whatsapp: whatsapp.trim() || phone,
-      email: email.trim() || `${fullName.toLowerCase().replace(/\s+/g, '.')}@gmail.com`,
+      phone: phone.trim(),
+      whatsapp: whatsapp.trim() || phone.trim(),
+      email: email.trim(),
       province,
       city,
       neighborhood: neighborhood.trim() || 'Central',
       address: address.trim() || `${city}, ${province}`,
       photoUrl,
       guardianName: guardianName.trim() || 'O Próprio',
-      guardianPhone: guardianPhone.trim() || phone,
-      emergencyContact: emergencyContact.trim() || phone,
+      guardianPhone: guardianPhone.trim() || phone.trim(),
+      emergencyContact: emergencyContact.trim() || phone.trim(),
       notes: notes.trim() || 'Matrícula efetuada via Secretaria Central com documentação regular.',
       attachedDocuments,
-      courseId: selectedCourseId,
-      courseName: courseObj?.name || 'Curso Moztechwave',
-      classGroupId: selectedClassId,
+      courseId: courseObj?.id || selectedCourseId,
+      courseName: courseObj?.name || 'Curso Geral',
+      classGroupId: classObj?.id || selectedClassId,
       classGroupName: classObj?.name || 'Turma A',
       regime,
       status: initialStatus,
       enrollmentDate: new Date().toISOString().split('T')[0],
       paymentStatus,
-      balanceOwing: paymentStatus === 'Pago' ? 0 : (courseObj?.feeMonthly || 3500),
+      balanceOwing: paymentStatus === 'Pago' ? 0 : (courseObj?.feeMonthly || courseObj?.registrationFee || 0),
       attendancePercentage: 100,
       averageGrade: 0,
       assessments: [],
@@ -156,7 +178,7 @@ export const StudentRegistrationForm: React.FC = () => {
           date: new Date().toISOString().split('T')[0],
           title: 'Matrícula Inicial Efetivada',
           category: 'matrícula',
-          description: `Ingresso registrado no curso ${courseObj?.name} (${regime}) na turma ${classObj?.name}.`,
+          description: `Ingresso registrado no curso ${courseObj?.name || 'Geral'} (${regime}) na turma ${classObj?.name || 'A'}.`,
           recordedBy: activeInstitution.representativeName
         }
       ],
@@ -234,32 +256,45 @@ export const StudentRegistrationForm: React.FC = () => {
               Fotografia do Aluno (Para Cartão Digital, Pautas &amp; Certificado)
             </label>
             <div className="flex flex-wrap items-center gap-5">
-              <img
-                src={photoUrl}
-                alt="Foto Selecionada"
-                className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl object-cover border-2 border-sky-500 shadow-xl"
-              />
-              <div className="space-y-2">
-                <span className="text-xs text-slate-400 block">
-                  Selecione uma foto predefinida ou informe a URL:
-                </span>
-                <div className="flex flex-wrap gap-2">
-                  {samplePhotos.map((url, i) => (
+              {photoUrl ? (
+                <img
+                  src={photoUrl}
+                  alt="Foto Selecionada"
+                  className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl object-cover border-2 border-sky-500 shadow-xl"
+                />
+              ) : (
+                <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-slate-900 border-2 border-dashed border-slate-700 flex items-center justify-center text-slate-500">
+                  <User className="w-8 h-8" />
+                </div>
+              )}
+              <div className="space-y-2 flex-1 min-w-[220px]">
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-sky-600/20 hover:bg-sky-600/30 border border-sky-500/30 text-sky-300 text-xs font-bold cursor-pointer transition-colors">
+                    <Camera className="w-3.5 h-3.5" />
+                    <span>{uploadingPhoto ? 'A carregar...' : 'Carregar Fotografia'}</span>
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      className="hidden"
+                      onChange={(e) => {
+                        handlePhotoUpload(e.target.files?.[0]);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                  {photoUrl && (
                     <button
-                      key={i}
                       type="button"
-                      onClick={() => setPhotoUrl(url)}
-                      className={`w-10 h-10 rounded-xl overflow-hidden border-2 cursor-pointer transition-all ${
-                        photoUrl === url ? 'border-sky-400 scale-105 shadow' : 'border-slate-800 opacity-60 hover:opacity-100'
-                      }`}
+                      onClick={() => setPhotoUrl('')}
+                      className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-rose-500/10 border border-slate-800 text-rose-400 text-xs font-semibold cursor-pointer"
                     >
-                      <img src={url} alt={`Preset ${i}`} className="w-full h-full object-cover" />
+                      Remover Foto
                     </button>
-                  ))}
+                  )}
                 </div>
                 <input
                   type="url"
-                  placeholder="URL customizada da fotografia (https://...)"
+                  placeholder="Ou informe a URL da fotografia (opcional)"
                   value={photoUrl}
                   onChange={(e) => setPhotoUrl(e.target.value)}
                   className="w-full sm:w-80 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-white focus:outline-none focus:border-sky-500"
@@ -550,9 +585,13 @@ export const StudentRegistrationForm: React.FC = () => {
                 onChange={(e) => setSelectedClassId(e.target.value)}
                 className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs focus:outline-none focus:border-indigo-500"
               >
-                {classes.map(cl => (
-                  <option key={cl.id} value={cl.id}>{cl.name} ({cl.shift})</option>
-                ))}
+                {availableClassesForCourse.length === 0 ? (
+                  <option value="">Sem turmas cadastradas</option>
+                ) : (
+                  availableClassesForCourse.map(cl => (
+                    <option key={cl.id} value={cl.id}>{cl.name} ({cl.shift})</option>
+                  ))
+                )}
               </select>
             </div>
 
@@ -596,7 +635,9 @@ export const StudentRegistrationForm: React.FC = () => {
                     onChange={() => setPaymentStatus('Pago')}
                     className="accent-emerald-500"
                   />
-                  <span>Pago (1.500 MT)</span>
+                  <span>
+                    Pago ({(courses.find(c => c.id === selectedCourseId)?.registrationFee ?? 1500).toLocaleString()} MT)
+                  </span>
                 </label>
 
                 <label className="flex items-center gap-2 text-xs font-semibold text-white cursor-pointer">

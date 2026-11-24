@@ -148,9 +148,16 @@ const MainAppContent: React.FC = () => {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState<'google' | 'credentials'>('google');
+  const [authModalHelp, setAuthModalHelp] = useState(false);
 
   const handleOpenAuth = (mode: 'google' | 'credentials' = 'google') => {
+    setAuthModalHelp(false);
     setAuthModalMode(mode);
+    setAuthModalOpen(true);
+  };
+
+  const handleOpenHelp = () => {
+    setAuthModalHelp(true);
     setAuthModalOpen(true);
   };
 
@@ -272,7 +279,7 @@ const MainAppContent: React.FC = () => {
           onOpenOnlineRegistration={() => navigate('inscricao_publica')}
           onOpenJobsPortal={() => navigate('vagas_publicas')}
           onOpenRegisterInstitution={() => handleOpenAuth('new_inst' as any)}
-          onOpenHelp={() => handleOpenAuth('google')}
+          onOpenHelp={handleOpenHelp}
         />
 
         {/* Public Landing (Zero private data) */}
@@ -288,15 +295,19 @@ const MainAppContent: React.FC = () => {
           }
             onOpenJobsPortal={() => navigate('vagas_publicas')}
             onOpenRegisterInstitution={() => handleOpenAuth('new_inst' as any)}
-            onOpenHelp={() => handleOpenAuth('google')}
+            onOpenHelp={handleOpenHelp}
           />
         </main>
 
         {/* Secure Authentication & Access Gate Modal (PARTE 6, 7, 8) */}
         <SigarAuthModal
           isOpen={authModalOpen}
-          onClose={() => setAuthModalOpen(false)}
+          onClose={() => {
+            setAuthModalOpen(false);
+            setAuthModalHelp(false);
+          }}
           defaultMode={authModalMode}
+          initialHelpOpen={authModalHelp}
         />
       </div>
     );

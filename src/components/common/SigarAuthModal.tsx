@@ -30,6 +30,7 @@ interface SigarAuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   defaultMode?: 'google' | 'credentials' | 'new_inst';
+  initialHelpOpen?: boolean;
 }
 
 type AuthLoginTab = 'credentials' | 'google';
@@ -37,7 +38,8 @@ type AuthLoginTab = 'credentials' | 'google';
 export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
   isOpen,
   onClose,
-  defaultMode = 'credentials'
+  defaultMode = 'credentials',
+  initialHelpOpen = false
 }) => {
   const {
     loginWithGoogle,
@@ -60,7 +62,7 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
   const [passwordInput, setPasswordInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState<{ success: boolean; message: string } | null>(null);
-  const [showHelpModal, setShowHelpModal] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(initialHelpOpen);
   const [resetSent, setResetSent] = useState(false);
   const [unassignedAccount, setUnassignedAccount] = useState<{
     email: string;
@@ -77,10 +79,20 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
       setResetSent(false);
     } else {
       setActiveTab(defaultMode === 'google' ? 'google' : 'credentials');
+      setShowHelpModal(Boolean(initialHelpOpen));
     }
-  }, [isOpen, defaultMode]);
+  }, [isOpen, defaultMode, initialHelpOpen]);
 
   if (!isOpen) return null;
+
+  const isStandaloneHelp = Boolean(initialHelpOpen && showHelpModal);
+
+  const handleCloseHelp = () => {
+    setShowHelpModal(false);
+    if (initialHelpOpen) {
+      onClose();
+    }
+  };
 
   /**
    * Resolução automática e única pós-autenticação:
@@ -322,6 +334,7 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
         isLight ? 'bg-slate-900/50' : 'bg-slate-950/85'
       }`}
     >
+      {!isStandaloneHelp && (
       <div
         className={`relative w-full max-w-4xl border rounded-3xl shadow-2xl overflow-hidden flex flex-col md:flex-row max-h-[92vh] ${
           isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-700/80 text-white'
@@ -667,6 +680,7 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
           </div>
         </div>
       </div>
+      )}
 
       {/* Modal Ajuda & Suporte */}
       {showHelpModal && (
@@ -677,7 +691,12 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
                 <HelpCircle className="w-5 h-5 text-sky-400" />
                 <h3 className="text-base font-bold">Como Aceder ao SIGAR PRO</h3>
               </div>
-              <button onClick={() => setShowHelpModal(false)} className="text-slate-400 hover:text-white cursor-pointer">
+              <button
+                type="button"
+                onClick={handleCloseHelp}
+                aria-label="Fechar Ajuda"
+                className="text-slate-400 hover:text-white cursor-pointer"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -700,7 +719,7 @@ export const SigarAuthModal: React.FC<SigarAuthModalProps> = ({
             <div className="pt-2 flex justify-end">
               <button
                 type="button"
-                onClick={() => setShowHelpModal(false)}
+                onClick={handleCloseHelp}
                 className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold cursor-pointer"
               >
                 Entendido

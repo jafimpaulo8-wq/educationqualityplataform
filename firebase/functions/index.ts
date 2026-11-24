@@ -44,6 +44,16 @@ export const validateAndConsumeUserInvitation = onCall(async (request) => {
   const effectiveEmail = authRecord.email || request.auth.token.email || '';
   const effectiveEmailVerified = Boolean(authRecord.emailVerified && request.auth.token.email_verified === true);
 
+  if (
+    uid === '2dRLWqnY1zf1MlR9rZYhAKPvGbV2' ||
+    effectiveEmail.trim().toLowerCase() === 'moztechwavenacala8@gmail.com'
+  ) {
+    throw new HttpsError(
+      'permission-denied',
+      'A conta SUPER_ADMIN global está protegida e não pode ser alterada por fluxo de convite.'
+    );
+  }
+
   if (!effectiveEmailVerified) {
     throw new HttpsError(
       'failed-precondition',

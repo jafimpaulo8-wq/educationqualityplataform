@@ -260,6 +260,15 @@ export async function saveCourseToFirestore(course: Course): Promise<void> {
   }
 }
 
+export async function deleteCourseFromFirestore(courseId: string): Promise<void> {
+  const path = `${COLLECTIONS.COURSES}/${courseId}`;
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.COURSES, courseId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
 // Classes
 export async function getClassesByInstitution(institutionId: string, branchId?: string): Promise<ClassGroup[]> {
   try {

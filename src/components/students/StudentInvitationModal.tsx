@@ -1,28 +1,31 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  KeyRound, 
-  Send, 
-  Copy, 
-  Check, 
-  Clock, 
-  AlertCircle, 
-  ShieldCheck, 
-  X, 
-  Mail, 
-  MessageCircle, 
-  Sparkles, 
+import {
+  KeyRound,
+  Send,
+  Copy,
+  Check,
+  Clock,
+  AlertCircle,
+  X,
+  Mail,
+  MessageCircle,
+  Sparkles,
   RefreshCw,
-  Trash2,
   ExternalLink,
   UserCheck
 } from 'lucide-react';
-import { Student, StudentInvitation, Institution } from '../../types';
-import { 
-  saveStudentInvitation, 
-  getStudentInvitationsByStudent, 
-  revokeStudentInvitation 
+import { Student, StudentInvitation, Institution, UserInvitation } from '../../types';
+import {
+  getStudentInvitationsByStudent,
+  revokeStudentInvitation
 } from '../../services/firestoreService';
-import { generateSecureInvitationToken } from '../../services/publicInstitutionService';
+import {
+  buildInviteActivationUrl,
+  createUserInvitation,
+  listUserInvitations,
+  revokeUserInvitation
+} from '../../services/inviteAuthService';
+import { useApp } from '../../context/AppContext';
 import { useToast } from '../../context/ToastContext';
 import { soundManager } from '../../utils/audio';
 
@@ -41,6 +44,19 @@ function toSafeDate(val: any): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
+interface UnifiedStudentInviteDisplay {
+  id: string;
+  token: string;
+  email: string;
+  expiresAt: string;
+  used: boolean;
+  revoked?: boolean;
+  usedAt?: string;
+  createdAt: string;
+  createdBy: string;
+  sourceCollection: 'userInvitations' | 'studentInvitations';
+}
+
 interface StudentInvitationModalProps {
   student: Student;
   institution: Institution;
@@ -56,29 +72,79 @@ export const StudentInvitationModal: React.FC<StudentInvitationModalProps> = ({
   onClose,
   onAuditLog
 }) => {
+  const { firebaseUser, userProfile, activeRole, updateStudent } = useApp();
   const { success, error: toastError, info } = useToast();
 
-  const [invitations, setInvitations] = useState<StudentInvitation[]>([]);
+  const [invitations, setInvitations] = useState<UnifiedStudentInviteDisplay[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [activeTab, setActiveTab] = useState<'link' | 'email' | 'whatsapp'>('link');
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedEmail, setCopiedEmail] = useState(false);
+  const [emailInput, setEmailInput] = useState(student?.email || '');
 
-  // Load existing invitations on open
+  useEffect(() => {
+    setEmailInput(student?.email || '');
+  }, [student?.id, student?.email, isOpen]);
+
   useEffect(() => {
     if (isOpen && student?.id) {
       loadInvitations();
     }
   }, [isOpen, student?.id]);
 
+  const mapUserInvToDisplay = (inv: UserInvitation): UnifiedStudentInviteDisplay => ({
+    id: inv.id,
+    token: inv.token || inv.id,
+    email: inv.email,
+    expiresAt: inv.expiresAt,
+    used: !!inv.used || inv.status === 'ativado',
+    revoked: !!inv.revoked || inv.status === 'revogado',
+    usedAt: inv.usedAt,
+    createdAt: inv.createdAt,
+    createdBy: inv.createdByName || inv.createdByEmail || 'Secretaria',
+    sourceCollection: 'userInvitations'
+  });
+
+  const mapLegacyInvToDisplay = (inv: StudentInvitation): UnifiedStudentInviteDisplay => ({
+    id: inv.id,
+    token: inv.token,
+    email: inv.studentEmail,
+    expiresAt: inv.expiresAt,
+    used: !!inv.used,
+    revoked: !!inv.revoked,
+    usedAt: inv.usedAt,
+    createdAt: inv.createdAt,
+    createdBy: inv.createdBy || 'Secretaria',
+    sourceCollection: 'studentInvitations'
+  });
+
   const loadInvitations = async () => {
     setLoading(true);
     try {
-      const list = await getStudentInvitationsByStudent(student.id);
-      // Sort newest first
-      list.sort((a, b) => (toSafeDate(b.createdAt)?.getTime() || 0) - (toSafeDate(a.createdAt)?.getTime() || 0));
-      setInvitations(list);
+      const targetInstId = student.institutionId || institution.id;
+      const [unifiedList, legacyList] = await Promise.all([
+        listUserInvitations(targetInstId),
+        getStudentInvitationsByStudent(student.id)
+      ]);
+
+      const normalizedStudentEmail = (student.email || '').trim().toLowerCase();
+      const studentUnified = unifiedList
+        .filter((inv) =>
+          inv.linkedEntityId === student.id ||
+          (normalizedStudentEmail && (inv.email || '').trim().toLowerCase() === normalizedStudentEmail && inv.role === 'ALUNO')
+        )
+        .map(mapUserInvToDisplay);
+
+      const seenTokens = new Set(studentUnified.map((i) => i.token));
+      const legacyMapped = legacyList
+        .filter((l) => !seenTokens.has(l.token))
+        .map(mapLegacyInvToDisplay);
+
+      const merged = [...studentUnified, ...legacyMapped].sort(
+        (a, b) => (toSafeDate(b.createdAt)?.getTime() || 0) - (toSafeDate(a.createdAt)?.getTime() || 0)
+      );
+      setInvitations(merged);
     } catch (e) {
       console.warn('Error loading invitations:', e);
     } finally {
@@ -88,10 +154,13 @@ export const StudentInvitationModal: React.FC<StudentInvitationModalProps> = ({
 
   if (!isOpen) return null;
 
-  const latestInvitation = invitations[0] || null;
-  const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
-  const activationUrl = latestInvitation 
-    ? `${baseUrl}/ativar-conta?token=${latestInvitation.token}` 
+  const normalizedEmail = emailInput.trim().toLowerCase();
+  const isEmailValid = Boolean(normalizedEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail));
+  const isSyntheticLegacyEmail = normalizedEmail.endsWith('@aluno.sigar');
+
+  const latestInvitation = invitations.find((i) => !i.revoked) || invitations[0] || null;
+  const activationUrl = latestInvitation
+    ? buildInviteActivationUrl(latestInvitation.token)
     : '';
 
   const emailSubject = `Convite de Acesso ao Portal do Aluno — ${institution.name}`;
@@ -106,6 +175,7 @@ Para ter acesso às suas notas, horários, frequência, pagamentos e carteirinha
 ${activationUrl}
 
 Nota de Segurança:
+• Utilize o e-mail registado (${latestInvitation?.email || emailInput}) para concluir a activação e verificação de identidade.
 • Este link é de uso único e pessoal.
 • O link é válido por 30 dias a partir da data de emissão.
 • Nunca partilhe este link com terceiros.
@@ -116,44 +186,66 @@ Atenciosamente,
 Direcção & Secretaria Académica
 ${institution.name}`;
 
-  const whatsappMessage = `Olá *${student.fullName}*! A sua matrícula no curso *${student.courseName}* foi homologada na *${institution.name}*. O seu código de formando é *${student.code}*. Aceda ao link oficial abaixo para criar a sua palavra-passe e entrar no Portal do Aluno: ${activationUrl}`;
+  const whatsappMessage = `Olá *${student.fullName}*! A sua matrícula no curso *${student.courseName}* foi homologada na *${institution.name}*. O seu código de formando é *${student.code}*. Aceda ao link oficial abaixo usando o e-mail *${latestInvitation?.email || emailInput}* para criar a sua palavra-passe e entrar no Portal do Aluno: ${activationUrl}`;
+
+  const rawPhone = student.whatsapp || student.phone || '';
+  const cleanPhone = rawPhone.replace(/\D/g, '');
+  const whatsappUrl = cleanPhone
+    ? `https://wa.me/${cleanPhone.startsWith('258') ? cleanPhone : `258${cleanPhone}`}?text=${encodeURIComponent(whatsappMessage)}`
+    : '';
 
   const handleGenerateInvitation = async () => {
+    if (!isEmailValid || isSyntheticLegacyEmail) {
+      toastError(
+        'E-mail Real Obrigatório',
+        'Informe um endereço de e-mail pessoal válido do formando para activar a conta com verificação oficial.'
+      );
+      return;
+    }
+
     setGenerating(true);
     soundManager.playClick();
     try {
-      // Token criptográfico seguro com 192 bits de entropia sem nomes ou códigos previsíveis (Requisito 7)
-      const token = generateSecureInvitationToken();
-      const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days
-      const createdAt = new Date().toISOString();
+      const targetInstId = student.institutionId || institution.id;
 
-      const newInv: StudentInvitation = {
-        id: `inv-${Date.now()}`,
-        token,
-        studentId: student.id,
-        studentCode: student.code,
-        studentName: student.fullName,
-        studentEmail: student.email || `${student.code.toLowerCase()}@aluno.sigar`,
-        institutionId: student.institutionId || institution.id,
-        branchId: student.branchId,
-        expiresAt,
-        used: false,
-        createdAt,
-        createdBy: institution.representativeName || 'Secretaria Geral'
+      // Keep student dossier email synchronized if secretary supplied or corrected it
+      if (normalizedEmail !== (student.email || '').trim().toLowerCase()) {
+        updateStudent(student.id, { email: normalizedEmail });
+      }
+
+      const actor = {
+        uid: firebaseUser?.uid || userProfile?.id || 'secretaria',
+        name: userProfile?.name || institution.representativeName || 'Secretaria Académica',
+        email: firebaseUser?.email || userProfile?.email || institution.email || '',
+        role: activeRole || 'SECRETARIA',
+        institutionId: targetInstId
       };
 
-      await saveStudentInvitation(newInv);
-      setInvitations(prev => [newInv, ...prev]);
+      const { invitation } = await createUserInvitation(actor, {
+        fullName: student.fullName,
+        email: normalizedEmail,
+        phone: student.whatsapp || student.phone,
+        institutionId: targetInstId,
+        institutionName: institution.name,
+        branchId: student.branchId || 'todas',
+        role: 'ALUNO',
+        linkedEntityType: 'student',
+        linkedEntityId: student.id,
+        expiresInDays: 30
+      });
+
+      const createdDisplay = mapUserInvToDisplay(invitation);
+      setInvitations((prev) => [createdDisplay, ...prev]);
 
       if (onAuditLog) {
         onAuditLog(
           'EMISSAO_CONVITE_PORTAL_ALUNO',
-          `Novo token de convite gerado para ${student.fullName} (${student.code}) com validade de 30 dias.`
+          `Convite unificado emitido para ${student.fullName} (${student.code}) com e-mail ${normalizedEmail} e validade de 30 dias.`
         );
       }
 
       soundManager.playSuccess();
-      success('Convite Gerado', 'O link seguro de acesso ao Portal do Aluno foi criado com sucesso.');
+      success('Convite Gerado', 'O link seguro de activação única ao Portal do Aluno foi criado com sucesso.');
     } catch (err: any) {
       toastError('Erro ao Gerar', err.message || 'Falha ao criar convite de acesso.');
     } finally {
@@ -161,16 +253,20 @@ ${institution.name}`;
     }
   };
 
-  const handleRevokeInvitation = async (invId: string) => {
+  const handleRevokeInvitation = async (inv: UnifiedStudentInviteDisplay) => {
     try {
-      await revokeStudentInvitation(invId);
-      setInvitations(prev => prev.map(inv => inv.id === invId ? { ...inv, revoked: true } : inv));
+      if (inv.sourceCollection === 'userInvitations') {
+        await revokeUserInvitation(inv.id, firebaseUser?.uid || userProfile?.id || 'secretaria');
+      } else {
+        await revokeStudentInvitation(inv.id);
+      }
+      setInvitations((prev) => prev.map((item) => (item.id === inv.id ? { ...item, revoked: true } : item)));
       soundManager.playClick();
       info('Convite Revogado', 'O token de acesso selecionado foi invalidado.');
       if (onAuditLog) {
         onAuditLog(
           'REVOGACAO_CONVITE_PORTAL',
-          `Convite ${invId} revogado para o formando ${student.fullName}.`
+          `Convite ${inv.id} revogado para o formando ${student.fullName}.`
         );
       }
     } catch (err: any) {
@@ -195,17 +291,6 @@ ${institution.name}`;
     setTimeout(() => setCopiedEmail(false), 2500);
   };
 
-  const handleSendWhatsApp = () => {
-    const phone = student.whatsapp || student.phone;
-    if (!phone) {
-      toastError('Sem Contacto', 'O formando não possui telefone ou WhatsApp cadastrado.');
-      return;
-    }
-    const cleanPhone = phone.replace(/\D/g, '');
-    const url = `https://wa.me/${cleanPhone.startsWith('258') ? cleanPhone : `258${cleanPhone}`}?text=${encodeURIComponent(whatsappMessage)}`;
-    window.open(url, '_blank');
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-[#0d1527] border border-slate-800 rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 sm:p-8 space-y-6 shadow-2xl">
@@ -217,7 +302,7 @@ ${institution.name}`;
             </div>
             <div>
               <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400">
-                Acesso & Credenciais do Formando
+                Acesso &amp; Credenciais do Formando
               </span>
               <h2 className="text-lg sm:text-xl font-black text-white">
                 Convite ao Portal do Aluno
@@ -227,7 +312,7 @@ ${institution.name}`;
               </span>
             </div>
           </div>
-          <button 
+          <button
             onClick={onClose}
             className="p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
           >
@@ -235,52 +320,74 @@ ${institution.name}`;
           </button>
         </div>
 
-        {/* Current Access Status */}
-        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="space-y-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-              Estado Atual do Acesso no Firestore
-            </span>
-            <div className="flex items-center gap-2">
-              {student.userId ? (
-                <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5">
-                  <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
-                  Conta Ativa (UID Vinculado)
-                </span>
-              ) : latestInvitation && !latestInvitation.used && !latestInvitation.revoked && (toSafeDate(latestInvitation.expiresAt) || new Date(0)) > new Date() ? (
-                <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30 flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-blue-400" />
-                  Convite Enviado (Pendente de Ativação)
-                </span>
-              ) : (
-                <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 flex items-center gap-1.5">
-                  <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
-                  Sem Acesso Ativado
-                </span>
-              )}
-              <span className="text-xs text-slate-400 font-mono">
-                {student.email || 'Sem e-mail registado'}
+        {/* Current Access Status & Real Email Requirement */}
+        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                Estado Atual do Acesso no Firestore
               </span>
+              <div className="flex items-center gap-2 flex-wrap">
+                {student.userId ? (
+                  <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5">
+                    <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+                    Conta Ativa (UID Vinculado)
+                  </span>
+                ) : latestInvitation && !latestInvitation.used && !latestInvitation.revoked && (toSafeDate(latestInvitation.expiresAt) || new Date(0)) > new Date() ? (
+                  <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-blue-400" />
+                    Convite Enviado (Pendente de Ativação)
+                  </span>
+                ) : (
+                  <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
+                    Sem Acesso Ativado
+                  </span>
+                )}
+              </div>
             </div>
+
+            <button
+              onClick={handleGenerateInvitation}
+              disabled={generating || !isEmailValid || isSyntheticLegacyEmail}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-600/20 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+            >
+              {generating ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>A Gerar Token...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  <span>Gerar Novo Convite</span>
+                </>
+              )}
+            </button>
           </div>
 
-          <button
-            onClick={handleGenerateInvitation}
-            disabled={generating}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-600/20 transition-all cursor-pointer disabled:opacity-50 shrink-0"
-          >
-            {generating ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                <span>A Gerar Token...</span>
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4" />
-                <span>Gerar Novo Convite</span>
-              </>
+          <div className="pt-3 border-t border-slate-800/80 space-y-1.5">
+            <label className="text-[11px] font-semibold text-slate-300 block">
+              E-mail Real do Formando (Obrigatório para Verificação e Activação)
+            </label>
+            <input
+              type="email"
+              value={emailInput}
+              onChange={(e) => setEmailInput(e.target.value)}
+              placeholder="nome.aluno@gmail.com"
+              className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white font-mono focus:outline-none focus:border-blue-500"
+            />
+            {(!isEmailValid || isSyntheticLegacyEmail) && (
+              <p className="text-[11px] text-amber-400 flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>
+                  {isSyntheticLegacyEmail
+                    ? 'Substitua o endereço interno @aluno.sigar por um e-mail real do formando.'
+                    : 'Informe um e-mail real válido para emitir o convite oficial.'}
+                </span>
+              </p>
             )}
-          </button>
+          </div>
         </div>
 
         {/* If Active Invitation exists */}
@@ -346,7 +453,7 @@ ${institution.name}`;
                   <a
                     href={activationUrl}
                     target="_blank"
-                    rel="noreferrer"
+                    rel="noopener noreferrer"
                     className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white cursor-pointer"
                     title="Testar Link"
                   >
@@ -354,7 +461,7 @@ ${institution.name}`;
                   </a>
                 </div>
                 <p className="text-[11px] text-slate-500">
-                  O formando abrirá esta página, verá os seus dados e definirá a palavra-passe para aceder imediatamente ao Portal do Aluno.
+                  O formando abrirá esta página com o e-mail <strong className="text-slate-300">{latestInvitation.email}</strong>, verificará a identidade e definirá a sua palavra-passe pessoal.
                 </p>
               </div>
             )}
@@ -387,15 +494,28 @@ ${institution.name}`;
             {/* Tab 3: WhatsApp */}
             {activeTab === 'whatsapp' && (
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
                   <span className="text-xs font-bold text-slate-300">Mensagem Direta via WhatsApp</span>
-                  <button
-                    onClick={handleSendWhatsApp}
-                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer flex items-center gap-1.5 shadow-md shadow-emerald-600/20"
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                    <span>Enviar para {student.whatsapp || student.phone || 'Formando'}</span>
-                  </button>
+                  {whatsappUrl ? (
+                    <a
+                      href={whatsappUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer flex items-center gap-1.5 shadow-md shadow-emerald-600/20"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Enviar para {student.whatsapp || student.phone}</span>
+                    </a>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => toastError('Sem Contacto', 'O formando não possui telefone ou WhatsApp cadastrado.')}
+                      className="px-4 py-2 rounded-xl bg-slate-800 text-slate-400 text-xs font-bold cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Sem WhatsApp registado</span>
+                    </button>
+                  )}
                 </div>
                 <textarea
                   readOnly
@@ -419,7 +539,7 @@ ${institution.name}`;
             <div className="py-6 text-center text-xs text-slate-500 font-mono">A carregar convites...</div>
           ) : invitations.length === 0 ? (
             <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800/80 text-center text-xs text-slate-500">
-              Nenhum convite emitido até ao momento. Clique em "Gerar Novo Convite" para liberar o acesso ao Portal do Aluno.
+              Nenhum convite emitido até ao momento. Informe o e-mail real do formando e clique em &quot;Gerar Novo Convite&quot;.
             </div>
           ) : (
             <div className="divide-y divide-slate-800/80 border border-slate-800 rounded-2xl bg-slate-950 overflow-hidden text-xs">
@@ -430,9 +550,10 @@ ${institution.name}`;
                 const createdDate = toSafeDate(inv.createdAt);
                 return (
                   <div key={inv.id} className="p-3.5 flex items-center justify-between gap-3">
-                    <div className="space-y-0.5">
-                      <div className="flex items-center gap-2">
+                    <div className="space-y-0.5 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-mono text-white font-bold">{inv.token.slice(0, 16)}...</span>
+                        <span className="text-[11px] text-sky-300 font-mono truncate">{inv.email}</span>
                         {inv.used ? (
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
                             Ativado em {usedDate ? usedDate.toLocaleDateString('pt-MZ') : ''}
@@ -458,8 +579,8 @@ ${institution.name}`;
 
                     {!inv.used && !inv.revoked && !isExpired && (
                       <button
-                        onClick={() => handleRevokeInvitation(inv.id)}
-                        className="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-[11px] font-semibold cursor-pointer transition-colors"
+                        onClick={() => handleRevokeInvitation(inv)}
+                        className="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-[11px] font-semibold cursor-pointer transition-colors shrink-0"
                       >
                         Revogar
                       </button>

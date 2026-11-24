@@ -100,6 +100,31 @@ export const CandidatesManagementView: React.FC = () => {
   // Candidate Detail / Review Drawer State
   const [selectedCandidate, setSelectedCandidate] = useState<RegistrationApplication | null>(null);
   const [reviewNotes, setReviewNotes] = useState('');
+  const [viewingDoc, setViewingDoc] = useState<{
+    name: string;
+    fileName?: string;
+    fileSize?: string;
+    url?: string;
+    type?: string;
+  } | null>(null);
+  const [viewingDocBlobUrl, setViewingDocBlobUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!viewingDoc?.url || !isSafeDocumentUrl(viewingDoc.url)) {
+      setViewingDocBlobUrl(null);
+      return;
+    }
+    if (viewingDoc.url.startsWith('data:')) {
+      const blobUrl = dataUrlToBlobUrl(viewingDoc.url);
+      setViewingDocBlobUrl(blobUrl);
+      return () => {
+        if (blobUrl) {
+          URL.revokeObjectURL(blobUrl);
+        }
+      };
+    }
+    setViewingDocBlobUrl(null);
+  }, [viewingDoc]);
 
   // UX Modals State
   const [viewingCandidateDetails, setViewingCandidateDetails] = useState<RegistrationApplication | null>(null);
@@ -222,6 +247,17 @@ export const CandidatesManagementView: React.FC = () => {
     setCfgPrivacyText(onlineRegistrationConfig.privacyPolicy || '');
     setSelectedCandidate(null);
   }, [activeInstitution.id, onlineRegistrationConfig]);
+
+  // Keep manual add form's initial courseId & fee aligned once courses load asynchronously
+  useEffect(() => {
+    if (courses.length > 0 && !candidateFormData.courseId) {
+      setCandidateFormData(prev => ({
+        ...prev,
+        courseId: courses[0].id,
+        paymentAmount: courses[0].registrationFee ?? prev.paymentAmount
+      }));
+    }
+  }, [courses, candidateFormData.courseId]);
   
   // New Question Form State
   const [newQuestionText, setNewQuestionText] = useState('');
@@ -477,7 +513,7 @@ export const CandidatesManagementView: React.FC = () => {
       birthDate: candidateFormData.birthDate || '2000-01-01',
       gender: candidateFormData.gender as any,
       phone: candidateFormData.phone,
-      email: candidateFormData.email || `${candidateFormData.documentNumber.toLowerCase().replace(/[^a-z0-9]/g, '')}@candidato.mz`,
+      email: candidateFormData.email.trim(),
       province: candidateFormData.province,
       city: candidateFormData.city,
       address: candidateFormData.address,
@@ -491,7 +527,7 @@ export const CandidatesManagementView: React.FC = () => {
       photoUrl: '',
       paymentReference: `BALCAO-${Date.now().toString().slice(-6)}`,
       paymentStatus: candidateFormData.paymentStatus,
-      paymentAmount: Number(candidateFormData.paymentAmount) || 1500,
+      paymentAmount: Number(candidateFormData.paymentAmount) || (selectedCourse?.registrationFee ?? 1500),
       paymentMethod: candidateFormData.paymentMethod,
       analysisNotes: candidateFormData.analysisNotes,
       documents: [
@@ -694,6 +730,51 @@ export const CandidatesManagementView: React.FC = () => {
   // Update Course Vacancies or Price
   const handleUpdateCourseField = (courseId: string, field: keyof OnlineCourseConfig, value: any) => {
     setCfgCourses(cfgCourses.map(c => c.courseId === courseId ? { ...c, [field]: value } : c));
+  };
+
+  const handleSyncCatalogCourses = () => {
+    if (!courses || courses.length === 0) {
+      info('Sem Cursos no Catálogo', 'Crie primeiro os cursos na gestão académica para sincronizar aqui.');
+      return;
+    }
+    const existingMap = new Map(cfgCourses.map(c => [c.courseId, c]));
+    let addedCount = 0;
+    const syncedList: OnlineCourseConfig[] = courses.map(c => {
+      const existing = existingMap.get(c.id);
+      if (existing) {
+        return {
+          ...existing,
+          courseName: c.name,
+          category: c.category || existing.category || 'Geral',
+          duration: c.duration || existing.duration,
+          monthlyFee: c.feeMonthly ?? existing.monthlyFee ?? 0,
+          price: existing.price || c.registrationFee || 1500
+        };
+      }
+      addedCount += 1;
+      return {
+        courseId: c.id,
+        courseName: c.name,
+        category: c.category || 'Geral',
+        active: c.status !== 'Suspenso',
+        price: c.registrationFee ?? 1500,
+        monthlyFee: c.monthlyFee ?? c.feeMonthly ?? 0,
+        duration: c.duration || '6 Meses',
+        requirements: c.requirements || [],
+        vacancies: c.totalVacancies ?? 40,
+        filledVacancies: c.filledVacancies ?? 0,
+        regimes: [c.modality === 'Online EAD' ? 'Online EAD' : c.modality === 'Híbrido' ? 'Híbrido' : 'Laboral', 'Pós-Laboral'],
+        shifts: ['Manhã', 'Tarde', 'Noite']
+      };
+    });
+    setCfgCourses(syncedList);
+    soundManager.playSuccess();
+    success(
+      'Catálogo Sincronizado',
+      addedCount > 0
+        ? `${addedCount} novo(s) curso(s) importado(s). Clique em "Guardar Alterações" para publicar.`
+        : 'Todos os cursos do catálogo foram atualizados. Clique em "Guardar Alterações" para publicar.'
+    );
   };
 
   return (
@@ -1286,7 +1367,7 @@ export const CandidatesManagementView: React.FC = () => {
 
             {/* Courses Availability & Pricing Section */}
             <div className="space-y-3 pt-4 border-t border-slate-800">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <h3 className="text-sm font-bold text-white flex items-center gap-2">
                     <BookOpen className="w-4 h-4 text-emerald-400" />
@@ -1296,6 +1377,14 @@ export const CandidatesManagementView: React.FC = () => {
                     Ative os cursos aceitos neste período de candidatura e ajuste os valores e vagas.
                   </p>
                 </div>
+                <button
+                  type="button"
+                  onClick={handleSyncCatalogCourses}
+                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-emerald-300 flex items-center gap-1.5 cursor-pointer shrink-0 transition-colors"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Sincronizar com Catálogo ({courses.length})</span>
+                </button>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
@@ -1907,6 +1996,16 @@ export const CandidatesManagementView: React.FC = () => {
 
                         <div className="flex items-center gap-2">
                           <button
+                            type="button"
+                            onClick={() => setViewingDoc(doc)}
+                            className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border border-sky-500/30 flex items-center gap-1.5 transition-colors cursor-pointer"
+                            title="Abrir e conferir documento anexado"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Ver</span>
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => handleToggleDocVerification(doc.id, !!doc.verified)}
                             className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
                               doc.verified
@@ -2296,6 +2395,97 @@ export const CandidatesManagementView: React.FC = () => {
         />
       )}
 
+      {/* Modal de Visualização de Documento Submetido */}
+      {viewingDoc && (() => {
+        const hasValidUrl = isSafeDocumentUrl(viewingDoc.url);
+        const resolvedUrl = hasValidUrl ? (viewingDocBlobUrl || viewingDoc.url!) : '';
+        const isImg = hasValidUrl && isImageDocumentMeta(viewingDoc);
+        const isPdf = hasValidUrl && isPdfFileMeta(viewingDoc);
+        const isExternalHttp = /^https?:\/\//i.test(resolvedUrl);
+        const suggestedFileName = getSuggestedDownloadFilename(viewingDoc);
+
+        return (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-sm">
+            <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
+              <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="text-sm sm:text-base font-bold text-white truncate">{viewingDoc.name}</h3>
+                  <p className="text-[11px] text-slate-400 font-mono truncate">
+                    {viewingDoc.fileName || 'documento'} • {viewingDoc.fileSize || '—'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {hasValidUrl && resolvedUrl && (
+                    <a
+                      href={resolvedUrl}
+                      download={suggestedFileName}
+                      {...(isExternalHttp ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+                      className="px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold flex items-center gap-1.5"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Descarregar</span>
+                    </a>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setViewingDoc(null)}
+                    className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-auto p-4 bg-slate-950 flex flex-col items-center justify-center min-h-[320px] gap-3">
+                {!hasValidUrl ? (
+                  <div className="text-center space-y-2 max-w-sm p-6">
+                    <FileText className="w-10 h-10 text-slate-500 mx-auto" />
+                    <p className="text-xs font-semibold text-slate-300">
+                      Documento registado presencialmente sem ficheiro digital anexado.
+                    </p>
+                    <p className="text-[11px] text-slate-500">
+                      Os documentos carregados no portal público de inscrições ficam disponíveis aqui para conferência imediata.
+                    </p>
+                  </div>
+                ) : isImg ? (
+                  <img
+                    src={resolvedUrl}
+                    alt={viewingDoc.name}
+                    className="max-w-full max-h-[70vh] object-contain rounded-xl border border-slate-800"
+                  />
+                ) : isPdf ? (
+                  <>
+                    <iframe
+                      src={resolvedUrl}
+                      title={viewingDoc.name}
+                      className="w-full h-[65vh] rounded-xl border border-slate-800 bg-white"
+                    />
+                    <p className="text-[11px] text-slate-400">
+                      Caso o navegador não apresente a pré-visualização PDF integrada, utilize o botão &ldquo;Descarregar&rdquo; acima.
+                    </p>
+                  </>
+                ) : (
+                  <div className="text-center space-y-3 max-w-sm p-6">
+                    <FileText className="w-10 h-10 text-sky-400 mx-auto" />
+                    <p className="text-xs font-semibold text-slate-200">
+                      Pré-visualização directa indisponível para este formato.
+                    </p>
+                    <a
+                      href={resolvedUrl}
+                      download={suggestedFileName}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Descarregar Ficheiro</span>
+                    </a>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Modal Inscrever Candidato (Balcão / Presencial) */}
       {isAddCandidateModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
@@ -2431,7 +2621,15 @@ export const CandidatesManagementView: React.FC = () => {
                     <label className="block text-xs font-medium text-slate-300 mb-1">Curso Pretendido</label>
                     <select
                       value={candidateFormData.courseId}
-                      onChange={e => setCandidateFormData({ ...candidateFormData, courseId: e.target.value })}
+                      onChange={e => {
+                        const nextId = e.target.value;
+                        const matched = courses.find(c => c.id === nextId);
+                        setCandidateFormData(prev => ({
+                          ...prev,
+                          courseId: nextId,
+                          paymentAmount: matched?.registrationFee ?? prev.paymentAmount
+                        }));
+                      }}
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
                     >
                       {courses.map(course => (

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   ShieldCheck, 
   Search, 
@@ -36,9 +36,15 @@ import {
 import { soundManager } from '../../utils/audio';
 import { useApp } from '../../context/AppContext';
 import { validateAndFormatInternationalPhone } from '../../views/public/PublicRegistrationView';
-import { resolveInstitutionSlug } from '../../services/publicInstitutionService';
-import { COURSES_DATA } from '../../data/mockData';
-import { Course, Institution } from '../../types';
+import {
+  extractPublishedPublicCourses,
+  KNOWN_INSTITUTIONS,
+  PublishedPublicCourseItem,
+  resolveInstitutionSlug,
+  resolvePublicInstitutionBySlug
+} from '../../services/publicInstitutionService';
+import { InstitutionLogoBadge } from '../common/InstitutionLogoBadge';
+import { PublicInstitution } from '../../types';
 
 interface PublicPortalLandingProps {
   onOpenAuthModal: (mode?: 'google' | 'credentials') => void;
@@ -47,6 +53,40 @@ interface PublicPortalLandingProps {
   onOpenJobsPortal?: () => void;
   onOpenRegisterInstitution: () => void;
   onOpenHelp: () => void;
+}
+
+type PublicCourseCardItem = PublishedPublicCourseItem & {
+  image: string;
+};
+
+function resolvePublicCategoryVisual(courseName: string, category: string): string {
+  const cat = (category || '').toLowerCase();
+  const nm = (courseName || '').toLowerCase();
+  if (cat.includes('tec') || nm.includes('soft') || nm.includes('prog') || nm.includes('web')) {
+    return 'https://images.unsplash.com/photo-1517694712202-14dd9538aa97?auto=format&fit=crop&w=800&q=80';
+  }
+  if (nm.includes('rede') || nm.includes('cisco') || nm.includes('ciber')) {
+    return 'https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80';
+  }
+  if (cat.includes('gest') || nm.includes('contab') || nm.includes('primavera') || nm.includes('neg')) {
+    return 'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?auto=format&fit=crop&w=800&q=80';
+  }
+  if (nm.includes('elet') || nm.includes('auto') || nm.includes('plc')) {
+    return 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=800&q=80';
+  }
+  if (nm.includes('maq') || nm.includes('pesad') || nm.includes('escav')) {
+    return 'https://images.unsplash.com/photo-1579273166657-1901844bca03?auto=format&fit=crop&w=800&q=80';
+  }
+  if (nm.includes('mec') || nm.includes('diesel') || nm.includes('motor')) {
+    return 'https://images.unsplash.com/photo-1486006920555-c77dce18193b?auto=format&fit=crop&w=800&q=80';
+  }
+  if (nm.includes('adu') || nm.includes('júe') || nm.includes('logist') || nm.includes('port')) {
+    return 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=800&q=80';
+  }
+  if (cat.includes('infantil') || nm.includes('berçário') || nm.includes('creche') || nm.includes('maternal')) {
+    return 'https://images.unsplash.com/photo-1503454537195-1dcabb73ffb9?auto=format&fit=crop&w=800&q=80';
+  }
+  return 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=800&q=80';
 }
 
 export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
@@ -60,18 +100,49 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
   const [quickVerifyCode, setQuickVerifyCode] = useState('');
   const [selectedInstFilter, setSelectedInstFilter] = useState<string>('todas');
   const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
-  const [selectedCourseDetails, setSelectedCourseDetails] = useState<(Course & { instName: string; instCode: string; instCity?: string }) | null>(null);
+  const [selectedCourseDetails, setSelectedCourseDetails] = useState<PublicCourseCardItem | null>(null);
+  const [publicInstitutionsList, setPublicInstitutionsList] = useState<PublicInstitution[]>([]);
+  const [isLoadingCatalog, setIsLoadingCatalog] = useState<boolean>(true);
 
-  const { 
-    themeMode, 
-    allInstitutions, 
-    activeInstitution, 
-    courses = [], 
-    allCourses = [],
-    navigate 
+  const {
+    themeMode,
+    navigate
   } = useApp();
 
   const isLight = themeMode === 'branco';
+
+  // Carregamento exclusivamente público por slug via publicInstitutions/{slug}, sem dados privados ou estado de sessão
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoadingCatalog(true);
+
+    const canonicalSlugs = Array.from(
+      new Set(KNOWN_INSTITUTIONS.map((inst) => resolveInstitutionSlug(inst)).filter(Boolean))
+    );
+
+    Promise.all(canonicalSlugs.map((slug) => resolvePublicInstitutionBySlug(slug)))
+      .then((results) => {
+        if (cancelled) return;
+        const deduped = new Map<string, PublicInstitution>();
+        for (const pub of results) {
+          if (pub && pub.institutionId && !deduped.has(pub.institutionId)) {
+            deduped.set(pub.institutionId, pub);
+          }
+        }
+        setPublicInstitutionsList(Array.from(deduped.values()));
+        setIsLoadingCatalog(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPublicInstitutionsList([]);
+          setIsLoadingCatalog(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleQuickVerifySubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -81,73 +152,35 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
     }
   };
 
-  // Combine courses from registered institutions and default certified curricula
-  const combinedCourses = useMemo(() => {
-    const list: (Course & { instName: string; instCode: string; instCity?: string })[] = [];
-    const sourceCourses = (allCourses && allCourses.length > 0) ? allCourses : COURSES_DATA;
-
-    sourceCourses.forEach((c) => {
-      const inst = allInstitutions.find(i => i.id === c.institutionId) || activeInstitution;
-      
-      // Ensure high quality educational photography for each course category
-      let courseImg = c.image;
-      if (!courseImg || courseImg.includes('placeholder') || courseImg.trim() === '') {
-        const cat = (c.category || '').toLowerCase();
-        const nm = (c.name || '').toLowerCase();
-        if (cat.includes('tec') || nm.includes('soft') || nm.includes('prog') || nm.includes('web')) {
-          courseImg = 'https://images.unsplash.com/photo-1517694712202-14dd9538aa97?auto=format&fit=crop&w=800&q=80';
-        } else if (nm.includes('rede') || nm.includes('cisco') || nm.includes('ciber')) {
-          courseImg = 'https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80';
-        } else if (cat.includes('gest') || nm.includes('contab') || nm.includes('primavera') || nm.includes('neg')) {
-          courseImg = 'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?auto=format&fit=crop&w=800&q=80';
-        } else if (nm.includes('elet') || nm.includes('auto') || nm.includes('plc')) {
-          courseImg = 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=800&q=80';
-        } else if (nm.includes('maq') || nm.includes('pesad') || nm.includes('escav')) {
-          courseImg = 'https://images.unsplash.com/photo-1579273166657-1901844bca03?auto=format&fit=crop&w=800&q=80';
-        } else if (nm.includes('mec') || nm.includes('diesel') || nm.includes('motor')) {
-          courseImg = 'https://images.unsplash.com/photo-1486006920555-c77dce18193b?auto=format&fit=crop&w=800&q=80';
-        } else if (nm.includes('adu') || nm.includes('júe') || nm.includes('logist') || nm.includes('port')) {
-          courseImg = 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=800&q=80';
-        } else if (nm.includes('ing') || nm.includes('ling') || nm.includes('petr')) {
-          courseImg = 'https://images.unsplash.com/photo-1543269865-cbf427effbad?auto=format&fit=crop&w=800&q=80';
-        } else if (nm.includes('saud') || nm.includes('enf') || nm.includes('farm')) {
-          courseImg = 'https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?auto=format&fit=crop&w=800&q=80';
-        } else {
-          courseImg = 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=800&q=80';
-        }
-      }
-
-      list.push({
-        ...c,
-        image: courseImg,
-        instName: inst?.name || 'Instituição Parceira',
-        instCode: inst?.code || '',
-        instCity: inst?.city || ''
-      });
-    });
-
-    return list;
-  }, [allCourses, allInstitutions, activeInstitution]);
+  // Cursos públicos extraídos estritamente das instituições públicas carregadas (com inscrições abertas e cursos activos)
+  const combinedCourses: PublicCourseCardItem[] = useMemo(() => {
+    return extractPublishedPublicCourses(publicInstitutionsList).map((c) => ({
+      ...c,
+      image: resolvePublicCategoryVisual(c.name, c.category)
+    }));
+  }, [publicInstitutionsList]);
 
   // Filtered courses
   const filteredCourses = useMemo(() => {
     return combinedCourses.filter((c) => {
       const matchInst = selectedInstFilter === 'todas' || c.institutionId === selectedInstFilter;
-      const matchCat = selectedCategory === 'Todos' || c.category === selectedCategory || 
+      const matchCat = selectedCategory === 'Todos' || c.category === selectedCategory ||
         (selectedCategory === 'Tecnologia' && (c.category?.includes('Tec') || c.category?.includes('Inf'))) ||
         (selectedCategory === 'Gestão' && (c.category?.includes('Gest') || c.category?.includes('Cont'))) ||
         (selectedCategory === 'Engenharia & Mecânica' && (c.category?.includes('Mec') || c.category?.includes('Elet') || c.category?.includes('Máq'))) ||
-        (selectedCategory === 'Aduaneiras & Logística' && (c.category?.includes('Adu') || c.category?.includes('Log')));
+        (selectedCategory === 'Aduaneiras & Logística' && (c.category?.includes('Adu') || c.category?.includes('Log'))) ||
+        (selectedCategory === 'Educação Infantil' && c.category?.toLowerCase().includes('infantil'));
       return matchInst && matchCat;
     });
   }, [combinedCourses, selectedInstFilter, selectedCategory]);
 
   const categories = [
-    'Todos', 
-    'Tecnologia', 
-    'Gestão', 
+    'Todos',
+    'Tecnologia',
+    'Gestão',
     'Engenharia & Mecânica',
-    'Aduaneiras & Logística'
+    'Aduaneiras & Logística',
+    'Educação Infantil'
   ];
 
   return (
@@ -312,8 +345,8 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
                 }`}
               >
                 <option value="todas">Todos os Centros de Formação</option>
-                {allInstitutions.map(inst => (
-                  <option key={inst.id} value={inst.id}>
+                {publicInstitutionsList.map(inst => (
+                  <option key={inst.institutionId} value={inst.institutionId}>
                     {inst.name} ({inst.city || inst.province})
                   </option>
                 ))}
@@ -341,8 +374,27 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
             ))}
           </div>
 
-          {/* Grade de Cursos com Fotos Reais */}
-          {filteredCourses.length > 0 ? (
+          {/* Grade de Cursos Publicados */}
+          {isLoadingCatalog ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" data-testid="public-courses-loading">
+              {[1, 2, 3].map((idx) => (
+                <div
+                  key={idx}
+                  className={`rounded-3xl border overflow-hidden animate-pulse ${
+                    isLight ? 'bg-white border-slate-200' : 'bg-slate-900/80 border-slate-800'
+                  }`}
+                >
+                  <div className={`h-48 w-full ${isLight ? 'bg-slate-200' : 'bg-slate-800'}`} />
+                  <div className="p-5 space-y-3">
+                    <div className={`h-3 w-24 rounded ${isLight ? 'bg-slate-200' : 'bg-slate-800'}`} />
+                    <div className={`h-5 w-3/4 rounded ${isLight ? 'bg-slate-200' : 'bg-slate-800'}`} />
+                    <div className={`h-3 w-full rounded ${isLight ? 'bg-slate-200' : 'bg-slate-800'}`} />
+                    <div className={`h-9 w-full rounded-xl mt-4 ${isLight ? 'bg-slate-200' : 'bg-slate-800'}`} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : filteredCourses.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredCourses.map((c) => (
                 <div
@@ -382,8 +434,8 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
                         {c.modality || 'Presencial'}
                       </span>
                       <div className="font-mono text-sm font-black text-emerald-300 drop-shadow-sm">
-                        {c.monthlyFee || c.feeMonthly ? (
-                          `${(c.monthlyFee || c.feeMonthly || 0).toLocaleString()} MT/mês`
+                        {c.monthlyFee > 0 ? (
+                          `${c.monthlyFee.toLocaleString()} MT/mês`
                         ) : (
                           'Inscrições Abertas'
                         )}
@@ -400,11 +452,11 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
                         }`}>
                           {c.category}
                         </span>
-                        {c.code && (
+                        {c.instCode && (
                           <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${
                             isLight ? 'bg-slate-100 text-slate-600' : 'bg-slate-800 text-slate-400'
                           }`}>
-                            {c.code}
+                            {c.instCode}
                           </span>
                         )}
                       </div>
@@ -416,14 +468,14 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
                       <p className={`text-xs mt-1.5 line-clamp-2 leading-relaxed ${
                         isLight ? 'text-slate-600' : 'text-slate-400'
                       }`}>
-                        {c.description || 'Formação profissional com módulos teóricos e práticos, materiais didáticos e certificação reconhecida.'}
+                        {c.description}
                       </p>
 
                       {/* Informações Rápidas */}
                       <div className="grid grid-cols-2 gap-2 mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 text-[11px]">
                         <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
                           <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          <span>{c.duration || '6 Meses'}</span>
+                          <span>{c.duration || 'Consultar'}</span>
                         </div>
                         <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
                           <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -450,12 +502,10 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
                         <button
                           type="button"
                           onClick={() => {
-                            const courseInst = allInstitutions.find(i => i.id === c.institutionId);
-                            const slug = courseInst ? resolveInstitutionSlug(courseInst) : undefined;
                             if (onOpenOnlineRegistration) {
-                              onOpenOnlineRegistration(c.name, slug);
+                              onOpenOnlineRegistration(c.name, c.instSlug);
                             } else {
-                              navigate('inscricao_publica', slug ? { inst: slug } : {});
+                              navigate('inscricao_publica', { inst: c.instSlug });
                             }
                           }}
                           className="flex-1 py-2 px-3 rounded-xl text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white shadow-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1"
@@ -467,23 +517,21 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
 
                       {/* Botão Saber mais via WhatsApp oficial da instituição do curso (oculto se sem número) */}
                       {(() => {
-                        const courseInst = allInstitutions.find(i => i.id === c.institutionId) || activeInstitution;
-                        const instWhatsApp = validateAndFormatInternationalPhone(courseInst?.whatsapp || courseInst?.phone);
+                        const instWhatsApp = validateAndFormatInternationalPhone(c.instWhatsapp || c.instPhone);
                         if (!instWhatsApp) return null;
+                        const msg = encodeURIComponent(`Olá ${c.instName}! Gostaria de saber mais informações sobre o curso de "${c.name}".`);
                         return (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const msg = encodeURIComponent(`Olá ${courseInst.name}! Gostaria de saber mais informações sobre o curso de "${c.name}".`);
-                              window.open(`https://wa.me/${instWhatsApp}?text=${msg}`, '_blank');
-                            }}
+                          <a
+                            href={`https://wa.me/${instWhatsApp}?text=${msg}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
                             className="w-full py-1.5 px-3 rounded-xl text-xs font-semibold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                             title="Saber mais no WhatsApp institucional"
                           >
                             <MessageCircle className="w-3.5 h-3.5 text-emerald-500" />
                             <span>Saber mais</span>
-                          </button>
+                          </a>
                         );
                       })()}
                     </div>
@@ -494,21 +542,27 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
           ) : (
             <div className={`p-12 text-center rounded-3xl border ${
               isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
-            }`}>
+            }`} data-testid="public-courses-empty">
               <BookOpen className="w-10 h-10 text-slate-400 mx-auto mb-3" />
               <h3 className={`text-base font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                Nenhum curso encontrado nesta categoria
+                {combinedCourses.length === 0
+                  ? 'Nenhum curso publicado para inscrições neste momento'
+                  : 'Nenhum curso encontrado nesta categoria'}
               </h3>
               <p className={`text-xs mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                Tente selecionar outra categoria ou visualizar todos os centros de formação.
+                {combinedCourses.length === 0
+                  ? 'As instituições estão a actualizar a oferta pública de inscrições online.'
+                  : 'Tente selecionar outra categoria ou visualizar todos os centros de formação.'}
               </p>
-              <button
-                type="button"
-                onClick={() => { setSelectedCategory('Todos'); setSelectedInstFilter('todas'); }}
-                className="mt-4 px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs cursor-pointer"
-              >
-                Ver Todos os Cursos
-              </button>
+              {combinedCourses.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => { setSelectedCategory('Todos'); setSelectedInstFilter('todas'); }}
+                  className="mt-4 px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs cursor-pointer"
+                >
+                  Ver Todos os Cursos
+                </button>
+              )}
             </div>
           )}
 
@@ -537,22 +591,32 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {allInstitutions.map((inst) => {
-              const instCoursesCount = combinedCourses.filter(c => c.institutionId === inst.id).length;
+            {publicInstitutionsList.map((inst) => {
+              const instCoursesCount = combinedCourses.filter(c => c.institutionId === inst.institutionId).length;
               return (
                 <div
-                  key={inst.id}
+                  key={inst.institutionId}
                   className={`p-6 rounded-3xl border flex flex-col justify-between transition-all hover:shadow-lg ${
                     isLight ? 'bg-slate-50/70 border-slate-200 hover:border-slate-300' : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'
                   }`}
                 >
                   <div className="space-y-4">
                     <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center text-white font-black text-lg shadow-sm">
-                          {inst.name.charAt(0)}
-                        </div>
-                        <div>
+                      <div className="flex items-center gap-3 min-w-0">
+                        <InstitutionLogoBadge
+                          institution={{
+                            id: inst.institutionId,
+                            name: inst.name,
+                            sigla: inst.sigla,
+                            logoUrl: inst.logoUrl,
+                            emblemUrl: inst.emblemUrl,
+                            institutionalColors: inst.primaryColor
+                              ? { primary: inst.primaryColor, accent: inst.accentColor }
+                              : undefined
+                          }}
+                          size="lg"
+                        />
+                        <div className="min-w-0">
                           <h3 className={`text-sm font-bold leading-snug line-clamp-1 ${isLight ? 'text-slate-900' : 'text-white'}`}>
                             {inst.name}
                           </h3>
@@ -562,7 +626,7 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
                         </div>
                       </div>
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0">
-                        Ativo
+                        {inst.onlineRegistrationConfig?.isOpen === false ? 'Brevemente' : 'Ativo'}
                       </span>
                     </div>
 
@@ -573,11 +637,15 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
                       </div>
                       <div className="flex items-center gap-2">
                         <Users className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        <span>Representante: {inst.representativeName || 'Direção Geral'}</span>
+                        <span>
+                          {inst.branches && inst.branches.length > 0
+                            ? `${inst.branches.length} Unidade(s) / Polo(s)`
+                            : 'Atendimento Institucional'}
+                        </span>
                       </div>
                       <div className="flex items-center gap-2">
                         <BookOpen className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        <span>{instCoursesCount} Cursos ativos no catálogo</span>
+                        <span>{instCoursesCount} Cursos publicados para inscrição</span>
                       </div>
                     </div>
                   </div>
@@ -586,7 +654,7 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        setSelectedInstFilter(inst.id);
+                        setSelectedInstFilter(inst.institutionId);
                         const el = document.getElementById('cursos-section');
                         if (el) el.scrollIntoView({ behavior: 'smooth' });
                       }}
@@ -597,7 +665,7 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
                     </button>
 
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                      SIVEC Ativo
+                      /i/{inst.slug}
                     </span>
                   </div>
                 </div>
@@ -765,11 +833,13 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
               }`}>
                 <div>
                   <span className="text-[10px] text-slate-400 uppercase font-mono">Duração</span>
-                  <div className="font-bold text-sm mt-0.5">{selectedCourseDetails.duration || '6 Meses'}</div>
+                  <div className="font-bold text-sm mt-0.5">{selectedCourseDetails.duration || 'Consultar'}</div>
                 </div>
                 <div>
-                  <span className="text-[10px] text-slate-400 uppercase font-mono">Carga Horária</span>
-                  <div className="font-bold text-sm mt-0.5">{selectedCourseDetails.workloadHours || 360} horas</div>
+                  <span className="text-[10px] text-slate-400 uppercase font-mono">Inscrição</span>
+                  <div className="font-bold text-sm mt-0.5">
+                    {selectedCourseDetails.price > 0 ? `${selectedCourseDetails.price.toLocaleString()} MT` : 'Consultar'}
+                  </div>
                 </div>
                 <div>
                   <span className="text-[10px] text-slate-400 uppercase font-mono">Modalidade</span>
@@ -778,8 +848,8 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
                 <div>
                   <span className="text-[10px] text-slate-400 uppercase font-mono">Mensalidade</span>
                   <div className="font-bold text-sm mt-0.5 text-emerald-600 dark:text-emerald-400">
-                    {selectedCourseDetails.monthlyFee || selectedCourseDetails.feeMonthly 
-                      ? `${(selectedCourseDetails.monthlyFee || selectedCourseDetails.feeMonthly || 0).toLocaleString()} MT`
+                    {selectedCourseDetails.monthlyFee > 0
+                      ? `${selectedCourseDetails.monthlyFee.toLocaleString()} MT`
                       : 'Consultar'}
                   </div>
                 </div>
@@ -828,14 +898,15 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
 
               <div className="flex items-center gap-2">
                 {(() => {
-                  const courseInst = allInstitutions.find(i => i.id === selectedCourseDetails.institutionId) || activeInstitution;
-                  const modalWhatsApp = validateAndFormatInternationalPhone(courseInst?.whatsapp || courseInst?.phone);
+                  const modalWhatsApp = validateAndFormatInternationalPhone(
+                    selectedCourseDetails.instWhatsapp || selectedCourseDetails.instPhone
+                  );
                   if (!modalWhatsApp) return null;
                   return (
                     <button
                       type="button"
                       onClick={() => {
-                        const msg = encodeURIComponent(`Olá ${courseInst.name}! Gostaria de saber mais informações sobre o curso de "${selectedCourseDetails.name}".`);
+                        const msg = encodeURIComponent(`Olá ${selectedCourseDetails.instName}! Gostaria de saber mais informações sobre o curso de "${selectedCourseDetails.name}".`);
                         window.open(`https://wa.me/${modalWhatsApp}?text=${msg}`, '_blank');
                       }}
                       className="px-4 py-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
@@ -851,13 +922,12 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
                   type="button"
                   onClick={() => {
                     const courseName = selectedCourseDetails.name;
-                    const courseInst = allInstitutions.find(i => i.id === selectedCourseDetails.institutionId);
-                    const slug = courseInst ? resolveInstitutionSlug(courseInst) : undefined;
+                    const slug = selectedCourseDetails.instSlug;
                     setSelectedCourseDetails(null);
                     if (onOpenOnlineRegistration) {
                       onOpenOnlineRegistration(courseName, slug);
                     } else {
-                      navigate('inscricao_publica', slug ? { inst: slug } : {});
+                      navigate('inscricao_publica', { inst: slug });
                     }
                   }}
                   className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-md transition cursor-pointer flex items-center gap-2"

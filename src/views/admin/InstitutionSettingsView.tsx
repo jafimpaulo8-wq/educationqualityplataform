@@ -41,6 +41,15 @@ import { OnlineRegistrationSettingsPanel } from '../../components/settings/Onlin
 import { UserInvitationsPanel } from '../../components/auth/UserInvitationsPanel';
 import { InstitutionLogoBadge } from '../../components/common/InstitutionLogoBadge';
 import { DEFAULT_INSTITUTION_COLORS, resolveInstitutionIdentity } from '../../utils/institutionIdentity';
+import {
+  compressImageToBase64,
+  getUtf8ByteLength,
+  MAX_INSTITUTION_BRANDING_TOTAL_BYTES,
+  MAX_INSTITUTION_FAVICON_BYTES,
+  MAX_INSTITUTION_LOGO_BYTES,
+  validateInstitutionBrandingBudget,
+  validateInstitutionalImageInput
+} from '../../services/publicInstitutionService';
 
 export const InstitutionSettingsView: React.FC = () => {
   const { activeInstitution, updateInstitution, activeRole } = useApp();
@@ -49,9 +58,48 @@ export const InstitutionSettingsView: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<'geral' | 'prefixos' | 'assinatura_carimbo' | 'modelos' | 'regras_mensagens' | 'inscricoes_online' | 'utilizadores_convites'>('geral');
   const [saving, setSaving] = useState(false);
+  const [uploadingAsset, setUploadingAsset] = useState<'logo' | 'emblem' | 'favicon' | null>(null);
   const canIssueInvites = ['SUPER_ADMIN', 'ADMIN_INSTITUICAO', 'DIRETOR', 'CEO', 'SECRETARIA'].includes(
     toCanonicalRole(String(activeRole))
   );
+
+  const handleBrandingFileUpload = async (file: File | undefined, target: 'logo' | 'emblem' | 'favicon') => {
+    if (!file) return;
+    setUploadingAsset(target);
+    try {
+      const limit = target === 'favicon' ? MAX_INSTITUTION_FAVICON_BYTES : MAX_INSTITUTION_LOGO_BYTES;
+      const dataUrl = await compressImageToBase64(file, limit);
+
+      const candidateAssets = {
+        logoUrl: target === 'logo' ? dataUrl : logoUrl,
+        emblemUrl: target === 'emblem' ? dataUrl : emblemUrl,
+        faviconUrl: target === 'favicon' ? dataUrl : faviconUrl,
+        signatureUrl,
+        stampUrl,
+        carnetStaticQrUrl
+      };
+      const budgetCheck = validateInstitutionBrandingBudget(candidateAssets);
+      if (!budgetCheck.valid) {
+        soundManager.playError();
+        error('Orçamento de Imagens Excedido', budgetCheck.error || 'O conjunto de imagens excede o limite do Firestore.');
+        return;
+      }
+
+      if (target === 'logo') setLogoUrl(dataUrl);
+      else if (target === 'emblem') setEmblemUrl(dataUrl);
+      else setFaviconUrl(dataUrl);
+      soundManager.playSuccess();
+      success(
+        'Imagem Carregada',
+        `Imagem comprimida (${Math.round(getUtf8ByteLength(dataUrl) / 1024)} KB). Clique em "Salvar Alterações" para publicar no portal e documentos.`
+      );
+    } catch (err: any) {
+      soundManager.playError();
+      error('Erro no Carregamento', err?.message || 'Não foi possível processar o ficheiro de imagem.');
+    } finally {
+      setUploadingAsset(null);
+    }
+  };
 
   const identity = resolveInstitutionIdentity(activeInstitution);
 
@@ -243,6 +291,25 @@ export const InstitutionSettingsView: React.FC = () => {
       error('Sem instituição ativa', 'Selecione uma instituição válida antes de salvar configurações.');
       return;
     }
+
+    const brandingCheck = validateInstitutionBrandingBudget({
+      logoUrl,
+      emblemUrl,
+      faviconUrl,
+      signatureUrl,
+      stampUrl,
+      carnetStaticQrUrl
+    });
+    if (!brandingCheck.valid) {
+      soundManager.playError();
+      error('Validação de Imagens Institucionais', brandingCheck.error || 'Uma ou mais imagens ultrapassam os limites permitidos.');
+      return;
+    }
+
+    const cleanLogo = validateInstitutionalImageInput(logoUrl, { maxBytes: MAX_INSTITUTION_LOGO_BYTES, label: 'Logótipo' }).normalized;
+    const cleanEmblem = validateInstitutionalImageInput(emblemUrl, { maxBytes: MAX_INSTITUTION_LOGO_BYTES, label: 'Emblema' }).normalized;
+    const cleanFavicon = validateInstitutionalImageInput(faviconUrl, { maxBytes: MAX_INSTITUTION_FAVICON_BYTES, label: 'Favicon' }).normalized;
+
     setSaving(true);
     try {
       const updatedData: Partial<Institution> = {
@@ -269,9 +336,9 @@ export const InstitutionSettingsView: React.FC = () => {
         province,
         city,
         address,
-        logoUrl,
-        emblemUrl: emblemUrl.trim(),
-        faviconUrl: faviconUrl.trim(),
+        logoUrl: cleanLogo,
+        emblemUrl: cleanEmblem,
+        faviconUrl: cleanFavicon,
         institutionalColors: {
           primary: primaryColor || DEFAULT_INSTITUTION_COLORS.primary,
           secondary: secondaryColor || DEFAULT_INSTITUTION_COLORS.secondary,
@@ -508,14 +575,29 @@ export const InstitutionSettingsView: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                {t('institution.logo', 'URL do Logótipo')} (PNG / SVG)
-              </label>
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <label className="block text-xs font-semibold text-slate-300">
+                  {t('institution.logo', 'Logótipo Institucional')} (Upload ou URL)
+                </label>
+                <label className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-blue-300 text-[11px] font-semibold cursor-pointer transition-colors">
+                  <Upload className="w-3 h-3" />
+                  <span>{uploadingAsset === 'logo' ? 'A processar...' : 'Carregar Ficheiro'}</span>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                    className="hidden"
+                    onChange={(e) => {
+                      handleBrandingFileUpload(e.target.files?.[0], 'logo');
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
               <input
                 type="text"
                 value={logoUrl}
                 onChange={(e) => setLogoUrl(e.target.value)}
-                placeholder="https://exemplo.co.mz/logo.png"
+                placeholder="https://exemplo.co.mz/logo.png ou carregue um ficheiro"
                 className="w-full px-3.5 py-2.5 rounded-xl bg-[#0d1527] border border-slate-800 text-white text-xs focus:border-blue-500 focus:outline-hidden"
               />
               <p className="text-[11px] text-slate-500 mt-1">
@@ -524,9 +606,24 @@ export const InstitutionSettingsView: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                URL do Símbolo / Emblema Alternativo (Opcional)
-              </label>
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <label className="block text-xs font-semibold text-slate-300">
+                  Símbolo / Emblema Alternativo (Opcional)
+                </label>
+                <label className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-[11px] font-semibold cursor-pointer transition-colors">
+                  <Upload className="w-3 h-3" />
+                  <span>{uploadingAsset === 'emblem' ? 'A processar...' : 'Carregar'}</span>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                    className="hidden"
+                    onChange={(e) => {
+                      handleBrandingFileUpload(e.target.files?.[0], 'emblem');
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
               <input
                 type="text"
                 value={emblemUrl}
@@ -537,9 +634,24 @@ export const InstitutionSettingsView: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                URL do Favicon dos Portais Públicos (Opcional)
-              </label>
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <label className="block text-xs font-semibold text-slate-300">
+                  Favicon dos Portais Públicos (Opcional)
+                </label>
+                <label className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-[11px] font-semibold cursor-pointer transition-colors">
+                  <Upload className="w-3 h-3" />
+                  <span>{uploadingAsset === 'favicon' ? 'A processar...' : 'Carregar'}</span>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/x-icon,image/svg+xml"
+                    className="hidden"
+                    onChange={(e) => {
+                      handleBrandingFileUpload(e.target.files?.[0], 'favicon');
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
               <input
                 type="text"
                 value={faviconUrl}
@@ -551,6 +663,41 @@ export const InstitutionSettingsView: React.FC = () => {
                 Usado automaticamente no separador do navegador do Portal de Pagamentos e Portal de Inscrições. Se vazio, usa o logótipo.
               </p>
             </div>
+
+            {(() => {
+              const currentBudget = validateInstitutionBrandingBudget({
+                logoUrl,
+                emblemUrl,
+                faviconUrl,
+                signatureUrl,
+                stampUrl,
+                carnetStaticQrUrl
+              });
+              const pct = Math.min(100, Math.round((currentBudget.totalBytes / MAX_INSTITUTION_BRANDING_TOTAL_BYTES) * 100));
+              return (
+                <div className={`p-3 rounded-xl border text-[11px] ${
+                  currentBudget.valid
+                    ? 'bg-[#0d1527] border-slate-800 text-slate-400'
+                    : 'bg-rose-950/30 border-rose-500/40 text-rose-300'
+                }`}>
+                  <div className="flex items-center justify-between font-mono mb-1">
+                    <span>Espaço de Identidade Visual (Firestore)</span>
+                    <span className={currentBudget.valid ? 'text-emerald-400' : 'text-rose-400 font-bold'}>
+                      {Math.round(currentBudget.totalBytes / 1024)} KB / {Math.round(MAX_INSTITUTION_BRANDING_TOTAL_BYTES / 1024)} KB
+                    </span>
+                  </div>
+                  <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                    <div
+                      className={`h-full transition-all ${currentBudget.valid ? 'bg-emerald-500' : 'bg-rose-500'}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  {!currentBudget.valid && currentBudget.error && (
+                    <p className="mt-1.5 text-rose-300">{currentBudget.error}</p>
+                  )}
+                </div>
+              );
+            })()}
 
             <div className="pt-4 border-t border-slate-800/80 space-y-3">
               <label className="block text-xs font-semibold text-slate-300 flex items-center gap-1.5">
@@ -1473,16 +1620,18 @@ export const InstitutionSettingsView: React.FC = () => {
                       type="file"
                       accept="image/*"
                       className="hidden"
-                      onChange={(e) => {
+                      onChange={async (e) => {
                         const file = e.target.files?.[0];
+                        e.target.value = '';
                         if (!file) return;
-                        const reader = new FileReader();
-                        reader.onload = () => {
-                          if (typeof reader.result === 'string') {
-                            setCarnetStaticQrUrl(reader.result);
-                          }
-                        };
-                        reader.readAsDataURL(file);
+                        try {
+                          const compressed = await compressImageToBase64(file, 90000);
+                          setCarnetStaticQrUrl(compressed);
+                          soundManager.playSuccess();
+                        } catch (err: any) {
+                          soundManager.playError();
+                          error('Erro ao carregar QR', err?.message || 'Não foi possível comprimir a imagem do QR.');
+                        }
                       }}
                     />
                   </label>

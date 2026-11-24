@@ -21,7 +21,9 @@ import {
   Building2,
   AlertTriangle,
   Loader2,
-  X
+  X,
+  Lock,
+  RefreshCw
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { useToast } from '../../context/ToastContext';
@@ -31,11 +33,15 @@ import {
   JobApplicationStatus,
   JobContractType,
   JobVacancy,
-  JobVacancyStatus
+  JobVacancyStatus,
+  toCanonicalRole
 } from '../../types';
 import {
+  canActorManageJobVacancies,
+  canActorReviewJobApplications,
   changeJobVacancyStatus,
   createOrUpdateJobVacancy,
+  formatRecruitmentErrorMessage,
   JOB_APPLICATION_STATUS_ORDER,
   JobVacancyFormInput,
   listInstitutionJobApplications,
@@ -83,6 +89,8 @@ export const RecruitmentManagerView: React.FC = () => {
   const [vacancies, setVacancies] = useState<JobVacancy[]>([]);
   const [applications, setApplications] = useState<JobApplication[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [applicationsLoadError, setApplicationsLoadError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [vacancyFilterId, setVacancyFilterId] = useState<string>('todas');
   const [statusFilter, setStatusFilter] = useState<string>('todos');
@@ -116,38 +124,96 @@ export const RecruitmentManagerView: React.FC = () => {
 
   const actor = useMemo(
     () => ({
-      uid: firebaseUser?.uid || userProfile?.id || 'staff',
+      uid: firebaseUser?.uid || userProfile?.id || '',
       name: userProfile?.name || firebaseUser?.displayName || firebaseUser?.email || 'Gestor RH',
-      role: String(activeRole || userProfile?.role || 'SECRETARIA')
+      role: String(activeRole || userProfile?.role || 'VISITANTE'),
+      institutionId: (userProfile as any)?.institutionId || undefined,
+      institutionIds: Array.isArray((userProfile as any)?.institutionIds) ? (userProfile as any).institutionIds : undefined,
+      ownedInstitutions: Array.isArray((userProfile as any)?.ownedInstitutions) ? (userProfile as any).ownedInstitutions : undefined,
+      permissions: Array.isArray((userProfile as any)?.permissions) ? (userProfile as any).permissions : [],
+      email: firebaseUser?.email || (userProfile as any)?.email || undefined,
+      emailVerified: firebaseUser?.emailVerified === true,
+      isSuperAdmin:
+        firebaseUser?.emailVerified === true &&
+        (
+          firebaseUser?.email === 'moztechwavenacala8@gmail.com' ||
+          firebaseUser?.uid === '2dRLWqnY1zf1MlR9rZYhAKPvGbV2'
+        )
     }),
     [firebaseUser, userProfile, activeRole]
   );
 
+  const canonicalRole = toCanonicalRole(actor.role);
+  const isRouteRoleAuthorized = Boolean(
+    firebaseUser &&
+      ['SUPER_ADMIN', 'ADMIN_INSTITUICAO', 'DIRETOR', 'CEO', 'SECRETARIA'].includes(canonicalRole)
+  );
+
+  const canManageVacancies = useMemo(
+    () => Boolean(isRouteRoleAuthorized && activeInstitution?.id && canActorManageJobVacancies(actor, activeInstitution.id)),
+    [isRouteRoleAuthorized, actor, activeInstitution?.id]
+  );
+
+  const canReviewApplications = useMemo(
+    () => Boolean(isRouteRoleAuthorized && activeInstitution?.id && canActorReviewJobApplications(actor, activeInstitution.id)),
+    [isRouteRoleAuthorized, actor, activeInstitution?.id]
+  );
+
   const loadRecruitmentData = async () => {
-    if (!activeInstitution?.id) {
+    if (!isRouteRoleAuthorized || !activeInstitution?.id) {
       setVacancies([]);
       setApplications([]);
+      setLoadError(null);
+      setApplicationsLoadError(null);
       setIsLoading(false);
       return;
     }
     setIsLoading(true);
-    try {
-      const [vacList, appList] = await Promise.all([
-        listInstitutionJobVacancies(activeInstitution.id),
-        listInstitutionJobApplications(activeInstitution.id)
-      ]);
-      setVacancies(vacList);
-      setApplications(appList);
-    } catch (err: any) {
-      toastError('Erro ao carregar recrutamento', err?.message || 'Verifique a ligação ao Firestore.');
-    } finally {
-      setIsLoading(false);
+    setLoadError(null);
+    setApplicationsLoadError(null);
+
+    const [vacRes, appRes] = await Promise.allSettled([
+      listInstitutionJobVacancies(activeInstitution.id),
+      canReviewApplications ? listInstitutionJobApplications(activeInstitution.id) : Promise.resolve([] as JobApplication[])
+    ]);
+
+    if (vacRes.status === 'fulfilled') {
+      setVacancies(vacRes.value);
+    } else {
+      const msg = formatRecruitmentErrorMessage(
+        vacRes.reason,
+        'Erro de permissão ou ligação ao carregar vagas no Firestore.'
+      );
+      setVacancies([]);
+      setLoadError(msg);
+      toastError('Erro ao carregar vagas', msg);
     }
+
+    if (appRes.status === 'fulfilled') {
+      setApplications(appRes.value);
+    } else {
+      const msg = formatRecruitmentErrorMessage(
+        appRes.reason,
+        'Erro de permissão ou ligação ao carregar candidaturas no Firestore.'
+      );
+      setApplications([]);
+      setApplicationsLoadError(msg);
+      toastError('Erro ao carregar candidaturas', msg);
+    }
+
+    setIsLoading(false);
   };
 
   useEffect(() => {
+    setVacancies([]);
+    setApplications([]);
+    setSelectedApplication(null);
+    setVacancyModalOpen(false);
+    setVacancyFilterId('todas');
+    setLoadError(null);
+    setApplicationsLoadError(null);
     void loadRecruitmentData();
-  }, [activeInstitution?.id]);
+  }, [activeInstitution?.id, firebaseUser?.uid, canReviewApplications]);
 
   const publicJobsUrl = useMemo(() => getPublicJobsUrl(activeInstitution), [activeInstitution]);
 
@@ -161,6 +227,10 @@ export const RecruitmentManagerView: React.FC = () => {
   };
 
   const openNewVacancyModal = () => {
+    if (!canManageVacancies) {
+      toastError('Sem permissão', 'O seu perfil não possui permissão explícita (vagas.manage) para criar vagas.');
+      return;
+    }
     const defaultDeadline = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
     setEditingVacancy(null);
     setFormTitle('');
@@ -180,6 +250,10 @@ export const RecruitmentManagerView: React.FC = () => {
   };
 
   const openEditVacancyModal = (vacancy: JobVacancy) => {
+    if (!canManageVacancies) {
+      toastError('Sem permissão', 'O seu perfil não possui permissão explícita (vagas.manage) para editar vagas.');
+      return;
+    }
     setEditingVacancy(vacancy);
     setFormTitle(vacancy.title);
     setFormDepartment(vacancy.department || '');
@@ -237,7 +311,7 @@ export const RecruitmentManagerView: React.FC = () => {
       });
     } catch (err: any) {
       soundManager.playError();
-      toastError('Erro ao gravar vaga', err?.message || 'Verifique os campos obrigatórios.');
+      toastError('Erro ao gravar vaga', formatRecruitmentErrorMessage(err, 'Verifique os campos obrigatórios.'));
     } finally {
       setIsSavingVacancy(false);
     }
@@ -246,14 +320,14 @@ export const RecruitmentManagerView: React.FC = () => {
   const handleToggleVacancyStatus = async (vacancy: JobVacancy, nextStatus: JobVacancyStatus) => {
     if (!activeInstitution?.id) return;
     try {
-      await changeJobVacancyStatus(activeInstitution.id, vacancy.id, nextStatus);
+      await changeJobVacancyStatus(activeInstitution.id, vacancy.id, nextStatus, actor);
       setVacancies(prev =>
         prev.map(v => (v.id === vacancy.id ? { ...v, status: nextStatus, updatedAt: new Date().toISOString() } : v))
       );
       soundManager.playClick();
       toastSuccess('Estado da vaga alterado', `${vacancy.title} agora está "${nextStatus}".`);
     } catch (err: any) {
-      toastError('Erro ao alterar estado', err?.message || 'Tente novamente.');
+      toastError('Erro ao alterar estado', formatRecruitmentErrorMessage(err, 'Tente novamente.'));
     }
   };
 
@@ -283,7 +357,7 @@ export const RecruitmentManagerView: React.FC = () => {
       toastSuccess('Candidatura actualizada', `Estado definido para ${reviewNextStatus}.`);
     } catch (err: any) {
       soundManager.playError();
-      toastError('Erro ao actualizar candidatura', err?.message || 'Não foi possível guardar alterações.');
+      toastError('Erro ao actualizar candidatura', formatRecruitmentErrorMessage(err, 'Não foi possível guardar alterações.'));
     } finally {
       setIsUpdatingApp(false);
     }
@@ -335,6 +409,20 @@ export const RecruitmentManagerView: React.FC = () => {
     }),
     [vacancies, applications]
   );
+
+  if (!isRouteRoleAuthorized) {
+    return (
+      <div className="p-8 max-w-xl mx-auto text-center space-y-3">
+        <div className="w-12 h-12 rounded-2xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center mx-auto text-rose-400">
+          <Lock className="w-6 h-6" />
+        </div>
+        <h2 className="text-lg font-bold">Acesso Restrito à Gestão de Vagas</h2>
+        <p className="text-xs text-slate-400">
+          Apenas utilizadores autenticados com perfil autorizado (Super Admin, Administração/Direcção/CEO ou Secretaria) podem aceder à gestão privada de recrutamento.
+        </p>
+      </div>
+    );
+  }
 
   if (!activeInstitution?.id) {
     return (
@@ -388,14 +476,20 @@ export const RecruitmentManagerView: React.FC = () => {
             <span>{copiedLink ? 'Link Copiado!' : 'Link Público de Vagas'}</span>
           </button>
 
-          <button
-            type="button"
-            onClick={openNewVacancyModal}
-            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-all"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Nova Vaga de Emprego</span>
-          </button>
+          {canManageVacancies ? (
+            <button
+              type="button"
+              onClick={openNewVacancyModal}
+              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-all"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Nova Vaga de Emprego</span>
+            </button>
+          ) : (
+            <span className="px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] font-semibold">
+              Sem permissão explícita (vagas.manage) para publicar vagas
+            </span>
+          )}
         </div>
       </div>
 
@@ -510,6 +604,20 @@ export const RecruitmentManagerView: React.FC = () => {
           <Loader2 className="w-8 h-8 animate-spin text-sky-400 mx-auto mb-2" />
           <p className="text-xs text-slate-400">A carregar dados de recrutamento...</p>
         </div>
+      ) : activeTab === 'vacancies' && loadError ? (
+        <div className="p-6 rounded-3xl border border-rose-500/40 bg-rose-500/10 text-center space-y-3">
+          <AlertTriangle className="w-9 h-9 text-rose-400 mx-auto" />
+          <h3 className="text-base font-bold text-rose-200">Falha ao carregar vagas desta instituição</h3>
+          <p className="text-xs text-rose-300 max-w-xl mx-auto font-mono break-words">{loadError}</p>
+          <button
+            type="button"
+            onClick={() => void loadRecruitmentData()}
+            className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Tentar Novamente
+          </button>
+        </div>
       ) : activeTab === 'vacancies' ? (
         filteredVacancies.length === 0 ? (
           <div className={`p-12 rounded-3xl border text-center space-y-3 ${
@@ -520,14 +628,20 @@ export const RecruitmentManagerView: React.FC = () => {
             <p className="text-xs text-slate-400 max-w-md mx-auto">
               Crie a primeira vaga de recrutamento da sua instituição para receber currículos e candidaturas organizadas.
             </p>
-            <button
-              type="button"
-              onClick={openNewVacancyModal}
-              className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold cursor-pointer inline-flex items-center gap-1.5"
-            >
-              <Plus className="w-4 h-4" />
-              Criar Primeira Vaga
-            </button>
+            {canManageVacancies ? (
+              <button
+                type="button"
+                onClick={openNewVacancyModal}
+                className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold cursor-pointer inline-flex items-center gap-1.5"
+              >
+                <Plus className="w-4 h-4" />
+                Criar Primeira Vaga
+              </button>
+            ) : (
+              <span className="inline-block px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] font-semibold">
+                Sem permissão explícita (vagas.manage) para criar vagas
+              </span>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -589,42 +703,66 @@ export const RecruitmentManagerView: React.FC = () => {
                       Candidatos ({candCount})
                     </button>
 
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => openEditVacancyModal(vacancy)}
-                        className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1 cursor-pointer"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                        Editar
-                      </button>
+                    {canManageVacancies && (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => openEditVacancyModal(vacancy)}
+                          className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          Editar
+                        </button>
 
-                      {vacancy.status !== 'publicada' ? (
-                        <button
-                          type="button"
-                          onClick={() => handleToggleVacancyStatus(vacancy, 'publicada')}
-                          className="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-bold flex items-center gap-1 cursor-pointer"
-                        >
-                          <Send className="w-3.5 h-3.5" />
-                          Publicar
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => handleToggleVacancyStatus(vacancy, 'encerrada')}
-                          className="px-3 py-1.5 rounded-xl bg-rose-600/15 hover:bg-rose-600/25 text-rose-300 border border-rose-500/30 text-xs font-bold flex items-center gap-1 cursor-pointer"
-                        >
-                          <Archive className="w-3.5 h-3.5" />
-                          Encerrar
-                        </button>
-                      )}
-                    </div>
+                        {vacancy.status !== 'publicada' ? (
+                          <button
+                            type="button"
+                            onClick={() => handleToggleVacancyStatus(vacancy, 'publicada')}
+                            className="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                            Publicar
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleToggleVacancyStatus(vacancy, 'encerrada')}
+                            className="px-3 py-1.5 rounded-xl bg-rose-600/15 hover:bg-rose-600/25 text-rose-300 border border-rose-500/30 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                          >
+                            <Archive className="w-3.5 h-3.5" />
+                            Encerrar
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
             })}
           </div>
         )
+      ) : !canReviewApplications ? (
+        <div className="p-8 rounded-3xl border border-amber-500/30 bg-amber-500/10 text-center space-y-2">
+          <Lock className="w-8 h-8 text-amber-400 mx-auto" />
+          <h3 className="text-base font-bold text-amber-200">Sem permissão para rever candidaturas</h3>
+          <p className="text-xs text-amber-300">
+            Requer permissão explícita (vagas.review_applications ou vagas.manage) atribuída ao perfil na instituição.
+          </p>
+        </div>
+      ) : applicationsLoadError ? (
+        <div className="p-6 rounded-3xl border border-rose-500/40 bg-rose-500/10 text-center space-y-3">
+          <AlertTriangle className="w-9 h-9 text-rose-400 mx-auto" />
+          <h3 className="text-base font-bold text-rose-200">Falha ao carregar candidaturas desta instituição</h3>
+          <p className="text-xs text-rose-300 max-w-xl mx-auto font-mono break-words">{applicationsLoadError}</p>
+          <button
+            type="button"
+            onClick={() => void loadRecruitmentData()}
+            className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Tentar Novamente
+          </button>
+        </div>
       ) : filteredApplications.length === 0 ? (
         <div className={`p-12 rounded-3xl border text-center space-y-2 ${
           isLight ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
@@ -983,55 +1121,61 @@ export const RecruitmentManagerView: React.FC = () => {
               </div>
 
               {/* Formulário de Decisão e Notas Internas */}
-              <form onSubmit={handleSaveApplicationReview} className={`p-4 rounded-2xl border space-y-3 ${
-                isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'
-              }`}>
-                <h4 className="font-bold text-xs uppercase text-sky-400">Actualizar Parecer de Recrutamento</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-semibold mb-1">Novo Estado</label>
-                    <select
-                      value={reviewNextStatus}
-                      onChange={(e) => setReviewNextStatus(e.target.value as JobApplicationStatus)}
-                      className={`w-full px-3 py-2 rounded-xl border ${isLight ? 'bg-white border-slate-300' : 'bg-slate-900 border-slate-700'}`}
-                    >
-                      {JOB_APPLICATION_STATUS_ORDER.map(st => (
-                        <option key={st} value={st}>{st}</option>
-                      ))}
-                    </select>
+              {canReviewApplications ? (
+                <form onSubmit={handleSaveApplicationReview} className={`p-4 rounded-2xl border space-y-3 ${
+                  isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'
+                }`}>
+                  <h4 className="font-bold text-xs uppercase text-sky-400">Actualizar Parecer de Recrutamento</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-semibold mb-1">Novo Estado</label>
+                      <select
+                        value={reviewNextStatus}
+                        onChange={(e) => setReviewNextStatus(e.target.value as JobApplicationStatus)}
+                        className={`w-full px-3 py-2 rounded-xl border ${isLight ? 'bg-white border-slate-300' : 'bg-slate-900 border-slate-700'}`}
+                      >
+                        {JOB_APPLICATION_STATUS_ORDER.map(st => (
+                          <option key={st} value={st}>{st}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block font-semibold mb-1">Mensagem Pública (Tracking)</label>
+                      <input
+                        type="text"
+                        value={reviewPublicSummary}
+                        onChange={(e) => setReviewPublicSummary(e.target.value)}
+                        placeholder="Ex: Convocado para entrevista presencial"
+                        className={`w-full px-3 py-2 rounded-xl border ${isLight ? 'bg-white border-slate-300' : 'bg-slate-900 border-slate-700'}`}
+                      />
+                    </div>
                   </div>
                   <div>
-                    <label className="block font-semibold mb-1">Mensagem Pública (Tracking)</label>
-                    <input
-                      type="text"
-                      value={reviewPublicSummary}
-                      onChange={(e) => setReviewPublicSummary(e.target.value)}
-                      placeholder="Ex: Convocado para entrevista presencial"
+                    <label className="block font-semibold mb-1">Notas Internas da Equipa (Privado RH)</label>
+                    <textarea
+                      rows={2}
+                      value={reviewInternalNotes}
+                      onChange={(e) => setReviewInternalNotes(e.target.value)}
+                      placeholder="Registe parecer técnico, avaliação de entrevista ou observações internas..."
                       className={`w-full px-3 py-2 rounded-xl border ${isLight ? 'bg-white border-slate-300' : 'bg-slate-900 border-slate-700'}`}
                     />
                   </div>
+                  <div className="flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={isUpdatingApp}
+                      className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      {isUpdatingApp ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                      Guardar Parecer &amp; Estado
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold">
+                  Sem permissão para alterar o estado desta candidatura.
                 </div>
-                <div>
-                  <label className="block font-semibold mb-1">Notas Internas da Equipa (Privado RH)</label>
-                  <textarea
-                    rows={2}
-                    value={reviewInternalNotes}
-                    onChange={(e) => setReviewInternalNotes(e.target.value)}
-                    placeholder="Registe parecer técnico, avaliação de entrevista ou observações internas..."
-                    className={`w-full px-3 py-2 rounded-xl border ${isLight ? 'bg-white border-slate-300' : 'bg-slate-900 border-slate-700'}`}
-                  />
-                </div>
-                <div className="flex justify-end">
-                  <button
-                    type="submit"
-                    disabled={isUpdatingApp}
-                    className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                  >
-                    {isUpdatingApp ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                    Guardar Parecer &amp; Estado
-                  </button>
-                </div>
-              </form>
+              )}
 
               {/* Histórico / Auditoria */}
               <div>
