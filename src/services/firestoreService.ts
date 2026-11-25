@@ -12,6 +12,7 @@ import {
   serverTimestamp
 } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from './firebase';
+import { sanitizeFirestoreData } from '../utils/registrationConfigUtils';
 import { 
   Institution, 
   Student, 
@@ -183,7 +184,8 @@ export async function getUserInstitutions(
 export async function saveInstitutionToFirestore(institution: Institution): Promise<void> {
   const path = `${COLLECTIONS.INSTITUTIONS}/${institution.id}`;
   try {
-    await setDoc(doc(db, COLLECTIONS.INSTITUTIONS, institution.id), institution, { merge: true });
+    const cleanInstitution = sanitizeFirestoreData(institution);
+    await setDoc(doc(db, COLLECTIONS.INSTITUTIONS, institution.id), cleanInstitution, { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -254,7 +256,8 @@ export async function getCoursesByInstitution(institutionId: string): Promise<Co
 export async function saveCourseToFirestore(course: Course): Promise<void> {
   const path = `${COLLECTIONS.COURSES}/${course.id}`;
   try {
-    await setDoc(doc(db, COLLECTIONS.COURSES, course.id), course, { merge: true });
+    const cleanCourse = sanitizeFirestoreData(course);
+    await setDoc(doc(db, COLLECTIONS.COURSES, course.id), cleanCourse, { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }

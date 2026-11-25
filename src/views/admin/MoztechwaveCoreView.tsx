@@ -419,22 +419,25 @@ export const MoztechwaveCoreView: React.FC = () => {
     setShowSuspendModal(true);
   };
 
-  const confirmSuspension = () => {
+  const confirmSuspension = async () => {
     if (!instActionTarget) return;
     const isCurrentlySuspended = instActionTarget.status === 'Suspensa';
     const newStatus = isCurrentlySuspended ? 'Ativa' : 'Suspensa';
-    
-    updateInstitution(instActionTarget.id, {
-      status: newStatus as any
+
+    const syncRes = await updateInstitution(instActionTarget.id, {
+      status: newStatus as any,
+      publicPortalPublished: isCurrentlySuspended
     });
 
-    addNotification({
-      title: isCurrentlySuspended ? 'Instituição Reativada' : 'Instituição Suspensa',
-      message: `${instActionTarget.name} foi marcada como ${newStatus}. Motivo: ${suspendReason || 'Ação da Diretoria Moztechwave HQ'}`,
-      type: isCurrentlySuspended ? 'success' : 'warning'
-    });
+    if (syncRes.status === 'success') {
+      addNotification({
+        title: isCurrentlySuspended ? 'Instituição Reativada' : 'Instituição Suspensa',
+        message: `${instActionTarget.name} foi marcada como ${newStatus}. Motivo: ${suspendReason || 'Ação da Diretoria Moztechwave HQ'}`,
+        type: isCurrentlySuspended ? 'success' : 'warning'
+      });
+      soundManager.playSuccess();
+    }
 
-    soundManager.playSuccess();
     setShowSuspendModal(false);
     setSuspendReason('');
     setInstActionTarget(null);
@@ -1101,12 +1104,12 @@ export const MoztechwaveCoreView: React.FC = () => {
                           <div>
                             <button
                               type="button"
-                              onClick={() => {
+                              onClick={async () => {
                                 const nextBilling =
                                   inst.saasBillingStatus === 'vencida' || inst.saasBillingStatus === 'bloqueada'
                                     ? 'em_dia'
                                     : 'vencida';
-                                updateInstitution(inst.id, { saasBillingStatus: nextBilling });
+                                await updateInstitution(inst.id, { saasBillingStatus: nextBilling });
                               }}
                               title="Alternar estado de faturação SaaS (Em dia / Vencida)"
                               className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold border cursor-pointer transition-colors ${
@@ -1817,9 +1820,9 @@ export const MoztechwaveCoreView: React.FC = () => {
                         <td className="py-3 px-4">
                           <select
                             value={inst.saasBillingStatus || 'em_dia'}
-                            onChange={(e) =>
-                              updateInstitution(inst.id, { saasBillingStatus: e.target.value as any })
-                            }
+                            onChange={async (e) => {
+                              await updateInstitution(inst.id, { saasBillingStatus: e.target.value as any });
+                            }}
                             className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs font-bold text-white cursor-pointer"
                           >
                             <option value="em_dia">Em dia</option>
@@ -1831,11 +1834,11 @@ export const MoztechwaveCoreView: React.FC = () => {
                         <td className="py-3 px-4 text-right">
                           <button
                             type="button"
-                            onClick={() =>
-                              updateInstitution(inst.id, {
+                            onClick={async () => {
+                              await updateInstitution(inst.id, {
                                 saasBillingStatus: inst.saasBillingStatus === 'em_dia' ? 'vencida' : 'em_dia'
-                              })
-                            }
+                              });
+                            }}
                             className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 cursor-pointer"
                           >
                             {inst.saasBillingStatus === 'em_dia' ? 'Marcar Vencida' : 'Regularizar'}

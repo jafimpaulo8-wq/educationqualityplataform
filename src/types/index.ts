@@ -223,6 +223,7 @@ export interface Institution {
   ownerEmail?: string;
   slug?: string;
   slugAliases?: string[];
+  publicPortalPublished?: boolean;
   // Configurações SaaS (Plataforma Moztechwave Core)
   trialDays?: number;
   trialExpiresAt?: string;

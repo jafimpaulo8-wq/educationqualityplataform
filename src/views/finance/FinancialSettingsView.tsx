@@ -369,7 +369,7 @@ export const FinancialSettingsView: React.FC = () => {
   };
 
   // Salvar Todas as Configurações Financeiras
-  const handleSaveAllFinance = () => {
+  const handleSaveAllFinance = async () => {
     setSaving(true);
     try {
       const updatedFinancialSettings: FinancialSettings = {
@@ -396,15 +396,17 @@ export const FinancialSettingsView: React.FC = () => {
         paymentMethods: paymentMethods
       };
 
-      updateInstitution(activeInstitution.id, {
+      const syncRes = await updateInstitution(activeInstitution.id, {
         financialSettings: updatedFinancialSettings
       });
 
-      soundManager.playSuccess();
-      success(
-        t('common.success', 'Configurações Financeiras Salvas'),
-        t('common.saved', 'Preços, regras de juros, métodos de pagamento e carteiras móveis salvos!')
-      );
+      if (syncRes.status === 'success') {
+        soundManager.playSuccess();
+        success(
+          t('common.success', 'Configurações Financeiras Salvas'),
+          t('common.saved', 'Preços, regras de juros, métodos de pagamento e carteiras móveis salvos!')
+        );
+      }
     } catch (err: any) {
       error('Erro ao Salvar', err.message || 'Falha ao gravar parâmetros financeiros.');
     } finally {

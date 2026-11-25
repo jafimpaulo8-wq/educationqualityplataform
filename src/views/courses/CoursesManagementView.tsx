@@ -705,13 +705,14 @@ export const CoursesManagementView: React.FC = () => {
           isOpen={isCourseModalOpen}
           onClose={() => setIsCourseModalOpen(false)}
           courseToEdit={courseToEdit}
-          onSave={(courseData) => {
+          onSave={async (courseData) => {
             if (courseToEdit) {
-              updateCourse(courseToEdit.id, courseData);
-              success('Curso Atualizado', `O curso "${courseData.name}" foi atualizado com sucesso.`);
+              const syncRes = await updateCourse(courseToEdit.id, courseData);
+              if (syncRes.status === 'success') {
+                success('Curso Atualizado', `O curso "${courseData.name}" foi atualizado e sincronizado com sucesso.`);
+              }
             } else {
               addCourse(courseData);
-              success('Curso Cadastrado', `O curso "${courseData.name}" foi criado e disponibilizado no catálogo.`);
             }
           }}
         />
@@ -803,11 +804,14 @@ export const CoursesManagementView: React.FC = () => {
         cancelText="Cancelar"
         variant="danger"
         requiredConfirmationWord="ELIMINAR"
-        onConfirm={() => {
+        onConfirm={async () => {
           if (courseToDelete) {
-            deleteCourse(courseToDelete.id);
-            success('Curso Removido', `O curso "${courseToDelete.name}" foi excluído.`);
+            const target = courseToDelete;
             setCourseToDelete(null);
+            const syncRes = await deleteCourse(target.id);
+            if (syncRes.status === 'success') {
+              success('Curso Removido', `O curso "${target.name}" foi excluído e removido do catálogo público.`);
+            }
           }
         }}
       />

@@ -518,7 +518,7 @@ service cloud.firestore {
         (isFinanceiro(institutionId) || isSecretaria(institutionId))
       );
       allow create: if isSuperAdmin() && isValidId(institutionId);
-      allow update: if isValidId(institutionId) && (
+      allow update: if isSignedIn() && isValidId(institutionId) && (
         isSuperAdmin() || (
           resource != null &&
           isInstAdmin(institutionId) &&
@@ -616,9 +616,7 @@ service cloud.firestore {
     // FASE C: Portais Públicos por Slug — NUNCA expõe números privados M-Pesa, e-Mola ou mKesh
     function isSafePublicInstitutionPayload(d) {
       return ('institutionId' in d) &&
-        d.institutionId is string &&
-        d.institutionId.size() > 0 &&
-        d.institutionId.size() <= 128 &&
+        isValidId(d.institutionId) &&
         !('financialSettings' in d) &&
         !('financialAccounts' in d) &&
         !('bankAccounts' in d) &&
@@ -635,6 +633,16 @@ service cloud.firestore {
         !('subscription' in d) &&
         !('students' in d) &&
         !('users' in d) &&
+        !('signatureUrl' in d) &&
+        !('stampUrl' in d) &&
+        !('carnetStaticQrUrl' in d) &&
+        !('representativeName' in d) &&
+        !('representativeRole' in d) &&
+        !('repLegal' in d) &&
+        !('saasBillingStatus' in d) &&
+        !('prefixes' in d) &&
+        !('whatsAppConfig' in d) &&
+        !('whatsappConfig' in d) &&
         (!('paymentMethods' in d) || (
           d.paymentMethods is map &&
           !('mpesa' in d.paymentMethods) &&
@@ -651,21 +659,105 @@ service cloud.firestore {
         ));
     }
 
+    function isValidPublicSlugId(slug) {
+      return isValidId(slug) && slug != '_index';
+    }
+
+    function isValidPublicIndexPayload(d) {
+      return d.keys().hasOnly(['slugs', 'updatedAt']) &&
+        ('slugs' in d) &&
+        d.slugs is list &&
+        d.slugs.size() <= 500 &&
+        d.slugs.size() == d.slugs.toSet().size() &&
+        !('_index' in d.slugs) &&
+        ('updatedAt' in d) &&
+        d.updatedAt is string;
+    }
+
+    function isAuthorizedTenantPublicDoc(pubData) {
+      return pubData != null &&
+        ('institutionId' in pubData) &&
+        pubData.institutionId is string &&
+        isValidId(pubData.institutionId) &&
+        isInstAdmin(pubData.institutionId);
+    }
+
+    function isValidTenantAdminPublicIndexCreate(newSlugs) {
+      return newSlugs.size() == 1 &&
+        isValidPublicSlugId(newSlugs[0]) &&
+        existsAfter(/databases/$(database)/documents/publicInstitutions/$(newSlugs[0])) &&
+        isAuthorizedTenantPublicDoc(
+          getAfter(/databases/$(database)/documents/publicInstitutions/$(newSlugs[0])).data
+        );
+    }
+
+    function isValidTenantAdminPublicIndexUpdate(oldSlugs, newSlugs) {
+      return (
+        // Publicação atómica exclusiva de novo slug da própria instituição (sem remover nem reordenar outros)
+        (
+          newSlugs.size() == oldSlugs.size() + 1 &&
+          newSlugs.removeAll(oldSlugs).size() == 1 &&
+          oldSlugs.removeAll(newSlugs).size() == 0 &&
+          isValidPublicSlugId(newSlugs.removeAll(oldSlugs)[0]) &&
+          existsAfter(/databases/$(database)/documents/publicInstitutions/$(newSlugs.removeAll(oldSlugs)[0])) &&
+          isAuthorizedTenantPublicDoc(
+            getAfter(/databases/$(database)/documents/publicInstitutions/$(newSlugs.removeAll(oldSlugs)[0])).data
+          )
+        ) ||
+        // Despublicação atómica exclusiva de slug existente da própria instituição
+        (
+          oldSlugs.size() == newSlugs.size() + 1 &&
+          newSlugs.removeAll(oldSlugs).size() == 0 &&
+          oldSlugs.removeAll(newSlugs).size() == 1 &&
+          isValidPublicSlugId(oldSlugs.removeAll(newSlugs)[0]) &&
+          exists(/databases/$(database)/documents/publicInstitutions/$(oldSlugs.removeAll(newSlugs)[0])) &&
+          !existsAfter(/databases/$(database)/documents/publicInstitutions/$(oldSlugs.removeAll(newSlugs)[0])) &&
+          isAuthorizedTenantPublicDoc(
+            get(/databases/$(database)/documents/publicInstitutions/$(oldSlugs.removeAll(newSlugs)[0])).data
+          )
+        )
+      );
+    }
+
+    match /publicInstitutions/_index {
+      allow get: if true;
+      allow list: if false;
+      allow create: if isSignedIn() &&
+        isValidPublicIndexPayload(request.resource.data) && (
+          isSuperAdmin() ||
+          isValidTenantAdminPublicIndexCreate(request.resource.data.slugs)
+        );
+      allow update: if isSignedIn() &&
+        resource != null &&
+        isValidPublicIndexPayload(request.resource.data) && (
+          isSuperAdmin() || (
+            ('slugs' in resource.data) &&
+            resource.data.slugs is list &&
+            isValidTenantAdminPublicIndexUpdate(resource.data.slugs, request.resource.data.slugs)
+          )
+        );
+      allow delete: if false;
+    }
+
     match /publicInstitutions/{slug} {
       allow get: if true;
       allow list: if false;
       allow create: if isSignedIn() &&
-        isValidId(slug) &&
+        isValidPublicSlugId(slug) &&
         isSafePublicInstitutionPayload(request.resource.data) &&
         isInstAdmin(request.resource.data.institutionId);
       allow update: if isSignedIn() &&
-        isValidId(slug) &&
+        isValidPublicSlugId(slug) &&
         resource != null &&
-        ('institutionId' in resource.data) &&
-        isInstAdmin(resource.data.institutionId) &&
+        isAuthorizedTenantPublicDoc(resource.data) &&
         isSafePublicInstitutionPayload(request.resource.data) &&
         request.resource.data.institutionId == resource.data.institutionId;
-      allow delete: if isSuperAdmin();
+      allow delete: if isSuperAdmin() || (
+        isSignedIn() &&
+        isValidPublicSlugId(slug) &&
+        resource != null &&
+        isAuthorizedTenantPublicDoc(resource.data)
+      );
     }
 
     // Filiais / Branches
@@ -711,6 +803,8 @@ service cloud.firestore {
           (
             isSignedIn() &&
             ('email' in request.auth.token) &&
+            ('email_verified' in request.auth.token) &&
+            request.auth.token.email_verified == true &&
             ('email' in resource.data) &&
             resource.data.email is string &&
             request.auth.token.email.lower() == resource.data.email.lower() &&
@@ -1053,7 +1147,7 @@ service cloud.firestore {
 
       let hasValidRegisteredSlug =
         ('slug' in d) &&
-        isValidId(d.slug) &&
+        isValidPublicSlugId(d.slug) &&
         exists(/databases/$(database)/documents/publicInstitutions/$(d.slug)) &&
         isMatchingPublicConfigSubmission(d, d.slug);
 
@@ -1098,7 +1192,7 @@ service cloud.firestore {
         (
           isSecretaria(request.resource.data.institutionId) || (
             ('slug' in request.resource.data) &&
-            isValidId(request.resource.data.slug) &&
+            isValidPublicSlugId(request.resource.data.slug) &&
             exists(/databases/$(database)/documents/publicInstitutions/$(request.resource.data.slug)) &&
             get(/databases/$(database)/documents/publicInstitutions/$(request.resource.data.slug)).data.institutionId == request.resource.data.institutionId
           )

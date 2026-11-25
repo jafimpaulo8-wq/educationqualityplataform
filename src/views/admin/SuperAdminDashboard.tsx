@@ -555,7 +555,7 @@ export const SuperAdminDashboard: React.FC = () => {
                     </div>
                     <button
                       type="button"
-                      onClick={() => {
+                      onClick={async () => {
                         if (!newBranchName.trim() || !newBranchCode.trim()) return;
                         const newBranchItem = {
                           id: `branch-${Date.now()}`,
@@ -571,15 +571,17 @@ export const SuperAdminDashboard: React.FC = () => {
                           createdAt: new Date().toISOString()
                         };
                         const updatedBranches = [...(selectedInstForConfig.branches || []), newBranchItem];
-                        updateInstitution(selectedInstForConfig.id, { branches: updatedBranches });
-                        setSelectedInstForConfig({
-                          ...selectedInstForConfig,
-                          branches: updatedBranches
-                        });
-                        setNewBranchName('');
-                        setNewBranchCode('');
-                        setNewBranchCity('');
-                        setNewBranchPhone('');
+                        const res = await updateInstitution(selectedInstForConfig.id, { branches: updatedBranches });
+                        if (res.status !== 'error') {
+                          setSelectedInstForConfig({
+                            ...selectedInstForConfig,
+                            branches: updatedBranches
+                          });
+                          setNewBranchName('');
+                          setNewBranchCode('');
+                          setNewBranchCity('');
+                          setNewBranchPhone('');
+                        }
                       }}
                       className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs cursor-pointer"
                     >
@@ -655,18 +657,20 @@ export const SuperAdminDashboard: React.FC = () => {
 
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
                       const updatedPrefixes = {
                         studentPrefix: prefixStudent.trim(),
                         certificatePrefix: prefixCert.trim(),
                         receiptPrefix: prefixReceipt.trim(),
                         contractPrefix: prefixContract.trim()
                       };
-                      updateInstitution(selectedInstForConfig.id, { prefixes: updatedPrefixes });
-                      setSelectedInstForConfig({
-                        ...selectedInstForConfig,
-                        prefixes: updatedPrefixes
-                      });
+                      const res = await updateInstitution(selectedInstForConfig.id, { prefixes: updatedPrefixes });
+                      if (res.status !== 'error') {
+                        setSelectedInstForConfig({
+                          ...selectedInstForConfig,
+                          prefixes: updatedPrefixes
+                        });
+                      }
                     }}
                     className="px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-bold text-xs cursor-pointer shadow-md"
                   >
@@ -701,10 +705,12 @@ export const SuperAdminDashboard: React.FC = () => {
                           </p>
                         </div>
                         <button
-                          onClick={() => {
+                          onClick={async () => {
                             const updated = selectedInstForConfig.bankAccounts.filter(a => a.id !== account.id);
-                            updateInstitution(selectedInstForConfig.id, { bankAccounts: updated });
-                            setSelectedInstForConfig({ ...selectedInstForConfig, bankAccounts: updated });
+                            const res = await updateInstitution(selectedInstForConfig.id, { bankAccounts: updated });
+                            if (res.status !== 'error') {
+                              setSelectedInstForConfig({ ...selectedInstForConfig, bankAccounts: updated });
+                            }
                           }}
                           className="text-xs text-rose-400 hover:text-rose-300 p-1.5 rounded-lg hover:bg-slate-900 cursor-pointer"
                         >
@@ -769,7 +775,7 @@ export const SuperAdminDashboard: React.FC = () => {
                     </div>
                     <button
                       type="button"
-                      onClick={() => {
+                      onClick={async () => {
                         if (!newAccountNum.trim()) return;
                         const newAcc = {
                           id: `bank-${Date.now()}`,
@@ -780,11 +786,13 @@ export const SuperAdminDashboard: React.FC = () => {
                           isActive: true
                         };
                         const updated = [...(selectedInstForConfig.bankAccounts || []), newAcc];
-                        updateInstitution(selectedInstForConfig.id, { bankAccounts: updated });
-                        setSelectedInstForConfig({ ...selectedInstForConfig, bankAccounts: updated });
-                        setNewAccountNum('');
-                        setNewNIB('');
-                        setNewHolder('');
+                        const res = await updateInstitution(selectedInstForConfig.id, { bankAccounts: updated });
+                        if (res.status !== 'error') {
+                          setSelectedInstForConfig({ ...selectedInstForConfig, bankAccounts: updated });
+                          setNewAccountNum('');
+                          setNewNIB('');
+                          setNewHolder('');
+                        }
                       }}
                       className="px-3.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs cursor-pointer"
                     >

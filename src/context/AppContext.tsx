@@ -161,6 +161,7 @@ import {
   CERTIFICATES_DATA
 } from '../data/mockData';
 import { createEmptyOnlineRegistrationConfig } from '../utils/registrationConfigUtils';
+import { useToast } from './ToastContext';
 import {
   INITIAL_INSTITUTION_WHATSAPP_CONFIG,
   INITIAL_WHATSAPP_TEMPLATES,
@@ -220,7 +221,9 @@ import {
   extractSlugFromLocation,
   isPublicJobsPath,
   isPublicRegistrationPath,
-  syncPublicInstitutionMetadata
+  PublicInstitutionSyncResult,
+  syncPublicInstitutionMetadata,
+  unpublishPublicInstitution
 } from '../services/publicInstitutionService';
 import {
   hasFinancialPermission,
@@ -318,7 +321,8 @@ interface AppContextType {
   activeInstitution: Institution;
   setActiveInstitution: (inst: Institution) => void;
   addInstitution: (newInst: Omit<Institution, 'id' | 'code' | 'createdAt'>) => Institution;
-  updateInstitution: (instId: string, updates: Partial<Institution>) => void;
+  updateInstitution: (instId: string, updates: Partial<Institution>) => Promise<PublicInstitutionSyncResult>;
+  unpublishInstitutionPublicPortal: (instId: string) => Promise<PublicInstitutionSyncResult>;
   
   activeBranchId: string;
   setActiveBranchId: (branchId: string) => void;
@@ -358,8 +362,8 @@ interface AppContextType {
   courses: Course[];
   allCourses: Course[];
   addCourse: (courseData: Omit<Course, 'id' | 'institutionId'>) => Course;
-  updateCourse: (courseId: string, updates: Partial<Course>) => void;
-  deleteCourse: (courseId: string) => void;
+  updateCourse: (courseId: string, updates: Partial<Course>) => Promise<PublicInstitutionSyncResult>;
+  deleteCourse: (courseId: string) => Promise<PublicInstitutionSyncResult>;
   addModuleToCourse: (courseId: string, module: Omit<CourseModule, 'id'>) => CourseModule;
   updateCourseModule: (courseId: string, moduleId: string, updates: Partial<CourseModule>) => void;
   deleteCourseModule: (courseId: string, moduleId: string) => void;
@@ -610,7 +614,7 @@ interface AppContextType {
   applications: RegistrationApplication[];
   allApplications: RegistrationApplication[];
   onlineRegistrationConfig: OnlineRegistrationConfig;
-  updateOnlineRegistrationConfig: (configUpdates: Partial<OnlineRegistrationConfig>) => void;
+  updateOnlineRegistrationConfig: (configUpdates: Partial<OnlineRegistrationConfig>) => Promise<PublicInstitutionSyncResult>;
   addApplication: (newApp: Omit<RegistrationApplication, 'id' | 'code' | 'createdAt'> & Partial<Pick<RegistrationApplication, 'id' | 'code' | 'createdAt'>> & { skipFirestoreSync?: boolean }) => RegistrationApplication;
   updateApplication: (id: string, updates: Partial<RegistrationApplication>) => void;
   approveApplication: (id: string, notes: string, actorName?: string) => void;
@@ -804,6 +808,7 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { success: toastSuccess, error: toastError, warning: toastWarning } = useToast();
   const [currentRoute, setCurrentRoute] = useState<AppRoute>(() => {
     if (typeof window !== 'undefined') {
       const searchParams = new URLSearchParams(window.location.search);
@@ -2024,6 +2029,106 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [notifications, setNotifications] = useState<LiveNotification[]>(INITIAL_NOTIFICATIONS);
 
+  const reportPersistenceFailure = (actionLabel: string, err: unknown) => {
+    const rawMessage = err instanceof Error ? err.message : String(err || 'Erro desconhecido ao gravar no Firestore.');
+    let displayDetail = rawMessage;
+    try {
+      const parsed = JSON.parse(rawMessage);
+      if (parsed && typeof parsed.error === 'string') {
+        displayDetail = parsed.error;
+      }
+    } catch {
+      // keep rawMessage
+    }
+    console.error(`[Firestore Persistence Error] ${actionLabel}:`, err);
+    soundManager.playError();
+    toastError(`Falha ao gravar ${actionLabel}`, displayDetail);
+    setNotifications(prev => [
+      {
+        id: `notif-err-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        title: `Falha ao gravar ${actionLabel}`,
+        message: displayDetail,
+        type: 'system',
+        timestamp: 'Agora mesmo',
+        read: false
+      },
+      ...prev
+    ]);
+  };
+
+  const reportPublicSyncSkipped = (actionLabel: string, reason?: string) => {
+    const detail =
+      reason ||
+      'Sessão Firebase não autenticada ou sem sessão activa; a sincronização pública foi ignorada.';
+    console.warn(`[Public Sync Skipped] ${actionLabel}:`, detail);
+    toastWarning(`Sincronização pública ignorada (${actionLabel})`, detail);
+    setNotifications(prev => [
+      {
+        id: `notif-skip-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        title: `Sincronização pública ignorada: ${actionLabel}`,
+        message: detail,
+        type: 'warning',
+        timestamp: 'Agora mesmo',
+        read: false
+      },
+      ...prev
+    ]);
+  };
+
+  const persistInstitutionAndPublicState = async (
+    inst: Institution,
+    privateLabel: string,
+    publicLabel: string,
+    successNotification?: {
+      title: string;
+      message: string;
+      type?: LiveNotification['type'];
+      showToast?: boolean;
+    },
+    onPrivateSaveFailed?: () => void
+  ): Promise<PublicInstitutionSyncResult> => {
+    try {
+      await saveInstitutionToFirestore(inst);
+    } catch (err) {
+      if (onPrivateSaveFailed) {
+        onPrivateSaveFailed();
+      }
+      reportPersistenceFailure(privateLabel, err);
+      return {
+        status: 'error',
+        error: err instanceof Error ? err.message : String(err)
+      };
+    }
+
+    const shouldBePublic = inst.publicPortalPublished !== false && inst.status !== 'Suspensa';
+    const syncRes = shouldBePublic
+      ? await syncPublicInstitutionMetadata(inst)
+      : await unpublishPublicInstitution(inst);
+
+    if (syncRes.status === 'success') {
+      if (successNotification) {
+        addNotification({
+          title: successNotification.title,
+          message: successNotification.message,
+          type: successNotification.type || 'system'
+        });
+        if (successNotification.showToast) {
+          toastSuccess(successNotification.title, successNotification.message);
+        }
+        soundManager.playSuccess();
+      }
+      return syncRes;
+    }
+
+    if (syncRes.status === 'skipped_no_auth') {
+      reportPublicSyncSkipped(publicLabel, syncRes.reason);
+      return syncRes;
+    }
+
+    reportPersistenceFailure(publicLabel, syncRes.error || 'Erro desconhecido na sincronização pública.');
+    return syncRes;
+  };
+
   // Online Registration Applications State (Strictly tenant-loaded; starts EMPTY)
   const [allApplications, setAllApplications] = useState<RegistrationApplication[]>([]);
 
@@ -2528,18 +2633,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const addInstitution = (newInstData: Omit<Institution, 'id' | 'code' | 'createdAt'>): Institution => {
+    const prevInstitutionId = activeInstitutionId;
+    const prevBranchId = activeBranchId;
+    const instId = `inst-${Date.now()}`;
     const typePrefix = newInstData.type === 'centro_formacao' ? 'CF' : newInstData.type === 'empresa' ? 'EMP' : 'INST';
     const randomNum = String(allInstitutions.length + 1).padStart(4, '0');
     const code = `MTW-${typePrefix}-${randomNum}`;
     const newInst: Institution = {
       ...newInstData,
-      id: `inst-${Date.now()}`,
+      id: instId,
       code,
       createdAt: new Date().toISOString().split('T')[0],
-      branches: newInstData.branches || [
+      branches: (newInstData.branches || [
         {
           id: `branch-${Date.now()}-main`,
-          institutionId: `inst-${Date.now()}`,
+          institutionId: instId,
           name: 'Sede Principal',
           code: 'SEDE-01',
           phone: newInstData.phone,
@@ -2551,7 +2659,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           isMainBranch: true,
           createdAt: new Date().toISOString()
         }
-      ],
+      ]).map(b => ({ ...b, institutionId: instId })),
       prefixes: newInstData.prefixes || {
         studentPrefix: `${code}-AL`,
         certificatePrefix: `${code}-CERT`,
@@ -2565,68 +2673,132 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         pixKey: newInstData.phone,
         dueDay: 10
       },
-      financialAccounts: newInstData.financialAccounts || []
+      financialAccounts: newInstData.financialAccounts || [],
+      publicPortalPublished:
+        newInstData.publicPortalPublished ?? (newInstData.status !== 'Suspensa')
     };
 
     setAllInstitutions(prev => deduplicateInstitutions([newInst, ...prev]));
     setActiveInstitutionId(newInst.id);
     setActiveBranchId('todas');
 
-    // Async persist to Firestore
-    saveInstitutionToFirestore(newInst).catch(err => console.warn('Firestore sync institution:', err));
+    // Async persist to Firestore and atomic public portal sync; revert optimistic state on persistence failure
+    void persistInstitutionAndPublicState(
+      newInst,
+      'instituição no Firestore',
+      'portal público da instituição',
+      {
+        title: `Nova Instituição Registrada: ${newInst.name}`,
+        message: `Ambiente independente ${code} provisionado e publicado com sucesso no Moztechwave Core.`,
+        type: 'system',
+        showToast: true
+      },
+      () => {
+        setAllInstitutions(prev => prev.filter(inst => inst.id !== newInst.id));
+        setActiveInstitutionId(prevInstitutionId);
+        setActiveBranchId(prevBranchId);
+      }
+    );
 
-    addNotification({
-      title: `Nova Instituição Registrada: ${newInst.name}`,
-      message: `Ambiente independente ${code} provisionado com sucesso no Moztechwave Core.`,
-      type: 'system'
-    });
-
-    soundManager.playNotification();
     return newInst;
   };
 
-  const updateInstitution = (instId: string, updates: Partial<Institution>) => {
+  const updateInstitution = async (
+    instId: string,
+    updates: Partial<Institution>
+  ): Promise<PublicInstitutionSyncResult> => {
     const baseInst =
       allInstitutions.find(inst => inst.id === instId) ||
       (activeInstitution?.id === instId ? activeInstitution : null);
 
-    const updatedObj: Institution | null = baseInst
-      ? {
-          ...baseInst,
-          ...updates,
-          financialSettings: updates.financialSettings
-            ? { ...(baseInst.financialSettings || {}), ...updates.financialSettings }
-            : baseInst.financialSettings
-        }
-      : null;
-
-    setAllInstitutions(prev =>
-      prev.map(inst => {
-        if (inst.id === instId) {
-          return {
-            ...inst,
-            ...updates,
-            financialSettings: updates.financialSettings
-              ? { ...(inst.financialSettings || {}), ...updates.financialSettings }
-              : inst.financialSettings
-          };
-        }
-        return inst;
-      })
-    );
-
-    if (updatedObj) {
-      saveInstitutionToFirestore(updatedObj).catch(err => console.warn('Firestore sync institution update:', err));
-      syncPublicInstitutionMetadata(updatedObj).catch(err => console.warn('Public institution sync note:', err));
+    if (!baseInst) {
+      const msg = `Instituição "${instId}" não encontrada.`;
+      reportPersistenceFailure('dados da instituição no Firestore', msg);
+      return { status: 'error', error: msg };
     }
 
-    addNotification({
-      title: 'Configurações Institucionais Salvas',
-      message: 'Os dados cadastrais e operacionais da instituição foram atualizados.',
-      type: 'system'
-    });
+    const derivedPublished =
+      updates.publicPortalPublished !== undefined
+        ? updates.publicPortalPublished
+        : updates.status === 'Suspensa'
+        ? false
+        : updates.status === 'Ativa' && baseInst.status === 'Suspensa'
+        ? true
+        : baseInst.publicPortalPublished;
 
-    soundManager.playSuccess();
+    const updatedObj: Institution = {
+      ...baseInst,
+      ...updates,
+      ...(derivedPublished !== undefined ? { publicPortalPublished: derivedPublished } : {}),
+      financialSettings: updates.financialSettings
+        ? { ...(baseInst.financialSettings || {}), ...updates.financialSettings }
+        : baseInst.financialSettings
+    };
+
+    setAllInstitutions(prev =>
+      prev.map(inst => (inst.id === instId ? updatedObj : inst))
+    );
+
+    return await persistInstitutionAndPublicState(
+      updatedObj,
+      'dados da instituição no Firestore',
+      'identidade pública da instituição',
+      {
+        title: 'Configurações Institucionais Salvas',
+        message: 'Os dados cadastrais, estado público e parâmetros operacionais da instituição foram actualizados.',
+        type: 'system'
+      },
+      () => {
+        setAllInstitutions(prev =>
+          prev.map(inst => (inst.id === instId ? baseInst : inst))
+        );
+      }
+    );
+  };
+
+  const unpublishInstitutionPublicPortal = async (
+    instId: string
+  ): Promise<PublicInstitutionSyncResult> => {
+    const targetInst =
+      allInstitutions.find(inst => inst.id === instId) ||
+      (activeInstitution?.id === instId ? activeInstitution : null);
+
+    if (!targetInst) {
+      const msg = `Instituição "${instId}" não encontrada para despublicação.`;
+      reportPersistenceFailure('despublicação do portal público', msg);
+      return { status: 'error', error: msg };
+    }
+
+    const res = await unpublishPublicInstitution(targetInst);
+    if (res.status === 'success') {
+      setAllInstitutions(prev =>
+        prev.map(inst =>
+          inst.id === instId ? { ...inst, publicPortalPublished: false } : inst
+        )
+      );
+      addNotification({
+        title: 'Portal Público Despublicado',
+        message: `A instituição "${targetInst.name}" foi removida da vitrine pública com sucesso.`,
+        type: 'system'
+      });
+      toastSuccess(
+        'Portal Público Despublicado',
+        `A instituição "${targetInst.name}" foi removida do catálogo público.`
+      );
+      soundManager.playSuccess();
+      return res;
+    }
+
+    if (res.status === 'skipped_no_auth') {
+      reportPublicSyncSkipped('despublicação do portal público', res.reason);
+      return res;
+    }
+
+    reportPersistenceFailure(
+      'despublicação do portal público',
+      res.error || 'Falha ao despublicar portal público.'
+    );
+    return res;
   };
 
   const updateInstitutionModules = (
@@ -3070,9 +3242,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Online Registration & Candidates Workflow
-  const updateOnlineRegistrationConfig = (configUpdates: Partial<OnlineRegistrationConfig>) => {
+  const updateOnlineRegistrationConfig = async (
+    configUpdates: Partial<OnlineRegistrationConfig>
+  ): Promise<PublicInstitutionSyncResult> => {
     const baseInst = activeInstitution;
-    if (!baseInst?.id) return;
+    if (!baseInst?.id) {
+      const msg = 'Nenhuma instituição activa seleccionada.';
+      reportPersistenceFailure('configuração de inscrições no Firestore', msg);
+      return { status: 'error', error: msg };
+    }
 
     const currentCfg = baseInst.onlineRegistrationConfig || createEmptyOnlineRegistrationConfig(baseInst);
     const updatedConfig: OnlineRegistrationConfig = {
@@ -3093,15 +3271,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       prev.map(inst => (inst.id === baseInst.id ? updatedInst : inst))
     );
 
-    saveInstitutionToFirestore(updatedInst).catch(err => console.warn('Firestore sync online registration config:', err));
-    syncPublicInstitutionMetadata(updatedInst).catch(err => console.warn('Public institution config sync note:', err));
-
-    addNotification({
-      title: 'Configuração de Inscrições Atualizada',
-      message: 'Parâmetros da página pública de inscrições salvos e sincronizados com sucesso.',
-      type: 'system'
-    });
-    soundManager.playSuccess();
+    return await persistInstitutionAndPublicState(
+      updatedInst,
+      'configuração de inscrições no Firestore',
+      'portal público de inscrições',
+      {
+        title: 'Configuração de Inscrições Atualizada',
+        message: 'Parâmetros da página pública de inscrições salvos e sincronizados com sucesso.',
+        type: 'system'
+      },
+      () => {
+        setAllInstitutions(prev =>
+          prev.map(inst => (inst.id === baseInst.id ? baseInst : inst))
+        );
+      }
+    );
   };
 
   const addApplication = (
@@ -3673,12 +3857,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     soundManager.playNotification();
   };
 
-  const syncCourseWithOnlinePortal = (
+  const syncCourseWithOnlinePortal = async (
     courseObj: Course | null,
     deletedCourseId?: string
-  ) => {
+  ): Promise<PublicInstitutionSyncResult> => {
     const baseInst = activeInstitution;
-    if (!baseInst?.id) return;
+    if (!baseInst?.id) {
+      return {
+        status: 'error',
+        error: 'Nenhuma instituição activa seleccionada para sincronizar cursos no portal público.'
+      };
+    }
 
     const currentCfg = baseInst.onlineRegistrationConfig || createEmptyOnlineRegistrationConfig(baseInst);
     const existingList = Array.isArray(currentCfg.coursesConfig) ? currentCfg.coursesConfig : [];
@@ -3738,8 +3927,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAllInstitutions(prev =>
       prev.map(inst => (inst.id === baseInst.id ? updatedInst : inst))
     );
-    saveInstitutionToFirestore(updatedInst).catch(err => console.warn('Firestore sync course portal config:', err));
-    syncPublicInstitutionMetadata(updatedInst).catch(err => console.warn('Public institution course sync note:', err));
+
+    return await persistInstitutionAndPublicState(
+      updatedInst,
+      'configuração de cursos da instituição',
+      'cursos no portal público',
+      undefined,
+      () => {
+        setAllInstitutions(prev =>
+          prev.map(inst => (inst.id === baseInst.id ? baseInst : inst))
+        );
+      }
+    );
   };
 
   const addCourse = (courseData: Omit<Course, 'id' | 'institutionId'>): Course => {
@@ -3747,55 +3946,105 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...courseData,
       id: `crs-${Date.now()}`,
       institutionId: activeInstitution.id,
-      branchId: activeBranchId !== 'todas' ? activeBranchId : undefined
+      ...(activeBranchId !== 'todas' ? { branchId: activeBranchId } : {})
     };
 
     setAllCourses(prev => [newCourse, ...prev]);
 
-    // Async persist to Firestore and synchronize with online/public registration portal
-    saveCourseToFirestore(newCourse).catch(err => console.warn('Firestore sync course:', err));
-    syncCourseWithOnlinePortal(newCourse);
+    void (async () => {
+      try {
+        await saveCourseToFirestore(newCourse);
+      } catch (err) {
+        setAllCourses(prev => prev.filter(c => c.id !== newCourse.id));
+        reportPersistenceFailure(`curso "${newCourse.name}"`, err);
+        return;
+      }
 
-    addNotification({
-      title: `Novo Curso Cadastrado: ${newCourse.name}`,
-      message: `Curso vinculado com exclusividade à instituição ${activeInstitution.name}.`,
-      type: 'system'
-    });
+      const syncRes = await syncCourseWithOnlinePortal(newCourse);
+      if (syncRes.status === 'success') {
+        addNotification({
+          title: `Novo Curso Cadastrado: ${newCourse.name}`,
+          message: `Curso vinculado com exclusividade à instituição ${activeInstitution.name} e publicado no catálogo.`,
+          type: 'system'
+        });
+        toastSuccess(
+          'Curso Cadastrado',
+          `O curso "${newCourse.name}" foi criado e sincronizado com sucesso.`
+        );
+        soundManager.playSuccess();
+      }
+    })();
 
-    soundManager.playSuccess();
     return newCourse;
   };
 
-  const updateCourse = (courseId: string, updates: Partial<Course>) => {
+  const updateCourse = async (
+    courseId: string,
+    updates: Partial<Course>
+  ): Promise<PublicInstitutionSyncResult> => {
     const existing = allCourses.find(c => c.id === courseId);
-    if (!existing) return;
+    if (!existing) {
+      return { status: 'error', error: `Curso "${courseId}" não encontrado.` };
+    }
 
     const updatedCourse: Course = { ...existing, ...updates };
     setAllCourses(prev => prev.map(c => (c.id === courseId ? updatedCourse : c)));
 
-    saveCourseToFirestore(updatedCourse).catch(err => console.warn('Firestore sync course update:', err));
-    syncCourseWithOnlinePortal(updatedCourse);
+    try {
+      await saveCourseToFirestore(updatedCourse);
+    } catch (err) {
+      setAllCourses(prev => prev.map(c => (c.id === courseId ? existing : c)));
+      reportPersistenceFailure(`actualização do curso "${updatedCourse.name}"`, err);
+      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+    }
 
-    addNotification({
-      title: `Curso Atualizado: ${updatedCourse.name}`,
-      message: 'Estrutura curricular e parâmetros do curso salvos com sucesso.',
-      type: 'system'
-    });
-    soundManager.playSuccess();
+    const syncRes = await syncCourseWithOnlinePortal(updatedCourse);
+    if (syncRes.status === 'success') {
+      addNotification({
+        title: `Curso Atualizado: ${updatedCourse.name}`,
+        message: 'Estrutura curricular e parâmetros do curso salvos e sincronizados com sucesso.',
+        type: 'system'
+      });
+      soundManager.playSuccess();
+    }
+    return syncRes;
   };
 
-  const deleteCourse = (courseId: string) => {
-    const course = allCourses.find(c => c.id === courseId);
-    setAllCourses(prev => prev.filter(c => c.id !== courseId));
-    deleteCourseFromFirestore(courseId).catch(err => console.warn('Firestore sync course delete:', err));
-    syncCourseWithOnlinePortal(null, courseId);
+  const deleteCourse = async (courseId: string): Promise<PublicInstitutionSyncResult> => {
+    const existingIndex = allCourses.findIndex(c => c.id === courseId);
+    const course = existingIndex >= 0 ? allCourses[existingIndex] : undefined;
+    if (!course) {
+      const msg = `Curso "${courseId}" não encontrado.`;
+      reportPersistenceFailure(`remoção do curso "${courseId}"`, msg);
+      return { status: 'error', error: msg };
+    }
 
-    addNotification({
-      title: `Curso Removido: ${course?.name || courseId}`,
-      message: 'O curso foi desativado do catálogo institucional.',
-      type: 'system'
-    });
-    soundManager.playClick();
+    setAllCourses(prev => prev.filter(c => c.id !== courseId));
+
+    try {
+      await deleteCourseFromFirestore(courseId);
+    } catch (err) {
+      setAllCourses(prev => {
+        if (prev.some(c => c.id === courseId)) return prev;
+        const restored = [...prev];
+        const insertAt = Math.min(Math.max(existingIndex, 0), restored.length);
+        restored.splice(insertAt, 0, course);
+        return restored;
+      });
+      reportPersistenceFailure(`remoção do curso "${course.name}"`, err);
+      return { status: 'error', error: err instanceof Error ? err.message : String(err) };
+    }
+
+    const syncRes = await syncCourseWithOnlinePortal(null, courseId);
+    if (syncRes.status === 'success') {
+      addNotification({
+        title: `Curso Removido: ${course.name}`,
+        message: 'O curso foi desativado do catálogo institucional e público.',
+        type: 'system'
+      });
+      soundManager.playClick();
+    }
+    return syncRes;
   };
 
   const addModuleToCourse = (courseId: string, moduleData: Omit<CourseModule, 'id'>): CourseModule => {
@@ -3822,7 +4071,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return c;
     }));
     if (updatedCourse) {
-      saveCourseToFirestore(updatedCourse).catch(err => console.warn('Firestore sync module:', err));
+      saveCourseToFirestore(updatedCourse).catch(err => reportPersistenceFailure(`módulo do curso "${updatedCourse?.name || courseId}"`, err));
       addNotification({
         title: `Disciplina / Módulo Adicionado: ${newModule.name}`,
         message: `Módulo ${newModule.code} vinculado à matriz curricular do curso.`,
@@ -3853,7 +4102,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return c;
     }));
     if (updatedCourse) {
-      saveCourseToFirestore(updatedCourse).catch(err => console.warn('Firestore sync module update:', err));
+      saveCourseToFirestore(updatedCourse).catch(err => reportPersistenceFailure(`actualização de módulo do curso "${updatedCourse?.name || courseId}"`, err));
       soundManager.playClick();
     }
   };
@@ -3878,7 +4127,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return c;
     }));
     if (updatedCourse) {
-      saveCourseToFirestore(updatedCourse).catch(err => console.warn('Firestore sync delete module:', err));
+      saveCourseToFirestore(updatedCourse).catch(err => reportPersistenceFailure(`remoção de módulo do curso "${updatedCourse?.name || courseId}"`, err));
       soundManager.playClick();
     }
   };
@@ -8664,6 +8913,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setActiveInstitution,
         addInstitution,
         updateInstitution,
+        unpublishInstitutionPublicPortal,
         activeBranchId,
         setActiveBranchId,
         activeBranch,

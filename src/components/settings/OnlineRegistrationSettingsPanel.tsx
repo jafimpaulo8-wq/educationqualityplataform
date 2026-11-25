@@ -34,7 +34,11 @@ import {
 } from '../../types';
 import { useToast } from '../../context/ToastContext';
 import { soundManager } from '../../utils/audio';
-import { getPublicRegistrationUrl, normalizeSlug } from '../../services/publicInstitutionService';
+import {
+  getPublicRegistrationUrl,
+  normalizeSlug,
+  PublicInstitutionSyncResult
+} from '../../services/publicInstitutionService';
 import {
   createEmptyOnlineRegistrationConfig,
   normalizeFieldRequirement
@@ -46,14 +50,14 @@ interface OnlineRegistrationSettingsPanelProps {
     updatedConfig: OnlineRegistrationConfig,
     updatedSlug?: string,
     institutionUpdates?: Partial<Institution>
-  ) => Promise<void> | void;
+  ) => Promise<PublicInstitutionSyncResult | void> | void;
 }
 
 export const OnlineRegistrationSettingsPanel: React.FC<OnlineRegistrationSettingsPanelProps> = ({
   institution,
   onSave
 }) => {
-  const { success, error: toastError, info } = useToast();
+  const { success, error: toastError, warning: toastWarning, info } = useToast();
 
   const initialConfig = institution.onlineRegistrationConfig || createEmptyOnlineRegistrationConfig(institution);
 
@@ -411,10 +415,24 @@ export const OnlineRegistrationSettingsPanel: React.FC<OnlineRegistrationSetting
         }
       };
 
-      await onSave(updatedConfig, cleanSlug, institutionUpdates);
+      const syncRes = await onSave(updatedConfig, cleanSlug, institutionUpdates);
 
-      soundManager.playSuccess();
-      success('Configuração Salva', 'Os parâmetros do portal público foram atualizados e sincronizados com sucesso.');
+      if (!syncRes || syncRes.status === 'success') {
+        soundManager.playSuccess();
+        success('Configuração Salva', 'Os parâmetros do portal público foram atualizados e sincronizados com sucesso.');
+      } else if (syncRes.status === 'skipped_no_auth') {
+        soundManager.playError();
+        toastWarning(
+          'Sincronização Pública Ignorada',
+          syncRes.reason || 'Sessão Firebase não autenticada — o portal público não foi atualizado.'
+        );
+      } else {
+        soundManager.playError();
+        toastError(
+          'Falha na Sincronização Pública',
+          syncRes.error || 'Não foi possível sincronizar os dados com o portal público.'
+        );
+      }
     } catch (err: any) {
       toastError('Erro ao Salvar', err.message || 'Falha ao gravar configurações.');
     } finally {

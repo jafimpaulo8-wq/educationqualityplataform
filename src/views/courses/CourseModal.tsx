@@ -26,7 +26,7 @@ interface CourseModalProps {
   isOpen: boolean;
   onClose: () => void;
   courseToEdit?: Course | null;
-  onSave: (courseData: Omit<Course, 'id' | 'institutionId'>) => void;
+  onSave: (courseData: Omit<Course, 'id' | 'institutionId'>) => void | Promise<void>;
 }
 
 const CATEGORY_OPTIONS: { label: string; value: CourseCategory; defaultPeriod: CoursePeriodType }[] = [
@@ -302,11 +302,11 @@ export const CourseModal: React.FC<CourseModalProps> = ({
     ]);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
 
-    onSave({
+    await onSave({
       name: name.trim(),
       code: code.trim() || `CUR-${Date.now().toString().slice(-4)}`,
       category,

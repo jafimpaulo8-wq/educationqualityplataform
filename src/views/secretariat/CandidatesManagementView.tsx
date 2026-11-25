@@ -56,6 +56,13 @@ import { RecordDetailsModal, DetailField } from '../../components/common/RecordD
 import { StudentInvitationModal } from '../../components/students/StudentInvitationModal';
 import { resolveInstitutionSlug } from '../../services/publicInstitutionService';
 import { normalizeFieldRequirement } from '../../utils/registrationConfigUtils';
+import {
+  dataUrlToBlobUrl,
+  getSuggestedDownloadFilename,
+  isImageDocumentMeta,
+  isPdfFileMeta,
+  isSafeDocumentUrl
+} from '../../utils/documentPreviewUtils';
 
 function formatDateValue(val: any): string {
   if (!val) return '';
@@ -654,7 +661,7 @@ export const CandidatesManagementView: React.FC = () => {
   };
 
   // Save Configuration Handler
-  const handleSaveConfig = () => {
+  const handleSaveConfig = async () => {
     const updatedConfig: OnlineRegistrationConfig = {
       ...onlineRegistrationConfig,
       institutionId: activeInstitution.id,
@@ -678,7 +685,7 @@ export const CandidatesManagementView: React.FC = () => {
       privacyPolicy: cfgPrivacyText.trim() || undefined
     };
 
-    updateOnlineRegistrationConfig(updatedConfig);
+    await updateOnlineRegistrationConfig(updatedConfig);
   };
 
   // Add Document to Config

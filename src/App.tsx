@@ -628,12 +628,12 @@ export default function App() {
   return (
     <ErrorBoundary>
       <LanguageProvider>
-        <AppProvider>
-          <ToastProvider>
+        <ToastProvider>
+          <AppProvider>
             <DocumentIdentitySync />
             <MainAppContent />
-          </ToastProvider>
-        </AppProvider>
+          </AppProvider>
+        </ToastProvider>
       </LanguageProvider>
     </ErrorBoundary>
   );

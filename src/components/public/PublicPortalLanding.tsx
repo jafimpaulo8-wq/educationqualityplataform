@@ -38,10 +38,9 @@ import { useApp } from '../../context/AppContext';
 import { validateAndFormatInternationalPhone } from '../../views/public/PublicRegistrationView';
 import {
   extractPublishedPublicCourses,
-  KNOWN_INSTITUTIONS,
-  PublishedPublicCourseItem,
-  resolveInstitutionSlug,
-  resolvePublicInstitutionBySlug
+  fetchPublicInstitutionsIndex,
+  fetchPublishedPublicInstitutionStrict,
+  PublishedPublicCourseItem
 } from '../../services/publicInstitutionService';
 import { InstitutionLogoBadge } from '../common/InstitutionLogoBadge';
 import { PublicInstitution } from '../../types';
@@ -103,6 +102,7 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
   const [selectedCourseDetails, setSelectedCourseDetails] = useState<PublicCourseCardItem | null>(null);
   const [publicInstitutionsList, setPublicInstitutionsList] = useState<PublicInstitution[]>([]);
   const [isLoadingCatalog, setIsLoadingCatalog] = useState<boolean>(true);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
 
   const {
     themeMode,
@@ -111,33 +111,57 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
 
   const isLight = themeMode === 'branco';
 
-  // Carregamento exclusivamente público por slug via publicInstitutions/{slug}, sem dados privados ou estado de sessão
+  // Carregamento estritamente público via índice oficial publicInstitutions/_index, sem slugs fixos nem parâmetros URL
   useEffect(() => {
     let cancelled = false;
     setIsLoadingCatalog(true);
+    setCatalogError(null);
 
-    const canonicalSlugs = Array.from(
-      new Set(KNOWN_INSTITUTIONS.map((inst) => resolveInstitutionSlug(inst)).filter(Boolean))
-    );
+    (async () => {
+      const indexResult = await fetchPublicInstitutionsIndex();
+      if (cancelled) return;
 
-    Promise.all(canonicalSlugs.map((slug) => resolvePublicInstitutionBySlug(slug)))
-      .then((results) => {
-        if (cancelled) return;
-        const deduped = new Map<string, PublicInstitution>();
-        for (const pub of results) {
-          if (pub && pub.institutionId && !deduped.has(pub.institutionId)) {
-            deduped.set(pub.institutionId, pub);
-          }
-        }
-        setPublicInstitutionsList(Array.from(deduped.values()));
+      if (indexResult.error) {
+        setPublicInstitutionsList([]);
+        setCatalogError(indexResult.error);
         setIsLoadingCatalog(false);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setPublicInstitutionsList([]);
-          setIsLoadingCatalog(false);
+        return;
+      }
+
+      if (indexResult.slugs.length === 0) {
+        setPublicInstitutionsList([]);
+        setCatalogError(null);
+        setIsLoadingCatalog(false);
+        return;
+      }
+
+      const results = await Promise.all(
+        indexResult.slugs.map((slug) => fetchPublishedPublicInstitutionStrict(slug))
+      );
+      if (cancelled) return;
+
+      const deduped = new Map<string, PublicInstitution>();
+      const errors: string[] = [];
+      for (const res of results) {
+        if (res.error) {
+          errors.push(res.error);
         }
-      });
+        if (res.institution && res.institution.institutionId && !deduped.has(res.institution.institutionId)) {
+          deduped.set(res.institution.institutionId, res.institution);
+        }
+      }
+
+      const loaded = Array.from(deduped.values());
+      setPublicInstitutionsList(loaded);
+      setCatalogError(loaded.length === 0 && errors.length > 0 ? errors[0] : null);
+      setIsLoadingCatalog(false);
+    })().catch((err: any) => {
+      if (!cancelled) {
+        setPublicInstitutionsList([]);
+        setCatalogError(err?.message || 'Não foi possível carregar o catálogo público.');
+        setIsLoadingCatalog(false);
+      }
+    });
 
     return () => {
       cancelled = true;
@@ -539,6 +563,18 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
                 </div>
               ))}
             </div>
+          ) : catalogError ? (
+            <div className={`p-12 text-center rounded-3xl border ${
+              isLight ? 'bg-rose-50/70 border-rose-200' : 'bg-rose-950/20 border-rose-500/30'
+            }`} data-testid="public-courses-error">
+              <Info className="w-10 h-10 text-rose-500 mx-auto mb-3" />
+              <h3 className={`text-base font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                Catálogo público indisponível neste momento
+              </h3>
+              <p className={`text-xs mt-1 max-w-md mx-auto ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+                Não foi possível consultar as instituições e cursos publicados em publicInstitutions ({catalogError}).
+              </p>
+            </div>
           ) : (
             <div className={`p-12 text-center rounded-3xl border ${
               isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
@@ -590,6 +626,25 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
             </p>
           </div>
 
+          {!isLoadingCatalog && publicInstitutionsList.length === 0 ? (
+            <div className={`p-10 text-center rounded-3xl border ${
+              catalogError
+                ? (isLight ? 'bg-rose-50/70 border-rose-200' : 'bg-rose-950/20 border-rose-500/30')
+                : (isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-900 border-slate-800')
+            }`} data-testid="public-institutions-empty">
+              <Building2 className="w-9 h-9 text-slate-400 mx-auto mb-2.5" />
+              <h3 className={`text-sm font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                {catalogError
+                  ? 'Não foi possível carregar os centros públicos'
+                  : 'Nenhuma instituição pública publicada neste momento'}
+              </h3>
+              <p className={`text-xs mt-1 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+                {catalogError
+                  ? 'A leitura da colecção publicInstitutions foi recusada ou falhou.'
+                  : 'As instituições aparecerão aqui após publicarem os seus perfis públicos.'}
+              </p>
+            </div>
+          ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {publicInstitutionsList.map((inst) => {
               const instCoursesCount = combinedCourses.filter(c => c.institutionId === inst.institutionId).length;
@@ -672,6 +727,7 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
               );
             })}
           </div>
+          )}
 
         </div>
       </section>
@@ -902,19 +958,18 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
                     selectedCourseDetails.instWhatsapp || selectedCourseDetails.instPhone
                   );
                   if (!modalWhatsApp) return null;
+                  const modalMsg = encodeURIComponent(`Olá ${selectedCourseDetails.instName}! Gostaria de saber mais informações sobre o curso de "${selectedCourseDetails.name}".`);
                   return (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const msg = encodeURIComponent(`Olá ${selectedCourseDetails.instName}! Gostaria de saber mais informações sobre o curso de "${selectedCourseDetails.name}".`);
-                        window.open(`https://wa.me/${modalWhatsApp}?text=${msg}`, '_blank');
-                      }}
+                    <a
+                      href={`https://wa.me/${modalWhatsApp}?text=${modalMsg}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="px-4 py-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
                       title="Saber mais no WhatsApp institucional"
                     >
                       <MessageCircle className="w-3.5 h-3.5" />
                       <span>Saber mais</span>
-                    </button>
+                    </a>
                   );
                 })()}
 

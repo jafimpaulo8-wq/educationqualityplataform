@@ -286,7 +286,7 @@ export const InstitutionSettingsView: React.FC = () => {
     return `${prefix}-${String(seq).padStart(padding, '0')}`;
   };
 
-  const handleSaveAll = () => {
+  const handleSaveAll = async () => {
     if (!activeInstitution?.id) {
       error('Sem instituição ativa', 'Selecione uma instituição válida antes de salvar configurações.');
       return;
@@ -382,12 +382,14 @@ export const InstitutionSettingsView: React.FC = () => {
         }
       };
 
-      updateInstitution(activeInstitution.id, updatedData);
-      soundManager.playSuccess();
-      success(
-        t('common.success', 'Configurações Atualizadas'), 
-        t('common.saved', 'Os dados e parâmetros da instituição foram salvos com sucesso!')
-      );
+      const syncRes = await updateInstitution(activeInstitution.id, updatedData);
+      if (syncRes.status === 'success') {
+        soundManager.playSuccess();
+        success(
+          t('common.success', 'Configurações Atualizadas'),
+          t('common.saved', 'Os dados e parâmetros da instituição foram salvos e sincronizados com sucesso!')
+        );
+      }
     } catch (err: any) {
       error(t('action.cancel', 'Erro ao Salvar'), err.message || 'Falha ao gravar parâmetros.');
     } finally {
@@ -1725,7 +1727,7 @@ export const InstitutionSettingsView: React.FC = () => {
         <OnlineRegistrationSettingsPanel
           institution={activeInstitution}
           onSave={async (updatedConfig, updatedSlug, institutionUpdates) => {
-            updateInstitution(activeInstitution.id, {
+            return await updateInstitution(activeInstitution.id, {
               ...(institutionUpdates || {}),
               onlineRegistrationConfig: updatedConfig,
               slug: updatedSlug || activeInstitution.slug

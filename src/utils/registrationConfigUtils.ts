@@ -360,7 +360,9 @@ export function validateFullRegistration(
  */
 export function sanitizeFirestoreData<T>(input: T): T {
   if (Array.isArray(input)) {
-    return input.map(item => sanitizeFirestoreData(item)) as unknown as T;
+    return input
+      .filter(item => item !== undefined)
+      .map(item => sanitizeFirestoreData(item)) as unknown as T;
   }
   if (input && typeof input === 'object' && !(input instanceof Date)) {
     // Preservar sentinels como serverTimestamp() (objetos com _methodName ou FieldValue)

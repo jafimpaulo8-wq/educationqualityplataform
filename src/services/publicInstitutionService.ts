@@ -1,6 +1,7 @@
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, runTransaction } from 'firebase/firestore';
 import { db, auth } from './firebase';
-import { Institution, PublicInstitution, OnlineRegistrationConfig, OnlineCourseConfig } from '../types';
+import { Branch, Institution, PublicInstitution, OnlineRegistrationConfig, OnlineCourseConfig } from '../types';
+import { toCanonicalRole } from '../types/rbac';
 import { CEU_AZUL_INSTITUTION } from '../data/ceuAzulData';
 import { INITIAL_INSTITUTIONS } from '../data/mockData';
 import {
@@ -9,6 +10,59 @@ import {
 } from '../utils/registrationConfigUtils';
 
 export const PUBLIC_INSTITUTIONS_COLLECTION = 'publicInstitutions';
+export const PUBLIC_INSTITUTIONS_INDEX_DOC_ID = '_index';
+
+const SUPERADMIN_EMAIL = 'moztechwavenacala8@gmail.com';
+const SUPERADMIN_UID = '2dRLWqnY1zf1MlR9rZYhAKPvGbV2';
+const VALID_PUBLIC_SLUG_RE = /^[a-z0-9][a-z0-9_-]{0,127}$/;
+
+export type PublicInstitutionSyncStatus = 'success' | 'skipped_no_auth' | 'error';
+
+export interface PublicInstitutionSyncResult {
+  status: PublicInstitutionSyncStatus;
+  slug?: string;
+  reason?: string;
+  error?: string;
+}
+
+export interface PublicInstitutionsIndexDocument {
+  slugs: string[];
+  updatedAt: string;
+}
+
+export interface PublicInstitutionsIndexResult {
+  slugs: string[];
+  error?: string;
+}
+
+/**
+ * Valida se um slug institucional é seguro, não vazio, dentro do padrão de IDs Firestore e distinto de `_index`.
+ */
+export function isValidPublicInstitutionSlug(rawSlug: string): boolean {
+  const normalized = normalizeSlug(rawSlug);
+  if (!normalized) return false;
+  if (normalized === PUBLIC_INSTITUTIONS_INDEX_DOC_ID) return false;
+  if (normalized.length > 128) return false;
+  return VALID_PUBLIC_SLUG_RE.test(normalized);
+}
+
+/**
+ * Normaliza, valida, remove `_index` e elimina duplicações de uma lista de slugs.
+ */
+export function sanitizePublicIndexSlugs(rawSlugs: unknown): string[] {
+  if (!Array.isArray(rawSlugs)) return [];
+  const seen = new Set<string>();
+  const validSlugs: string[] = [];
+  for (const item of rawSlugs) {
+    if (typeof item !== 'string') continue;
+    const slug = normalizeSlug(item);
+    if (!isValidPublicInstitutionSlug(slug)) continue;
+    if (seen.has(slug)) continue;
+    seen.add(slug);
+    validSlugs.push(slug);
+  }
+  return validSlugs;
+}
 
 /**
  * Resolve o slug canónico de uma instituição para portais públicos.
@@ -18,7 +72,7 @@ export function resolveInstitutionSlug(inst: Partial<Institution>): string {
   if (inst.id === 'inst-1') return 'moztechwave';
   if (inst.slug && inst.slug.trim()) {
     const cleaned = normalizeSlug(inst.slug);
-    if (cleaned) return cleaned;
+    if (isValidPublicInstitutionSlug(cleaned)) return cleaned;
   }
   if (inst.id === 'inst-peniel') return 'peniel';
   const rawName = (inst.shortName || inst.name || inst.id || 'instituicao')
@@ -27,7 +81,7 @@ export function resolveInstitutionSlug(inst: Partial<Institution>): string {
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
-  return rawName || 'instituicao';
+  return isValidPublicInstitutionSlug(rawName) ? rawName : 'instituicao';
 }
 
 /**
@@ -394,31 +448,79 @@ export function extractPublishedPublicCourses(publicInsts: PublicInstitution[]):
   return result;
 }
 
+const SAFE_BRANCH_FIELDS = new Set<keyof Branch>([
+  'id',
+  'institutionId',
+  'name',
+  'code',
+  'phone',
+  'email',
+  'address',
+  'city',
+  'province',
+  'directorName',
+  'isMainBranch',
+  'isHeadquarter',
+  'totalStudents',
+  'status',
+  'createdAt'
+]);
+
+export const PUBLIC_INSTITUTION_ALLOWED_KEYS = [
+  'id',
+  'institutionId',
+  'slug',
+  'slugAliases',
+  'name',
+  'code',
+  'sigla',
+  'type',
+  'nuit',
+  'licenseNumber',
+  'phone',
+  'phoneAlt',
+  'email',
+  'whatsapp',
+  'address',
+  'city',
+  'province',
+  'logoUrl',
+  'emblemUrl',
+  'faviconUrl',
+  'slogan',
+  'primaryColor',
+  'accentColor',
+  'branches',
+  'onlineRegistrationConfig',
+  'acceptedChannels',
+  'paymentMethods',
+  'termsAndConditions',
+  'privacyPolicy',
+  'updatedAt'
+] as const;
+
+function sanitizePublicBranches(rawBranches: unknown): Branch[] | undefined {
+  if (!Array.isArray(rawBranches)) return undefined;
+  return rawBranches
+    .filter((b): b is Record<string, any> => Boolean(b && typeof b === 'object'))
+    .map((b) => {
+      const cleanBranch: Record<string, any> = {};
+      for (const field of SAFE_BRANCH_FIELDS) {
+        if (b[field] !== undefined) {
+          cleanBranch[field] = b[field];
+        }
+      }
+      return cleanBranch as Branch;
+    });
+}
+
 /**
- * Remove estritamente quaisquer números privados de M-Pesa, e-Mola, mKesh ou dados bancários internos
- * antes de persistir ou expor em configuração pública (publicInstitutions).
+ * Constrói um payload público estritamente filtrado por allowlist, removendo quaisquer campos privados
+ * (M-Pesa, e-Mola, mKesh, bancos, assinaturas, carimbos, representantes, credenciais ou flags internas)
+ * antes de persistir ou expor em `publicInstitutions/{slug}`.
  */
 export function sanitizePublicInstitutionPayload<T extends Record<string, any>>(raw: T): PublicInstitution {
   const source = (raw || {}) as Record<string, any>;
-  const {
-    financialSettings: _fs,
-    financialAccounts: _fa,
-    bankAccounts: _ba,
-    receivingAccounts: _ra,
-    mpesa: _m,
-    emola: _e,
-    mkesh: _k,
-    mpesaNumber: _mn,
-    emolaNumber: _en,
-    mkeshNumber: _kn,
-    pixKey: _pk,
-    accessCode: _ac,
-    ownerEmail: _oe,
-    subscription: _sub,
-    students: _st,
-    users: _us,
-    ...rest
-  } = source;
 
   const rawPm = (source.paymentMethods && typeof source.paymentMethods === 'object') ? source.paymentMethods : {};
   const acceptedChannels = Array.isArray(source.acceptedChannels) && source.acceptedChannels.length > 0
@@ -435,19 +537,109 @@ export function sanitizePublicInstitutionPayload<T extends Record<string, any>>(
       : 'Autentique-se no Portal de Pagamentos com a sua conta institucional para consultar as coordenadas oficiais e submeter comprovativos.'
   };
 
-  const logoCheck = validateInstitutionalImageInput(rest.logoUrl, { maxBytes: 250_000, label: 'Logo' });
-  const emblemCheck = validateInstitutionalImageInput(rest.emblemUrl, { maxBytes: 250_000, label: 'Emblema' });
-  const faviconCheck = validateInstitutionalImageInput(rest.faviconUrl, { maxBytes: 150_000, label: 'Favicon' });
+  const sanitizedOnlineRegistrationConfig =
+    source.onlineRegistrationConfig && typeof source.onlineRegistrationConfig === 'object'
+      ? (() => {
+          const {
+            mpesa: _om,
+            emola: _oe,
+            mkesh: _ok,
+            mpesaNumber: _omn,
+            emolaNumber: _oen,
+            mkeshNumber: _okn,
+            bankAccount: _oba,
+            bankAccounts: _obas,
+            financialAccounts: _ofa,
+            financialSettings: _ofs,
+            receivingAccounts: _ora,
+            paymentAccounts: _opa,
+            nib: _onib,
+            nuib: _onuib,
+            iban: _oiban,
+            pixKey: _opix,
+            accountNumber: _oan,
+            accountName: _oanam,
+            signatureUrl: _osig,
+            stampUrl: _ostp,
+            carnetStaticQrUrl: _oqr,
+            accessCode: _oac,
+            ownerEmail: _ooe,
+            ...safeOnlineCfg
+          } = source.onlineRegistrationConfig as Record<string, any>;
+          return safeOnlineCfg;
+        })()
+      : undefined;
 
-  return sanitizeFirestoreData({
-    ...(rest as PublicInstitution),
+  const logoCheck = validateInstitutionalImageInput(source.logoUrl, { maxBytes: 250_000, label: 'Logo' });
+  const emblemCheck = validateInstitutionalImageInput(source.emblemUrl, { maxBytes: 250_000, label: 'Emblema' });
+  const faviconCheck = validateInstitutionalImageInput(source.faviconUrl, { maxBytes: 150_000, label: 'Favicon' });
+  const safeBranches = sanitizePublicBranches(source.branches);
+
+  const allowlistedPayload: PublicInstitution = {
+    id: typeof source.id === 'string' ? source.id : '',
+    institutionId: typeof source.institutionId === 'string' ? source.institutionId : '',
+    slug: typeof source.slug === 'string' ? source.slug : '',
+    ...(Array.isArray(source.slugAliases) ? { slugAliases: source.slugAliases } : {}),
+    name: typeof source.name === 'string' ? source.name : '',
+    code: typeof source.code === 'string' ? source.code : '',
+    ...(source.sigla !== undefined ? { sigla: source.sigla } : {}),
+    type: source.type ?? 'outra',
+    ...(source.nuit !== undefined ? { nuit: source.nuit } : {}),
+    ...(source.licenseNumber !== undefined ? { licenseNumber: source.licenseNumber } : {}),
+    phone: typeof source.phone === 'string' ? source.phone : '',
+    ...(source.phoneAlt !== undefined ? { phoneAlt: source.phoneAlt } : {}),
+    email: typeof source.email === 'string' ? source.email : '',
+    ...(source.whatsapp !== undefined ? { whatsapp: source.whatsapp } : {}),
+    address: typeof source.address === 'string' ? source.address : '',
+    city: typeof source.city === 'string' ? source.city : '',
+    province: typeof source.province === 'string' ? source.province : '',
     logoUrl: logoCheck.valid ? logoCheck.normalized : undefined,
     emblemUrl: emblemCheck.valid ? emblemCheck.normalized : undefined,
     faviconUrl: faviconCheck.valid ? faviconCheck.normalized : undefined,
+    ...(source.slogan !== undefined ? { slogan: source.slogan } : {}),
+    ...(source.primaryColor !== undefined ? { primaryColor: source.primaryColor } : {}),
+    ...(source.accentColor !== undefined ? { accentColor: source.accentColor } : {}),
+    ...(safeBranches !== undefined ? { branches: safeBranches } : {}),
+    onlineRegistrationConfig: (sanitizedOnlineRegistrationConfig || {
+      institutionId: typeof source.institutionId === 'string' ? source.institutionId : '',
+      isOpen: true,
+      title: 'Inscrições Online',
+      description: '',
+      startDate: '',
+      endDate: '',
+      academicYear: String(new Date().getFullYear()),
+      semester: '',
+      requiredFields: {
+        email: 'opcional',
+        phone: 'obrigatorio',
+        documentNumber: 'obrigatorio',
+        birthDate: 'obrigatorio',
+        gender: 'obrigatorio',
+        province: 'opcional',
+        city: 'opcional',
+        address: 'opcional',
+        guardianName: 'opcional',
+        guardianPhone: 'opcional',
+        guardianRelationship: 'oculto',
+        authorizedPickupPersons: 'oculto',
+        nuit: 'opcional',
+        previousSchool: 'opcional'
+      },
+      requiredDocuments: [],
+      documentRequirements: {},
+      customQuestions: [],
+      coursesConfig: [],
+      autoApproveOnPayment: false,
+      confirmationMessageTemplate: ''
+    }) as OnlineRegistrationConfig,
     acceptedChannels,
     paymentMethods: sanitizedPaymentMethods,
-    updatedAt: (rest.updatedAt as string | undefined) || new Date().toISOString()
-  });
+    ...(source.termsAndConditions !== undefined ? { termsAndConditions: source.termsAndConditions } : {}),
+    ...(source.privacyPolicy !== undefined ? { privacyPolicy: source.privacyPolicy } : {}),
+    updatedAt: (typeof source.updatedAt === 'string' && source.updatedAt) ? source.updatedAt : new Date().toISOString()
+  };
+
+  return sanitizeFirestoreData(allowlistedPayload);
 }
 
 /**
@@ -465,12 +657,12 @@ export function buildPublicInstitutionFromModel(inst: Institution): PublicInstit
         : [];
 
   const aliases = Array.from(new Set([
-    ...(inst.slugAliases || []).map(a => normalizeSlug(a)).filter(Boolean),
+    ...(inst.slugAliases || []).map(a => normalizeSlug(a)).filter(a => isValidPublicInstitutionSlug(a)),
     ...extraKnownAliases,
     primarySlug,
     ...(inst.code ? [normalizeSlug(inst.code)] : []),
-    ...(inst.id ? [inst.id.toLowerCase()] : [])
-  ].filter(Boolean)));
+    ...(inst.id ? [normalizeSlug(inst.id)] : [])
+  ].filter(a => isValidPublicInstitutionSlug(a))));
 
   const neutralFallback = createEmptyOnlineRegistrationConfig(inst);
   const existingCfg = inst.onlineRegistrationConfig;
@@ -544,18 +736,583 @@ export function buildPublicInstitutionFromModel(inst: Institution): PublicInstit
   });
 }
 
+interface AdminAuthCheckResult {
+  authorized: boolean;
+  isSuperAdmin?: boolean;
+  status?: 'skipped_no_auth' | 'error';
+  reason?: string;
+  error?: string;
+}
+
 /**
- * Sincroniza metadados estritamente públicos da instituição para publicInstitutions/{slug}.
+ * Verifica autorização administrativa real para publicar/despublicar o portal público.
+ * Nunca trata `auth.currentUser` isoladamente como prova de autorização administrativa.
  */
-export async function syncPublicInstitutionMetadata(inst: Institution): Promise<void> {
-  if (!inst?.id || !auth.currentUser) return;
-  const publicData = sanitizeFirestoreData(buildPublicInstitutionFromModel(inst));
-  const slug = publicData.slug;
-  if (!slug) return;
+async function verifyPublicInstitutionAdminAuthorization(institutionId: string): Promise<AdminAuthCheckResult> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    return {
+      authorized: false,
+      status: 'skipped_no_auth',
+      reason: 'Sessão não autenticada no Firebase Auth; sincronização pública ignorada.'
+    };
+  }
+
+  const isVerifiedSuperAdmin =
+    currentUser.emailVerified === true &&
+    (currentUser.email === SUPERADMIN_EMAIL ||
+      (currentUser.uid === SUPERADMIN_UID && (!currentUser.email || currentUser.email === SUPERADMIN_EMAIL)));
+
+  if (isVerifiedSuperAdmin) {
+    return { authorized: true, isSuperAdmin: true };
+  }
+
+  if (!institutionId) {
+    return {
+      authorized: false,
+      status: 'error',
+      error: 'Autorização administrativa insuficiente: identificador institucional em falta.'
+    };
+  }
+
   try {
-    await setDoc(doc(db, PUBLIC_INSTITUTIONS_COLLECTION, slug), publicData, { merge: true });
-  } catch (err) {
-    console.warn(`[PublicInstitutionService] Nota ao sincronizar publicInstitutions/${slug}:`, err);
+    const userSnap = await getDoc(doc(db, 'users', currentUser.uid));
+    if (!userSnap.exists()) {
+      return {
+        authorized: false,
+        status: 'error',
+        error: 'Perfil administrativo SIGAR não encontrado para o utilizador autenticado.'
+      };
+    }
+
+    const profile = userSnap.data() || {};
+    const canonicalRole = toCanonicalRole(String(profile.role || ''));
+    const isAdminRole =
+      canonicalRole === 'ADMIN_INSTITUICAO' ||
+      canonicalRole === 'DIRETOR' ||
+      canonicalRole === 'CEO';
+
+    if (!isAdminRole) {
+      return {
+        authorized: false,
+        status: 'error',
+        error: `Perfil "${canonicalRole}" não possui autorização administrativa para publicar ou remover portais públicos.`
+      };
+    }
+
+    let tokenInstId = '';
+    try {
+      const tokenRes = await currentUser.getIdTokenResult();
+      if (typeof tokenRes?.claims?.institutionId === 'string') {
+        tokenInstId = tokenRes.claims.institutionId;
+      }
+    } catch {
+      // ignore token inspection errors and rely on Firestore profile + Rules
+    }
+
+    const belongsToInst =
+      profile.institutionId === institutionId ||
+      (Array.isArray(profile.institutionIds) && profile.institutionIds.includes(institutionId)) ||
+      (Array.isArray(profile.ownedInstitutions) && profile.ownedInstitutions.includes(institutionId)) ||
+      tokenInstId === institutionId;
+
+    if (!belongsToInst) {
+      return {
+        authorized: false,
+        status: 'error',
+        error: `O utilizador autenticado não pertence à administração da instituição "${institutionId}".`
+      };
+    }
+
+    return { authorized: true, isSuperAdmin: false };
+  } catch (err: any) {
+    const code = err?.code ? `${err.code}: ` : '';
+    const message = err?.message || String(err || 'Erro ao validar permissões administrativas.');
+    return {
+      authorized: false,
+      status: 'error',
+      error: `Falha ao validar autorização administrativa: ${code}${message}`
+    };
+  }
+}
+
+export interface PublicSyncDocSnapshotLike {
+  exists: () => boolean;
+  data: () => Record<string, any> | undefined;
+}
+
+export interface PublicInstitutionTxAdapter {
+  getIndex: () => Promise<PublicSyncDocSnapshotLike>;
+  getPub: (slug: string) => Promise<PublicSyncDocSnapshotLike>;
+  getPriv: (institutionId: string) => Promise<PublicSyncDocSnapshotLike>;
+  setPub: (slug: string, data: Record<string, any>) => void;
+  deletePub: (slug: string) => void;
+  setIndex: (data: { slugs: string[]; updatedAt: string }) => void;
+  setPrivPublishedFalse: (institutionId: string, updatedAt: string) => void;
+}
+
+export function isValidInstitutionOwnerId(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(value.trim());
+}
+
+function doesPrivateInstitutionMatchSlug(
+  privData: Record<string, any> | undefined,
+  instId: string,
+  targetSlug: string
+): boolean {
+  if (!privData || !targetSlug) return false;
+  const resolved = resolveInstitutionSlug({ ...(privData as Partial<Institution>), id: instId });
+  if (resolved === targetSlug) return true;
+  if (typeof privData.slug === 'string' && normalizeSlug(privData.slug) === targetSlug) {
+    return true;
+  }
+  const cfgSlug = privData.onlineRegistrationConfig?.slug;
+  if (typeof cfgSlug === 'string' && normalizeSlug(cfgSlug) === targetSlug) {
+    return true;
+  }
+  if (
+    Array.isArray(privData.slugAliases) &&
+    privData.slugAliases.some((a) => typeof a === 'string' && normalizeSlug(a) === targetSlug)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Executa a lógica transaccional de publicação atómica (`publicInstitutions/{slug}` + `publicInstitutions/_index`).
+ * Substitui integralmente `publicInstitutions/{slug}` (sem merge) com payload allowlisted, garantindo eliminação
+ * de quaisquer campos privados legados e mantendo todas as leituras antes de qualquer escrita.
+ */
+export async function executePublishPublicInstitutionTransaction(
+  tx: PublicInstitutionTxAdapter,
+  params: {
+    slug: string;
+    institutionId: string;
+    publicData: PublicInstitution;
+    isSuperAdmin: boolean;
+    nowIso?: string;
+  }
+): Promise<void> {
+  const { slug, publicData, isSuperAdmin } = params;
+  const institutionId = params.institutionId.trim();
+  const nowIso = params.nowIso || new Date().toISOString();
+
+  if (!isValidInstitutionOwnerId(institutionId)) {
+    throw new Error(
+      `Operação bloqueada: identificador institucional inválido para publicação ("${params.institutionId}").`
+    );
+  }
+
+  // Todas as leituras executadas em conjunto no início da transacção antes de qualquer escrita
+  const [indexSnap, pubSnap] = await Promise.all([
+    tx.getIndex(),
+    tx.getPub(slug)
+  ]);
+
+  if (pubSnap.exists()) {
+    const rawPubInstId = pubSnap.data()?.institutionId;
+    const pubInstId = typeof rawPubInstId === 'string' ? rawPubInstId.trim() : '';
+    if (!isValidInstitutionOwnerId(pubInstId)) {
+      if (!isSuperAdmin) {
+        throw new Error(
+          `Operação bloqueada: o documento público "${slug}" não possui um institutionId válido.`
+        );
+      }
+    } else if (pubInstId !== institutionId) {
+      throw new Error(
+        `Operação bloqueada: o slug "${slug}" já pertence à instituição "${pubInstId}" e não pode ser sobrescrito por "${institutionId}".`
+      );
+    }
+  }
+
+  const rawExisting = indexSnap.exists() ? indexSnap.data()?.slugs : [];
+  const existingArr = Array.isArray(rawExisting)
+    ? rawExisting.filter((s): s is string => typeof s === 'string')
+    : [];
+
+  let nextSlugs: string[];
+  let shouldWriteIndex: boolean;
+
+  if (isSuperAdmin) {
+    nextSlugs = sanitizePublicIndexSlugs([...existingArr, slug]);
+    shouldWriteIndex =
+      !indexSnap.exists() ||
+      existingArr.length !== nextSlugs.length ||
+      nextSlugs.some((s, idx) => s !== existingArr[idx]);
+  } else {
+    const alreadyInIndex = indexSnap.exists() && existingArr.includes(slug);
+    if (alreadyInIndex) {
+      nextSlugs = existingArr;
+      shouldWriteIndex = false;
+    } else {
+      nextSlugs = [...existingArr, slug];
+      shouldWriteIndex = true;
+    }
+  }
+
+  const sanitizedPublicDoc = sanitizePublicInstitutionPayload({
+    ...publicData,
+    id: slug,
+    institutionId,
+    slug,
+    updatedAt: publicData?.updatedAt || nowIso
+  });
+
+  tx.setPub(slug, sanitizedPublicDoc);
+  if (shouldWriteIndex) {
+    tx.setIndex({
+      slugs: nextSlugs,
+      updatedAt: nowIso
+    });
+  }
+}
+
+/**
+ * Executa a lógica transaccional de despublicação atómica:
+ * - Valida proprietário (`institutionId`) se `pubSnap.exists()` (excepção exclusiva para Super Admin oficial)
+ * - Separa estritamente a limpeza de slugs órfãos no `_index` da mutação de `institutions/{institutionId}`
+ * - Nunca modifica `publicPortalPublished` sem prova real de propriedade no documento público ou associação inequívoca no documento privado
+ * - Garante que todas as leituras precedem todas as escritas para segurança em retentativas
+ */
+export async function executeUnpublishPublicInstitutionTransaction(
+  tx: PublicInstitutionTxAdapter,
+  params: {
+    slug: string;
+    explicitInstId: string;
+    resolvedInstId: string;
+    isSuperAdmin: boolean;
+    nowIso?: string;
+  }
+): Promise<void> {
+  const { slug, explicitInstId, resolvedInstId, isSuperAdmin } = params;
+  const nowIso = params.nowIso || new Date().toISOString();
+
+  // Todas as leituras iniciais executadas em conjunto antes de qualquer escrita
+  const [indexSnap, pubSnap, initialPrivSnap] = await Promise.all([
+    tx.getIndex(),
+    tx.getPub(slug),
+    resolvedInstId ? tx.getPriv(resolvedInstId) : Promise.resolve(null)
+  ]);
+
+  const rawExisting = indexSnap.exists() ? indexSnap.data()?.slugs : [];
+  const existingArr = Array.isArray(rawExisting)
+    ? rawExisting.filter((s): s is string => typeof s === 'string')
+    : [];
+  const slugInIndexExact = existingArr.includes(slug);
+  const slugInIndexNormalized = existingArr.some((s) => normalizeSlug(s) === slug);
+  const slugInIndex = slugInIndexExact || slugInIndexNormalized;
+
+  let verifiedOwnerInstId = '';
+  let verifiedOwnerPrivSnap: PublicSyncDocSnapshotLike | null = null;
+
+  if (pubSnap.exists()) {
+    const rawPubInstId = pubSnap.data()?.institutionId;
+    const pubInstId = typeof rawPubInstId === 'string' ? rawPubInstId.trim() : '';
+    const hasValidOwner = isValidInstitutionOwnerId(pubInstId);
+
+    if (!hasValidOwner) {
+      if (!isSuperAdmin) {
+        throw new Error(
+          `Operação bloqueada: o documento público "${slug}" não possui um institutionId válido. Apenas o Super Admin oficial pode remover documentos sem proprietário identificado.`
+        );
+      }
+      // Documento público sem proprietário identificado: remove apenas o documento público e o índice,
+      // nunca alterando `institutions/{institutionId}` sem prova de propriedade.
+    } else {
+      if (explicitInstId && pubInstId !== explicitInstId) {
+        throw new Error(
+          `Operação bloqueada: o portal "${slug}" pertence à instituição "${pubInstId}" e não à instituição "${explicitInstId}".`
+        );
+      }
+
+      if (!isSuperAdmin && (!resolvedInstId || pubInstId !== resolvedInstId)) {
+        throw new Error(
+          `Operação bloqueada: a administração autenticada ("${resolvedInstId || 'desconhecida'}") não corresponde ao proprietário do portal "${slug}" ("${pubInstId}").`
+        );
+      }
+
+      verifiedOwnerInstId = pubInstId;
+      verifiedOwnerPrivSnap =
+        resolvedInstId === pubInstId ? initialPrivSnap : await tx.getPriv(pubInstId);
+    }
+  } else if (slugInIndex) {
+    // Limpeza exclusiva de slug órfão em `_index`: reservada ao Super Admin e sem tocar em `institutions/{institutionId}`
+    if (!isSuperAdmin) {
+      throw new Error(
+        'Apenas o Super Admin oficial pode remover do índice global um slug cujo documento público já não existe.'
+      );
+    }
+  } else {
+    // Nem o documento público nem o índice contêm o slug: apenas aceitar idempotência se a instituição
+    // privada existir e comprovar associação inequívoca ao slug despublicado.
+    if (!resolvedInstId || !initialPrivSnap || !initialPrivSnap.exists()) {
+      throw new Error(
+        resolvedInstId
+          ? `Instituição "${resolvedInstId}" não encontrada no Firestore e slug "${slug}" ausente do portal público; despublicação abortada para evitar falso sucesso.`
+          : `Documento público e entrada de índice não encontrados para o slug "${slug}"; despublicação abortada para evitar falso sucesso.`
+      );
+    }
+
+    if (!doesPrivateInstitutionMatchSlug(initialPrivSnap.data(), resolvedInstId, slug)) {
+      throw new Error(
+        `Operação bloqueada: o slug "${slug}" não pertence à instituição "${resolvedInstId}" e não consta em publicInstitutions.`
+      );
+    }
+
+    verifiedOwnerInstId = resolvedInstId;
+    verifiedOwnerPrivSnap = initialPrivSnap;
+  }
+
+  let nextSlugs: string[];
+  let shouldUpdateIndex: boolean;
+
+  if (isSuperAdmin) {
+    const sanitizedExisting = sanitizePublicIndexSlugs(existingArr);
+    nextSlugs = sanitizedExisting.filter((s) => s !== slug);
+    shouldUpdateIndex =
+      indexSnap.exists() &&
+      (slugInIndex ||
+        existingArr.length !== nextSlugs.length ||
+        nextSlugs.some((s, idx) => s !== existingArr[idx]));
+  } else {
+    nextSlugs = existingArr.filter((s) => s !== slug);
+    shouldUpdateIndex = indexSnap.exists() && slugInIndexExact;
+  }
+
+  // Escritas executadas apenas após todas as leituras
+  if (pubSnap.exists()) {
+    tx.deletePub(slug);
+  }
+
+  if (shouldUpdateIndex) {
+    tx.setIndex({
+      slugs: nextSlugs,
+      updatedAt: nowIso
+    });
+  }
+
+  if (
+    verifiedOwnerInstId &&
+    verifiedOwnerPrivSnap &&
+    verifiedOwnerPrivSnap.exists() &&
+    verifiedOwnerPrivSnap.data()?.publicPortalPublished !== false
+  ) {
+    tx.setPrivPublishedFalse(verifiedOwnerInstId, nowIso);
+  }
+}
+
+function createFirestoreTxAdapter(transaction: any): PublicInstitutionTxAdapter {
+  const indexRef = doc(db, PUBLIC_INSTITUTIONS_COLLECTION, PUBLIC_INSTITUTIONS_INDEX_DOC_ID);
+  return {
+    getIndex: () => transaction.get(indexRef),
+    getPub: (targetSlug: string) =>
+      transaction.get(doc(db, PUBLIC_INSTITUTIONS_COLLECTION, targetSlug)),
+    getPriv: (instId: string) =>
+      transaction.get(doc(db, 'institutions', instId)),
+    setPub: (targetSlug: string, data: Record<string, any>) => {
+      transaction.set(doc(db, PUBLIC_INSTITUTIONS_COLLECTION, targetSlug), data);
+    },
+    deletePub: (targetSlug: string) => {
+      transaction.delete(doc(db, PUBLIC_INSTITUTIONS_COLLECTION, targetSlug));
+    },
+    setIndex: (data: { slugs: string[]; updatedAt: string }) => {
+      transaction.set(indexRef, data);
+    },
+    setPrivPublishedFalse: (instId: string, updatedAt: string) => {
+      transaction.set(
+        doc(db, 'institutions', instId),
+        { publicPortalPublished: false, updatedAt },
+        { merge: true }
+      );
+    }
+  };
+}
+
+/**
+ * Sincroniza metadados estritamente públicos da instituição para `publicInstitutions/{slug}`
+ * e actualiza atomicamente `publicInstitutions/_index` via `runTransaction()`.
+ */
+export async function syncPublicInstitutionMetadata(
+  inst: Institution
+): Promise<PublicInstitutionSyncResult> {
+  if (!inst?.id || !isValidInstitutionOwnerId(inst.id)) {
+    return {
+      status: 'error',
+      error: 'Instituição inválida: identificador em falta ou inválido para sincronização pública.'
+    };
+  }
+
+  const publicData = sanitizeFirestoreData(buildPublicInstitutionFromModel(inst));
+  const slug = normalizeSlug(publicData.slug);
+
+  if (!isValidPublicInstitutionSlug(slug)) {
+    return {
+      status: 'error',
+      slug,
+      error: `Slug institucional inválido ou reservado ("${publicData.slug || ''}").`
+    };
+  }
+
+  const authCheck = await verifyPublicInstitutionAdminAuthorization(inst.id);
+  if (!authCheck.authorized) {
+    if (authCheck.status === 'skipped_no_auth') {
+      return {
+        status: 'skipped_no_auth',
+        slug,
+        reason: authCheck.reason || 'Sessão não autenticada no Firebase Auth.'
+      };
+    }
+    return {
+      status: 'error',
+      slug,
+      error: authCheck.error || 'Autorização administrativa insuficiente.'
+    };
+  }
+
+  try {
+    await runTransaction(db, async (transaction) => {
+      await executePublishPublicInstitutionTransaction(createFirestoreTxAdapter(transaction), {
+        slug,
+        institutionId: inst.id,
+        publicData,
+        isSuperAdmin: authCheck.isSuperAdmin === true
+      });
+    });
+
+    return { status: 'success', slug };
+  } catch (err: any) {
+    const code = err?.code ? `${err.code}: ` : '';
+    const message = err?.message || String(err || 'Erro desconhecido ao publicar portal institucional.');
+    console.error(`[PublicInstitutionService] Erro ao sincronizar publicInstitutions/${slug}:`, err);
+    return {
+      status: 'error',
+      slug,
+      error: `${code}${message}`
+    };
+  }
+}
+
+/**
+ * Despublica atomicamente uma instituição pública via `runTransaction()`:
+ * - Remove `publicInstitutions/{slug}`
+ * - Remove `slug` de `publicInstitutions/_index`
+ * - Actualiza o estado privado `institutions/{institutionId}.publicPortalPublished = false`
+ */
+export async function unpublishPublicInstitution(
+  target: Institution | { institutionId?: string; id?: string; slug?: string; name?: string } | string
+): Promise<PublicInstitutionSyncResult> {
+  let rawSlug = '';
+  let explicitInstId = '';
+
+  if (typeof target === 'string') {
+    rawSlug = target;
+  } else if (target) {
+    const targetInstId = 'institutionId' in target ? target.institutionId : undefined;
+    explicitInstId = String(targetInstId || target.id || '').trim();
+    if (target.slug && target.slug.trim()) {
+      rawSlug = target.slug;
+    } else if (explicitInstId || target.name) {
+      rawSlug = resolveInstitutionSlug(target as Partial<Institution>);
+    }
+  }
+
+  const slug = normalizeSlug(rawSlug);
+  if (!isValidPublicInstitutionSlug(slug)) {
+    return {
+      status: 'error',
+      slug,
+      error: `Slug institucional inválido ou reservado ("${rawSlug}").`
+    };
+  }
+
+  if (explicitInstId && !isValidInstitutionOwnerId(explicitInstId)) {
+    return {
+      status: 'error',
+      slug,
+      error: `Identificador institucional inválido ("${explicitInstId}").`
+    };
+  }
+
+  if (!auth.currentUser) {
+    return {
+      status: 'skipped_no_auth',
+      slug,
+      reason: 'Sessão não autenticada no Firebase Auth; despublicação pública ignorada.'
+    };
+  }
+
+  const pubRef = doc(db, PUBLIC_INSTITUTIONS_COLLECTION, slug);
+
+  try {
+    let resolvedInstId = explicitInstId;
+    if (!resolvedInstId) {
+      const prePubSnap = await getDoc(pubRef);
+      const preInstId = prePubSnap.exists() ? prePubSnap.data()?.institutionId : undefined;
+      if (isValidInstitutionOwnerId(preInstId)) {
+        resolvedInstId = preInstId.trim();
+      }
+    }
+
+    const authCheck = await verifyPublicInstitutionAdminAuthorization(resolvedInstId);
+    if (!authCheck.authorized) {
+      if (authCheck.status === 'skipped_no_auth') {
+        return {
+          status: 'skipped_no_auth',
+          slug,
+          reason: authCheck.reason || 'Sessão não autenticada no Firebase Auth.'
+        };
+      }
+      return {
+        status: 'error',
+        slug,
+        error: authCheck.error || 'Autorização administrativa insuficiente.'
+      };
+    }
+
+    await runTransaction(db, async (transaction) => {
+      await executeUnpublishPublicInstitutionTransaction(createFirestoreTxAdapter(transaction), {
+        slug,
+        explicitInstId,
+        resolvedInstId,
+        isSuperAdmin: authCheck.isSuperAdmin === true
+      });
+    });
+
+    return { status: 'success', slug };
+  } catch (err: any) {
+    const code = err?.code ? `${err.code}: ` : '';
+    const message = err?.message || String(err || 'Erro desconhecido ao despublicar portal institucional.');
+    console.error(`[PublicInstitutionService] Erro ao despublicar publicInstitutions/${slug}:`, err);
+    return {
+      status: 'error',
+      slug,
+      error: `${code}${message}`
+    };
+  }
+}
+
+/**
+ * Lê dinamicamente o índice oficial `publicInstitutions/_index`.
+ * Valida os slugs, exclui `_index` e elimina duplicações, sem fallback estático.
+ */
+export async function fetchPublicInstitutionsIndex(): Promise<PublicInstitutionsIndexResult> {
+  try {
+    const indexRef = doc(db, PUBLIC_INSTITUTIONS_COLLECTION, PUBLIC_INSTITUTIONS_INDEX_DOC_ID);
+    const snap = await getDoc(indexRef);
+    if (!snap.exists()) {
+      return { slugs: [] };
+    }
+    const slugs = sanitizePublicIndexSlugs(snap.data()?.slugs);
+    return { slugs };
+  } catch (error: any) {
+    const code = error?.code ? `${error.code}: ` : '';
+    const message = error?.message || String(error);
+    console.warn('[PublicInstitutionService] Falha estrita ao ler publicInstitutions/_index:', error);
+    return {
+      slugs: [],
+      error: `${code}${message}`
+    };
   }
 }
 
@@ -591,6 +1348,42 @@ export function preparePublicInstitutionsSyncPayloads(
     moztechwave: moztechwavePayload,
     'ceu-azul-nacala': ceuAzulPayload
   };
+}
+
+export interface StrictPublicInstitutionResult {
+  institution: PublicInstitution | null;
+  error?: string;
+}
+
+/**
+ * Leitura estrita de publicInstitutions/{slug} exclusivamente no Firestore.
+ * Se a leitura falhar ou for recusada, retorna erro e nunca faz fallback para dados estáticos locais.
+ */
+export async function fetchPublishedPublicInstitutionStrict(
+  rawSlug: string
+): Promise<StrictPublicInstitutionResult> {
+  const slug = normalizeSlug(rawSlug);
+  if (!isValidPublicInstitutionSlug(slug)) {
+    return { institution: null };
+  }
+
+  try {
+    const docRef = doc(db, PUBLIC_INSTITUTIONS_COLLECTION, slug);
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) {
+      return { institution: null };
+    }
+    const data = snap.data() as PublicInstitution;
+    return { institution: sanitizePublicInstitutionPayload(data) };
+  } catch (error: any) {
+    const code = error?.code ? `${error.code}: ` : '';
+    const message = error?.message || String(error);
+    console.warn(`[PublicInstitutionService] Falha estrita ao ler publicInstitutions/${slug}:`, error);
+    return {
+      institution: null,
+      error: `${code}${message}`
+    };
+  }
 }
 
 /**
