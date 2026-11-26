@@ -218,7 +218,8 @@ ${institution.name}`;
         name: userProfile?.name || institution.representativeName || 'Secretaria Académica',
         email: firebaseUser?.email || userProfile?.email || institution.email || '',
         role: activeRole || 'SECRETARIA',
-        institutionId: targetInstId
+        institutionId: targetInstId,
+        permissions: userProfile?.permissions
       };
 
       const { invitation } = await createUserInvitation(actor, {
@@ -245,7 +246,10 @@ ${institution.name}`;
       }
 
       soundManager.playSuccess();
-      success('Convite Gerado', 'O link seguro de activação única ao Portal do Aluno foi criado com sucesso.');
+      success(
+        'Link de Convite Criado',
+        'O link único de activação foi guardado. Partilhe-o manualmente por cópia, e-mail (mailto:) ou WhatsApp (sem envio automático por servidor).'
+      );
     } catch (err: any) {
       toastError('Erro ao Gerar', err.message || 'Falha ao criar convite de acesso.');
     } finally {
@@ -336,7 +340,7 @@ ${institution.name}`;
                 ) : latestInvitation && !latestInvitation.used && !latestInvitation.revoked && (toSafeDate(latestInvitation.expiresAt) || new Date(0)) > new Date() ? (
                   <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30 flex items-center gap-1.5">
                     <Clock className="w-3.5 h-3.5 text-blue-400" />
-                    Convite Enviado (Pendente de Ativação)
+                    Convite Pendente (Link Gerado — Partilha Manual)
                   </span>
                 ) : (
                   <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 flex items-center gap-1.5">
@@ -469,18 +473,27 @@ ${institution.name}`;
             {/* Tab 2: E-mail Pré-formatado */}
             {activeTab === 'email' && (
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div>
                     <span className="text-xs font-bold text-slate-300 block">Assunto do E-mail</span>
                     <span className="text-xs text-blue-300 font-medium">{emailSubject}</span>
                   </div>
-                  <button
-                    onClick={handleCopyEmail}
-                    className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold cursor-pointer flex items-center gap-1.5"
-                  >
-                    {copiedEmail ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedEmail ? 'Copiado!' : 'Copiar E-mail'}</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={`mailto:${encodeURIComponent(latestInvitation.email)}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`}
+                      className="px-3 py-1.5 rounded-xl bg-sky-600/20 hover:bg-sky-600/30 border border-sky-500/40 text-sky-300 text-xs font-bold cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Mail className="w-3.5 h-3.5" />
+                      <span>Abrir E-mail</span>
+                    </a>
+                    <button
+                      onClick={handleCopyEmail}
+                      className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold cursor-pointer flex items-center gap-1.5"
+                    >
+                      {copiedEmail ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedEmail ? 'Copiado!' : 'Copiar E-mail'}</span>
+                    </button>
+                  </div>
                 </div>
                 <textarea
                   readOnly
@@ -488,6 +501,9 @@ ${institution.name}`;
                   value={emailBody}
                   className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs text-slate-300 font-mono leading-relaxed focus:outline-none"
                 />
+                <p className="text-[11px] text-amber-300/90">
+                  Nota: O SIGAR PRO não envia este e-mail automaticamente na emissão do convite. Utilize &quot;Abrir E-mail&quot; (mailto:) ou copie o texto/link para enviar ao formando.
+                </p>
               </div>
             )}
 

@@ -34,21 +34,25 @@ import { useApp } from '../../context/AppContext';
 import { useToast } from '../../context/ToastContext';
 import { soundManager } from '../../utils/audio';
 import { PROVINCES_MOZAMBIQUE } from '../../data/mockData';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../../services/firebase';
-import { RegistrationApplication, PublicInstitution, OnlineCourseConfig, Institution } from '../../types';
+import { doc, getDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
+import { db, functions } from '../../services/firebase';
+import { RegistrationApplication, PublicInstitution, OnlineCourseConfig, toCanonicalRole } from '../../types';
 import {
   extractSlugFromLocation,
-  resolvePublicInstitutionBySlug,
+  fetchPublicInstitutionsIndex,
+  fetchPublishedPublicInstitutionStrict,
+  resolvePublicInstitutionStrictWithAliases,
   compressImageToBase64,
   generateSecureInvitationToken,
-  KNOWN_INSTITUTIONS,
-  normalizeSlug,
-  resolveInstitutionSlug
+  normalizeSlug
 } from '../../services/publicInstitutionService';
 import {
+  computeSha256Hex,
   createEmptyOnlineRegistrationConfig,
   getConfiguredDocuments,
+  getRemainingVacancies,
+  isCourseSoldOut,
   isQuestionVisible,
   normalizeFieldRequirement,
   NormalizedRequirement,
@@ -116,8 +120,12 @@ export function formatFirestoreTimestamp(val: any): string {
 export const PublicRegistrationView: React.FC = () => {
   const {
     allInstitutions,
+    activeInstitution,
+    activeRole,
+    authorizedRoles,
+    userProfile,
     addApplication,
-    applications,
+    firebaseUser,
     navigate,
     routeParams,
     openWhatsAppMessage,
@@ -131,11 +139,18 @@ export const PublicRegistrationView: React.FC = () => {
   // URL slug sincronizado dinamicamente com hash/popstate/routeParams
   const routeParamSlug = normalizeSlug(String(routeParams?.inst || routeParams?.slug || ''));
   const [urlSlug, setUrlSlug] = useState<string>(() => extractSlugFromBrowser() || routeParamSlug);
+  const [isPreviewModeParam, setIsPreviewModeParam] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search).get('preview') === 'true';
+  });
 
   useEffect(() => {
     const syncSlug = () => {
       const next = extractSlugFromBrowser() || routeParamSlug;
       setUrlSlug(next);
+      if (typeof window !== 'undefined') {
+        setIsPreviewModeParam(new URLSearchParams(window.location.search).get('preview') === 'true');
+      }
     };
     syncSlug();
     window.addEventListener('hashchange', syncSlug);
@@ -150,7 +165,11 @@ export const PublicRegistrationView: React.FC = () => {
   const [resolvedPublicInst, setResolvedPublicInst] = useState<PublicInstitution | null>(null);
   const [isLoadingInst, setIsLoadingInst] = useState<boolean>(true);
   const [slugNotFound, setSlugNotFound] = useState<boolean>(false);
+  const [instLoadError, setInstLoadError] = useState<string | null>(null);
   const [noSlugDirectoryMode, setNoSlugDirectoryMode] = useState<boolean>(false);
+  const [directoryInstitutions, setDirectoryInstitutions] = useState<PublicInstitution[]>([]);
+  const [isLoadingDirectory, setIsLoadingDirectory] = useState<boolean>(false);
+  const [directoryError, setDirectoryError] = useState<string | null>(null);
 
   // Active Main View Tab & Step State
   const [activeTab, setActiveTab] = useState<'formulario' | 'consultar'>('formulario');
@@ -195,29 +214,121 @@ export const PublicRegistrationView: React.FC = () => {
     setSearchCode('');
   }, [urlSlug]);
 
-  // Efeito de resolução de tenant sem fallback para outra instituição
+  // Efeito de resolução estrita via publicInstitutions/{slug} e _index
+  // Pré-visualização administrativa (?preview=true) exige utilizador autenticado COM papel administrativo autorizado para a instituição alvo
+  const authorizedPreviewPool = useMemo(() => {
+    if (!isPreviewModeParam || !firebaseUser) return [];
+    const canonicalActive = toCanonicalRole(activeRole);
+    const allUserRoles = [
+      canonicalActive,
+      ...(authorizedRoles || []).map((r) => toCanonicalRole(r)),
+      ...(userProfile?.role ? [toCanonicalRole(userProfile.role)] : []),
+      ...(Array.isArray(userProfile?.roles) ? userProfile.roles.map((r) => toCanonicalRole(r)) : [])
+    ];
+    const isSuperAdmin =
+      allUserRoles.includes('SUPER_ADMIN') ||
+      (firebaseUser.emailVerified === true &&
+        firebaseUser.email?.toLowerCase() === 'moztechwavenacala8@gmail.com');
+
+    if (isSuperAdmin) {
+      return allInstitutions;
+    }
+
+    const adminPreviewRoles = new Set(['ADMIN_INSTITUICAO', 'DIRETOR', 'CEO', 'SECRETARIA', 'FINANCEIRO']);
+    const hasAdminRole = allUserRoles.some((r) => adminPreviewRoles.has(r));
+    if (!hasAdminRole) return [];
+
+    const allowedInstIds = new Set<string>(
+      [
+        userProfile?.institutionId,
+        activeInstitution?.id,
+        ...(Array.isArray(userProfile?.institutionIds) ? userProfile.institutionIds : []),
+        ...(Array.isArray(userProfile?.ownedInstitutions) ? userProfile.ownedInstitutions : [])
+      ].filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+    );
+
+    return allInstitutions.filter((inst) => inst?.id && allowedInstIds.has(inst.id));
+  }, [isPreviewModeParam, firebaseUser, activeRole, authorizedRoles, userProfile, activeInstitution?.id, allInstitutions]);
+
+  const isPreviewAuthorized = isPreviewModeParam && Boolean(firebaseUser) && authorizedPreviewPool.length > 0;
+
   useEffect(() => {
     let isCancelled = false;
 
     if (!urlSlug) {
       setResolvedPublicInst(null);
       setSlugNotFound(false);
+      setInstLoadError(null);
       setNoSlugDirectoryMode(true);
       setIsLoadingInst(false);
-      return;
+      setIsLoadingDirectory(true);
+      setDirectoryError(null);
+
+      (async () => {
+        const indexRes = await fetchPublicInstitutionsIndex();
+        if (isCancelled) return;
+        if (indexRes.error) {
+          setDirectoryInstitutions([]);
+          setDirectoryError(indexRes.error);
+          setIsLoadingDirectory(false);
+          return;
+        }
+        if (indexRes.slugs.length === 0) {
+          setDirectoryInstitutions([]);
+          setDirectoryError(null);
+          setIsLoadingDirectory(false);
+          return;
+        }
+        const results = await Promise.all(
+          indexRes.slugs.map((s) => fetchPublishedPublicInstitutionStrict(s))
+        );
+        if (isCancelled) return;
+        const map = new Map<string, PublicInstitution>();
+        const errs: string[] = [];
+        for (const r of results) {
+          if (r.error) errs.push(r.error);
+          if (r.institution && r.institution.institutionId && !map.has(r.institution.institutionId)) {
+            map.set(r.institution.institutionId, r.institution);
+          }
+        }
+        const list = Array.from(map.values());
+        setDirectoryInstitutions(list);
+        setDirectoryError(list.length === 0 && errs.length > 0 ? errs[0] : null);
+        setIsLoadingDirectory(false);
+      })().catch((err: any) => {
+        if (!isCancelled) {
+          setDirectoryInstitutions([]);
+          setDirectoryError(err?.message || 'Erro ao carregar catálogo de instituições públicas.');
+          setIsLoadingDirectory(false);
+        }
+      });
+
+      return () => {
+        isCancelled = true;
+      };
     }
 
     setNoSlugDirectoryMode(false);
     setIsLoadingInst(true);
-    resolvePublicInstitutionBySlug(urlSlug, allInstitutions)
+    setInstLoadError(null);
+    resolvePublicInstitutionStrictWithAliases(urlSlug, {
+      isPreviewMode: isPreviewAuthorized,
+      previewPool: isPreviewAuthorized ? authorizedPreviewPool : undefined
+    })
       .then(result => {
         if (isCancelled) return;
-        if (result) {
-          setResolvedPublicInst(result);
+        if (result.error) {
+          setResolvedPublicInst(null);
           setSlugNotFound(false);
+          setInstLoadError(result.error);
+        } else if (result.institution) {
+          setResolvedPublicInst(result.institution);
+          setSlugNotFound(false);
+          setInstLoadError(null);
         } else {
           setResolvedPublicInst(null);
           setSlugNotFound(true);
+          setInstLoadError(null);
         }
         setIsLoadingInst(false);
       })
@@ -225,7 +336,8 @@ export const PublicRegistrationView: React.FC = () => {
         console.warn('Erro ao resolver instituição pública:', err);
         if (!isCancelled) {
           setResolvedPublicInst(null);
-          setSlugNotFound(true);
+          setSlugNotFound(false);
+          setInstLoadError(err?.message || 'Erro ao consultar o portal público.');
           setIsLoadingInst(false);
         }
       });
@@ -233,10 +345,10 @@ export const PublicRegistrationView: React.FC = () => {
     return () => {
       isCancelled = true;
     };
-  }, [urlSlug, allInstitutions]);
+  }, [urlSlug, isPreviewAuthorized, authorizedPreviewPool]);
 
   useEffect(() => {
-    if (resolvedPublicInst && !slugNotFound) {
+    if (resolvedPublicInst && !slugNotFound && !instLoadError) {
       setPublicPortalIdentity({
         officialName: resolvedPublicInst.name,
         logoUrl: resolvedPublicInst.logoUrl,
@@ -251,7 +363,7 @@ export const PublicRegistrationView: React.FC = () => {
     return () => {
       setPublicPortalIdentity(null);
     };
-  }, [resolvedPublicInst, slugNotFound, setPublicPortalIdentity]);
+  }, [resolvedPublicInst, slugNotFound, instLoadError, setPublicPortalIdentity]);
 
   // Identificação do tipo institucional para rótulos contextuais
   const isChildCenter = useMemo(() => {
@@ -326,15 +438,16 @@ export const PublicRegistrationView: React.FC = () => {
   const [selectedCourseId, setSelectedCourseId] = useState<string>('');
 
   useEffect(() => {
-    if (activeCourses.length > 0 && !activeCourses.some(c => c.courseId === selectedCourseId)) {
-      setSelectedCourseId(activeCourses[0].courseId);
-    } else if (activeCourses.length === 0) {
+    const availableCourses = activeCourses.filter(c => !isCourseSoldOut(c));
+    if (availableCourses.length > 0 && !availableCourses.some(c => c.courseId === selectedCourseId)) {
+      setSelectedCourseId(availableCourses[0].courseId);
+    } else if (availableCourses.length === 0) {
       setSelectedCourseId('');
     }
   }, [activeCourses, selectedCourseId]);
 
   const selectedCourse = useMemo(() => {
-    return activeCourses.find(c => c.courseId === selectedCourseId) || activeCourses[0];
+    return activeCourses.find(c => c.courseId === selectedCourseId);
   }, [activeCourses, selectedCourseId]);
 
   const availableRegimes = useMemo(() => {
@@ -749,41 +862,137 @@ export const PublicRegistrationView: React.FC = () => {
         return;
       }
 
-      // 3. Persistência no Firestore
-      await setDoc(doc(db, 'institutions', resolvedPublicInst.institutionId, 'applications', applicationId), {
-        ...candidatePayload,
-        createdAt: serverTimestamp()
-      });
-
-      try {
-        await setDoc(doc(db, 'applicationTracking', trackingToken), {
-          ...trackingPayload,
-          createdAt: serverTimestamp()
-        });
-      } catch (e) {
-        console.warn('[Firestore] applicationTracking/{token} sync:', e);
+      // 3. Revalidação estrita em publicInstitutions/{slug} antes de persistir
+      const freshRes = await fetchPublishedPublicInstitutionStrict(resolvedPublicInst.slug);
+      if (freshRes.error) {
+        throw new Error(`Não foi possível validar o portal público no servidor: ${freshRes.error}`);
+      }
+      const freshInst = freshRes.institution;
+      if (!freshInst || freshInst.onlineRegistrationConfig?.isOpen === false) {
+        throw new Error('As inscrições online desta instituição estão encerradas.');
+      }
+      const freshCourse = (freshInst.onlineRegistrationConfig?.coursesConfig || []).find(
+        c => c.courseId === selectedCourse!.courseId && c.active !== false
+      );
+      if (!freshCourse) {
+        throw new Error('O curso seleccionado já não está disponível para candidatura pública.');
+      }
+      if (isCourseSoldOut(freshCourse)) {
+        throw new Error(`As vagas para "${freshCourse.courseName}" esgotaram. Seleccione outro curso.`);
       }
 
-      try {
-        await setDoc(doc(db, 'applicationTracking', applicationCode), {
-          ...trackingPayload,
-          createdAt: serverTimestamp()
-        });
-      } catch (e) {
-        console.warn('[Firestore] applicationTracking/{code} sync:', e);
-      }
+      // 4. Persistência atómica: prefere Cloud Function transaccional e usa writeBatch atómico com dedup SHA-256 quando não publicada
+      let finalAppId = applicationId;
+      let finalCode = applicationCode;
+      let finalTrackingToken = trackingToken;
+      let submittedViaServerCallable = false;
 
       try {
-        await setDoc(doc(db, 'applications', applicationId), {
-          ...candidatePayload,
-          createdAt: serverTimestamp()
-        });
-      } catch (e) {
-        console.warn('[Firestore] applications/{appId} sync:', e);
+        const submitCallable = httpsCallable<
+          Record<string, any>,
+          { ok: boolean; applicationId: string; code: string; trackingToken: string }
+        >(functions, 'submitPublicCourseApplicationCallable');
+        const serverRes = await submitCallable(candidatePayload);
+        if (serverRes.data?.ok) {
+          submittedViaServerCallable = true;
+          finalAppId = serverRes.data.applicationId || applicationId;
+          finalCode = serverRes.data.code || applicationCode;
+          finalTrackingToken = serverRes.data.trackingToken || trackingToken;
+        }
+      } catch (callableErr: any) {
+        const rawCode = String(callableErr?.code || '');
+        const businessErrorCodes = new Set([
+          'functions/already-exists',
+          'functions/failed-precondition',
+          'functions/invalid-argument',
+          'functions/permission-denied',
+          'functions/not-found',
+          'already-exists',
+          'failed-precondition',
+          'invalid-argument',
+          'permission-denied',
+          'not-found'
+        ]);
+        const callableMissingOnRoute =
+          rawCode === 'functions/not-found' &&
+          /not found|404/i.test(String(callableErr?.message || '')) &&
+          !/curso|portal/i.test(String(callableErr?.message || ''));
+
+        if (businessErrorCodes.has(rawCode) && !callableMissingOnRoute) {
+          throw new Error(callableErr?.message || 'A candidatura foi recusada pelo servidor.');
+        }
+      }
+
+      if (!submittedViaServerCallable) {
+        const safeCourse = selectedCourse!.courseId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 48);
+        const normDoc = documentNumber.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const normEmail = email.trim().toLowerCase();
+        const normPhone = phone.replace(/\D/g, '');
+        const dedupEntries: Array<{ id: string; hash: string }> = [];
+
+        if (normDoc.length >= 4) {
+          const h = await computeSha256Hex(`${resolvedPublicInst.institutionId}|${selectedCourse!.courseId}|doc:${normDoc}`);
+          dedupEntries.push({ id: `doc_${safeCourse}_${h.slice(0, 32)}`, hash: h });
+        }
+        if (normEmail.length >= 5 && normEmail.includes('@')) {
+          const h = await computeSha256Hex(`${resolvedPublicInst.institutionId}|${selectedCourse!.courseId}|email:${normEmail}`);
+          dedupEntries.push({ id: `eml_${safeCourse}_${h.slice(0, 32)}`, hash: h });
+        }
+        if (normPhone.length >= 6) {
+          const h = await computeSha256Hex(`${resolvedPublicInst.institutionId}|${selectedCourse!.courseId}|phone:${normPhone}`);
+          dedupEntries.push({ id: `phn_${safeCourse}_${h.slice(0, 32)}`, hash: h });
+        }
+
+        const batch = writeBatch(db);
+        const nowServer = serverTimestamp();
+
+        batch.set(
+          doc(db, 'institutions', resolvedPublicInst.institutionId, 'applications', finalAppId),
+          { ...candidatePayload, id: finalAppId, code: finalCode, trackingToken: finalTrackingToken, createdAt: nowServer }
+        );
+        batch.set(
+          doc(db, 'applications', finalAppId),
+          { ...candidatePayload, id: finalAppId, code: finalCode, trackingToken: finalTrackingToken, createdAt: nowServer }
+        );
+        batch.set(
+          doc(db, 'applicationTracking', finalTrackingToken),
+          { ...trackingPayload, applicationId: finalAppId, code: finalCode, token: finalTrackingToken, createdAt: nowServer }
+        );
+        batch.set(
+          doc(db, 'applicationTracking', finalCode),
+          { ...trackingPayload, applicationId: finalAppId, code: finalCode, token: finalTrackingToken, createdAt: nowServer }
+        );
+
+        const nowIso = new Date().toISOString();
+        for (const entry of dedupEntries) {
+          batch.set(
+            doc(db, 'institutions', resolvedPublicInst.institutionId, 'courseApplicationDedup', entry.id),
+            {
+              institutionId: resolvedPublicInst.institutionId,
+              courseId: selectedCourse!.courseId,
+              dedupHash: entry.hash,
+              createdAt: nowIso
+            }
+          );
+        }
+
+        try {
+          await batch.commit();
+        } catch (batchErr: any) {
+          if (batchErr?.code === 'permission-denied') {
+            throw new Error(
+              'Não foi possível registar a candidatura: já existe uma inscrição para este curso com o mesmo documento/e-mail/telefone ou as regras do portal recusaram o pedido.'
+            );
+          }
+          throw batchErr;
+        }
       }
 
       const createdLocal = addApplication({
         ...candidatePayload,
+        id: finalAppId,
+        code: finalCode,
+        trackingToken: finalTrackingToken,
         createdAt: new Date().toLocaleString('pt-MZ'),
         skipFirestoreSync: true
       });
@@ -806,12 +1015,11 @@ export const PublicRegistrationView: React.FC = () => {
     }
   };
 
-  // Pesquisa de Candidatura com Anonimização Estrita de PII
+  // Pesquisa de Candidatura estritamente via applicationTracking/{token|code} (zero fallback em AppContext)
   const handleSearchApplication = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchCode.trim() || !resolvedPublicInst) return;
     setLookupAttempted(true);
-    const q = searchCode.trim().toLowerCase();
 
     const trimmedQuery = searchCode.trim();
     const candidateKeys = Array.from(new Set([trimmedQuery, trimmedQuery.toUpperCase()]));
@@ -829,7 +1037,7 @@ export const PublicRegistrationView: React.FC = () => {
               trackingToken: trData.token,
               institutionId: trData.institutionId,
               slug: trData.slug,
-              fullName: trData.maskedName || 'Candidato',
+              fullName: trData.maskedCandidateName || trData.maskedName || 'Candidato',
               documentType: 'BI',
               documentNumber: '••••••••',
               email: '••••••••',
@@ -843,7 +1051,7 @@ export const PublicRegistrationView: React.FC = () => {
               regime: trData.regime || 'Regular',
               status: trData.status || 'submetida',
               photoUrl: '',
-              createdAt: formatFirestoreTimestamp(trData.createdAt),
+              createdAt: formatFirestoreTimestamp(trData.submittedAt || trData.createdAt),
               paymentStatus: trData.paymentStatus || 'Pendente',
               paymentReference: '••••••••',
               documents: []
@@ -852,52 +1060,17 @@ export const PublicRegistrationView: React.FC = () => {
             return;
           }
         }
-      } catch (e) {
-        console.warn('Consulta applicationTracking:', e);
+      } catch (err: any) {
+        console.warn('Consulta applicationTracking:', err);
+        toastError('Erro na consulta', err?.message || 'Não foi possível consultar o estado no Firestore.');
+        setLookedUpApplication(null);
+        return;
       }
     }
 
-    const found = applications.find(app => {
-      const matchInst =
-        app.institutionId === resolvedPublicInst.institutionId || app.institutionId === resolvedPublicInst.id;
-      if (!matchInst) return false;
-      return (
-        app.code.toLowerCase() === q ||
-        (app.trackingToken && app.trackingToken.toLowerCase() === q)
-      );
-    });
-
-    if (found) {
-      setLookedUpApplication({
-        ...found,
-        fullName: maskCandidateName(found.fullName),
-        documentNumber: '••••••••',
-        email: '••••••••',
-        phone: '••••••••',
-        province: '••••••••',
-        city: '••••••••',
-        address: undefined,
-        birthDate: '••••••••',
-        paymentReference: '••••••••',
-        documents: []
-      });
-      soundManager.playSuccess();
-    } else {
-      setLookedUpApplication(null);
-      soundManager.playNotification();
-    }
+    setLookedUpApplication(null);
+    soundManager.playNotification();
   };
-
-  // Lista deduplicada de instituições para o diretório público (quando nenhum slug foi especificado)
-  const directoryInstitutions: Institution[] = useMemo(() => {
-    const map = new Map<string, Institution>();
-    [...KNOWN_INSTITUTIONS, ...(allInstitutions || [])].forEach(inst => {
-      if (inst?.id && !map.has(inst.id)) {
-        map.set(inst.id, inst);
-      }
-    });
-    return Array.from(map.values());
-  }, [allInstitutions]);
 
   // 1. Tela de Carregamento da Instituição
   if (isLoadingInst) {
@@ -916,7 +1089,7 @@ export const PublicRegistrationView: React.FC = () => {
     );
   }
 
-  // 1B. Selecção de Instituição (apenas quando não foi indicado nenhum slug na URL)
+  // 1B. Selecção de Instituição estritamente via publicInstitutions/_index (quando nenhum slug foi especificado)
   if (noSlugDirectoryMode) {
     return (
       <div
@@ -949,12 +1122,29 @@ export const PublicRegistrationView: React.FC = () => {
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {directoryInstitutions.map((inst) => {
-              const slug = resolveInstitutionSlug(inst);
-              return (
+          {isLoadingDirectory ? (
+            <div className="p-8 rounded-3xl border border-slate-800 bg-slate-900/70 text-center text-xs text-slate-400">
+              A consultar instituições publicadas em publicInstitutions...
+            </div>
+          ) : directoryError ? (
+            <div className="p-8 rounded-3xl border border-rose-500/30 bg-rose-950/20 text-center space-y-2">
+              <AlertTriangle className="w-8 h-8 text-rose-400 mx-auto" />
+              <h3 className="text-sm font-bold text-white">Não foi possível consultar o catálogo público</h3>
+              <p className="text-xs text-rose-300">{directoryError}</p>
+            </div>
+          ) : directoryInstitutions.length === 0 ? (
+            <div className="p-8 rounded-3xl border border-slate-800 bg-slate-900/70 text-center space-y-2">
+              <Building2 className="w-8 h-8 text-slate-400 mx-auto" />
+              <h3 className="text-sm font-bold text-white">Nenhuma instituição publicada neste momento</h3>
+              <p className="text-xs text-slate-400">
+                Solicite o link directo da instituição ou tente novamente mais tarde.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {directoryInstitutions.map((inst) => (
                 <div
-                  key={inst.id}
+                  key={inst.institutionId}
                   className={`p-5 rounded-3xl border flex flex-col justify-between gap-4 transition-all ${
                     isLight ? 'bg-white border-slate-200 hover:border-emerald-400 shadow-sm' : 'bg-slate-900/90 border-slate-800 hover:border-emerald-500/40'
                   }`}
@@ -975,7 +1165,7 @@ export const PublicRegistrationView: React.FC = () => {
                           {inst.city || inst.province || 'Moçambique'}
                         </span>
                         <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-slate-800 text-emerald-300">
-                          /i/{slug}
+                          /i/{inst.slug}
                         </span>
                       </div>
                     </div>
@@ -985,7 +1175,7 @@ export const PublicRegistrationView: React.FC = () => {
                     type="button"
                     onClick={() => {
                       soundManager.playClick();
-                      navigate('inscricao_publica', { inst: slug });
+                      navigate('inscricao_publica', { inst: inst.slug });
                     }}
                     className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition-colors"
                   >
@@ -993,16 +1183,16 @@ export const PublicRegistrationView: React.FC = () => {
                     <ArrowRight className="w-4 h-4" />
                   </button>
                 </div>
-              );
-            })}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     );
   }
 
-  // 2. Tela de Link Inválido (Zero fallback cruzado)
-  if (slugNotFound || !resolvedPublicInst) {
+  // 2. Tela de Erro ou Link Inválido (Zero fallback cruzado)
+  if (instLoadError || slugNotFound || !resolvedPublicInst) {
     return (
       <div
         className={`min-h-screen flex flex-col items-center justify-center p-6 text-center select-none font-sans ${
@@ -1021,7 +1211,9 @@ export const PublicRegistrationView: React.FC = () => {
           </div>
 
           <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs sm:text-sm font-semibold leading-relaxed">
-            Instituição não encontrada ou endereço inválido. Solicite o link correcto (#i/slug) à sua instituição.
+            {instLoadError
+              ? `Erro ao consultar o portal público em publicInstitutions: ${instLoadError}`
+              : 'Instituição não encontrada, despublicada ou inactiva. Solicite o link correcto (/i/slug) à sua instituição.'}
           </div>
 
           <p className="text-xs text-slate-400 leading-relaxed">
@@ -1458,19 +1650,27 @@ export const PublicRegistrationView: React.FC = () => {
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {activeCourses.map(course => {
                           const isSelected = selectedCourseId === course.courseId;
-                          const filledPct = Math.min(
-                            100,
-                            Math.round(((course.filledVacancies || 0) / (course.vacancies || 1)) * 100)
-                          );
+                          const remainingVacancies = getRemainingVacancies(course);
+                          const soldOut = isCourseSoldOut(course);
+                          const filledPct = course.vacancies > 0
+                            ? Math.min(100, Math.round(((course.filledVacancies || 0) / course.vacancies) * 100))
+                            : 0;
 
                           return (
                             <div
                               key={course.courseId}
-                              onClick={() => setSelectedCourseId(course.courseId)}
-                              className={`p-5 rounded-2xl border transition-all cursor-pointer relative flex flex-col justify-between ${
-                                isSelected
-                                  ? 'bg-emerald-950/30 border-emerald-500 shadow-lg shadow-emerald-500/10'
-                                  : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                              onClick={() => {
+                                if (!soldOut) {
+                                  setSelectedCourseId(course.courseId);
+                                }
+                              }}
+                              aria-disabled={soldOut}
+                              className={`p-5 rounded-2xl border transition-all relative flex flex-col justify-between ${
+                                soldOut
+                                  ? 'bg-slate-950/40 border-rose-500/30 opacity-60 cursor-not-allowed'
+                                  : isSelected
+                                    ? 'bg-emerald-950/30 border-emerald-500 shadow-lg shadow-emerald-500/10 cursor-pointer'
+                                    : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 cursor-pointer'
                               }`}
                             >
                               <div className="space-y-3">
@@ -1478,11 +1678,15 @@ export const PublicRegistrationView: React.FC = () => {
                                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 uppercase">
                                     {course.category || (isChildCenter ? 'Educação Infantil' : 'Oferta Formativa')}
                                   </span>
-                                  {isSelected && (
+                                  {soldOut ? (
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 uppercase">
+                                      Esgotado
+                                    </span>
+                                  ) : isSelected ? (
                                     <span className="w-5 h-5 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center">
                                       <Check className="w-3 h-3 stroke-[3]" />
                                     </span>
-                                  )}
+                                  ) : null}
                                 </div>
 
                                 <div>
@@ -1527,14 +1731,18 @@ export const PublicRegistrationView: React.FC = () => {
                               <div className="mt-4 pt-3 border-t border-slate-800/80 space-y-2">
                                 <div className="flex justify-between text-[10px] text-slate-400">
                                   <span>Vagas Totais: {course.vacancies}</span>
-                                  <span className={filledPct > 85 ? 'text-amber-400 font-bold' : 'text-emerald-400 font-bold'}>
-                                    {Math.max(0, course.vacancies - (course.filledVacancies || 0))} disponíveis
+                                  <span className={soldOut ? 'text-rose-400 font-bold' : filledPct > 85 ? 'text-amber-400 font-bold' : 'text-emerald-400 font-bold'}>
+                                    {soldOut
+                                      ? '0 disponíveis (Esgotado)'
+                                      : remainingVacancies !== null
+                                        ? `${remainingVacancies} disponíveis`
+                                        : 'Vagas abertas'}
                                   </span>
                                 </div>
                                 <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
                                   <div
-                                    className={`h-full rounded-full ${filledPct > 85 ? 'bg-amber-400' : 'bg-emerald-500'}`}
-                                    style={{ width: `${filledPct}%` }}
+                                    className={`h-full rounded-full ${soldOut ? 'bg-rose-500' : filledPct > 85 ? 'bg-amber-400' : 'bg-emerald-500'}`}
+                                    style={{ width: `${soldOut ? 100 : filledPct}%` }}
                                   ></div>
                                 </div>
                                 {validatedWhatsAppNumber && (
@@ -1598,11 +1806,13 @@ export const PublicRegistrationView: React.FC = () => {
                   <div className="flex justify-end pt-4">
                     <button
                       type="button"
-                      disabled={activeCourses.length === 0}
+                      disabled={activeCourses.length === 0 || !selectedCourse || isCourseSoldOut(selectedCourse)}
                       onClick={() => goToNextStep(1)}
                       className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-2 cursor-pointer transition-all shadow-md shadow-emerald-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      Avançar para Identificação
+                      {selectedCourse && isCourseSoldOut(selectedCourse)
+                        ? 'Vagas Esgotadas'
+                        : 'Avançar para Identificação'}
                       <ArrowRight className="w-4 h-4" />
                     </button>
                   </div>

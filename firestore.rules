@@ -606,6 +606,22 @@ service cloud.firestore {
       match /jobApplicationDedup/{dedupId} {
         allow read, write: if false;
       }
+
+      // Deduplicação sem PII de candidaturas a cursos públicos (chave determinística hash)
+      match /courseApplicationDedup/{dedupId} {
+        allow get, list: if isSuperAdmin() || isSecretaria(institutionId);
+        allow create: if isValidId(dedupId) &&
+          request.resource.data.keys().hasOnly(['institutionId', 'courseId', 'dedupHash', 'createdAt']) &&
+          ('institutionId' in request.resource.data) &&
+          request.resource.data.institutionId == institutionId &&
+          ('courseId' in request.resource.data) &&
+          request.resource.data.courseId is string &&
+          ('dedupHash' in request.resource.data) &&
+          request.resource.data.dedupHash is string &&
+          request.resource.data.dedupHash.size() >= 16;
+        allow update: if false;
+        allow delete: if isSuperAdmin() || isInstAdmin(institutionId);
+      }
     }
 
     // Collection group para portal público de vagas (/vagas): leitura apenas se status == 'publicada'
@@ -613,50 +629,264 @@ service cloud.firestore {
       allow get, list: if resource != null && resource.data.status == 'publicada';
     }
 
-    // FASE C: Portais Públicos por Slug — NUNCA expõe números privados M-Pesa, e-Mola ou mKesh
-    function isSafePublicInstitutionPayload(d) {
-      return ('institutionId' in d) &&
+    // FASE C: Portais Públicos por Slug — NUNCA expõe números privados M-Pesa, e-Mola, mKesh ou dados administrativos internos
+    function isSafeStringList3(arr) {
+      return arr is list && arr.size() <= 3 &&
+        (arr.size() < 1 || arr[0] is string) &&
+        (arr.size() < 2 || arr[1] is string) &&
+        (arr.size() < 3 || arr[2] is string);
+    }
+
+    function isSafeStringList5(arr) {
+      return arr is list && arr.size() <= 5 &&
+        (arr.size() < 1 || arr[0] is string) &&
+        (arr.size() < 2 || arr[1] is string) &&
+        (arr.size() < 3 || arr[2] is string) &&
+        (arr.size() < 4 || arr[3] is string) &&
+        (arr.size() < 5 || arr[4] is string);
+    }
+
+    function isSafeStringList6(arr) {
+      return arr is list && arr.size() <= 6 &&
+        (arr.size() < 1 || arr[0] is string) &&
+        (arr.size() < 2 || arr[1] is string) &&
+        (arr.size() < 3 || arr[2] is string) &&
+        (arr.size() < 4 || arr[3] is string) &&
+        (arr.size() < 5 || arr[4] is string) &&
+        (arr.size() < 6 || arr[5] is string);
+    }
+
+    function isSafeStringList8(arr) {
+      return arr is list && arr.size() <= 8 &&
+        (arr.size() < 1 || arr[0] is string) &&
+        (arr.size() < 2 || arr[1] is string) &&
+        (arr.size() < 3 || arr[2] is string) &&
+        (arr.size() < 4 || arr[3] is string) &&
+        (arr.size() < 5 || arr[4] is string) &&
+        (arr.size() < 6 || arr[5] is string) &&
+        (arr.size() < 7 || arr[6] is string) &&
+        (arr.size() < 8 || arr[7] is string);
+    }
+
+    function isSafePublicPaymentMethods(pm) {
+      return pm is map &&
+        pm.keys().hasOnly(['bankName', 'acceptedChannels', 'instructions']) &&
+        pm.get('bankName', '') is string &&
+        isSafeStringList6(pm.get('acceptedChannels', [])) &&
+        pm.get('instructions', '') is string;
+    }
+
+    function isSafePublicBranch(b) {
+      return b is map &&
+        b.keys().hasOnly([
+          'id', 'institutionId', 'name', 'code', 'phone', 'email',
+          'address', 'city', 'province', 'isMainBranch', 'isHeadquarter',
+          'status', 'createdAt'
+        ]) &&
+        b.get('id', '') is string &&
+        b.get('institutionId', '') is string &&
+        b.get('name', '') is string &&
+        b.get('phone', '') is string &&
+        b.get('email', '') is string &&
+        b.get('isMainBranch', false) is bool &&
+        b.get('status', '') is string;
+    }
+
+    function isSafePublicBranchAt(branches, idx) {
+      return idx >= branches.size() || isSafePublicBranch(branches[idx]);
+    }
+
+    // Orçamento estrito de expressões CEL (<1000): até 3 polos na escrita directa cliente
+    // (portais maiores usam Cloud Function publishPublicInstitutionCallable com Admin SDK)
+    function isSafePublicBranchesList(branches) {
+      return branches is list &&
+        branches.size() <= 3 &&
+        isSafePublicBranchAt(branches, 0) &&
+        isSafePublicBranchAt(branches, 1) &&
+        isSafePublicBranchAt(branches, 2);
+    }
+
+    function isSafeOnlineRequiredFields(rf) {
+      return rf is map &&
+        rf.keys().hasOnly([
+          'email', 'phone', 'documentNumber', 'birthDate', 'gender',
+          'province', 'city', 'address', 'guardianName', 'guardianPhone',
+          'guardianRelationship', 'authorizedPickupPersons', 'nuit', 'previousSchool'
+        ]) &&
+        rf.values().hasOnly(['obrigatorio', 'opcional', 'oculto', true, false]);
+    }
+
+    function isSafeDocumentRequirements(dr) {
+      return dr is map &&
+        dr.size() <= 30 &&
+        dr.keys().hasOnly([
+          'bi', 'passaporte', 'dire', 'cedula', 'certificado_habilitacoes',
+          'declaracao_notas', 'nuit', 'foto_passe', 'boletim_vacinas',
+          'bi_encarregado', 'guia_transferencia', 'atestado_medico',
+          'comprovativo_residencia', 'comprovativo_pagamento', 'curriculo_cv',
+          'Bilhete de Identidade (BI) ou Passaporte válido',
+          'Bilhete de Identidade (BI), DIRE ou Passaporte Válido',
+          'Bilhete de Identidade (BI) ou Cédula de Nascimento',
+          'Bilhete de Identidade (BI)',
+          'Passaporte válido',
+          'Cédula de Nascimento ou Assento da Criança',
+          'Cédula de Nascimento ou Assento de Nascimento da Criança',
+          'Cédula de Nascimento',
+          'Certificado de Habilitações Literárias (10ª ou 12ª Classe)',
+          'Certificado de Habilitações ou Declaração com Notas da Escola Anterior',
+          'Certificado de Habilitações',
+          'Declaração de NUIT (Identificação Tributária)',
+          'Declaração ou Cartão de NUIT',
+          'Cartão ou Declaração de NUIT',
+          'Fotografia tipo passe recente (fundo branco)',
+          'Fotografia recente tipo passe da criança (fundo branco)',
+          'Fotografia tipo passe',
+          'Boletim / Cartão de Vacinas Atualizado',
+          'Fotocópia do BI / Identificação dos Pais ou Encarregados',
+          'Guia de Transferência Oficial (quando aplicável)',
+          'Atestado Médico',
+          'Comprovativo de Residência',
+          'Declaração de Compromisso'
+        ]) &&
+        dr.values().hasOnly(['obrigatorio', 'opcional', 'oculto', true, false]);
+    }
+
+    function isSafeOnlineCustomQuestion(q) {
+      return q is map &&
+        q.keys().hasOnly(['id', 'question', 'type', 'options', 'required', 'active']) &&
+        q.get('id', '') is string &&
+        q.get('question', '') is string &&
+        q.get('type', 'text') in ['text', 'select', 'boolean'] &&
+        isSafeStringList5(q.get('options', [])) &&
+        q.get('required', false) is bool &&
+        q.get('active', true) is bool;
+    }
+
+    function isSafeOnlineCustomQuestionAt(questions, idx) {
+      return idx >= questions.size() || isSafeOnlineCustomQuestion(questions[idx]);
+    }
+
+    function isSafeOnlineCustomQuestionsList(questions) {
+      return questions is list &&
+        questions.size() <= 4 &&
+        isSafeOnlineCustomQuestionAt(questions, 0) &&
+        isSafeOnlineCustomQuestionAt(questions, 1) &&
+        isSafeOnlineCustomQuestionAt(questions, 2) &&
+        isSafeOnlineCustomQuestionAt(questions, 3);
+    }
+
+    function isSafeOnlineCourseConfig(c) {
+      return c is map &&
+        c.keys().hasOnly([
+          'courseId', 'courseName', 'category', 'active', 'price', 'monthlyFee',
+          'duration', 'requirements', 'vacancies', 'filledVacancies',
+          'regimes', 'shifts', 'documents'
+        ]) &&
+        ('courseId' in c) && c.courseId is string &&
+        ('courseName' in c) && c.courseName is string &&
+        c.get('category', '') is string &&
+        c.get('active', true) is bool &&
+        c.get('price', 0) is number &&
+        c.get('monthlyFee', 0) is number &&
+        c.get('duration', '') is string &&
+        c.get('vacancies', 0) is number &&
+        c.get('filledVacancies', 0) is number &&
+        isSafeStringList3(c.get('requirements', [])) &&
+        (!('regimes' in c) || (c.regimes is list && c.regimes.size() <= 6 && c.regimes.hasOnly([
+          'Laboral', 'Pós-Laboral', 'Online EAD', 'Híbrido', 'Presencial', 'Semi-presencial', 'Integral'
+        ]))) &&
+        isSafeStringList3(c.get('shifts', [])) &&
+        isSafeStringList3(c.get('documents', []));
+    }
+
+    function isSafeOnlineCourseAt(courses, idx) {
+      return idx >= courses.size() || isSafeOnlineCourseConfig(courses[idx]);
+    }
+
+    function isSafeOnlineCoursesList(courses) {
+      return courses is list &&
+        courses.size() <= 5 &&
+        isSafeOnlineCourseAt(courses, 0) &&
+        isSafeOnlineCourseAt(courses, 1) &&
+        isSafeOnlineCourseAt(courses, 2) &&
+        isSafeOnlineCourseAt(courses, 3) &&
+        isSafeOnlineCourseAt(courses, 4);
+    }
+
+    function isSafeOnlineRegistrationConfig(cfg, expectedInstId) {
+      return cfg is map &&
+        cfg.keys().hasOnly([
+          'institutionId', 'isOpen', 'title', 'description', 'startDate', 'endDate',
+          'academicYear', 'semester', 'requiredFields', 'requiredDocuments',
+          'documentRequirements', 'customQuestions', 'coursesConfig',
+          'autoApproveOnPayment', 'confirmationMessageTemplate',
+          'termsAndConditions', 'privacyPolicy',
+          'contactPhone', 'contactWhatsapp', 'contactEmail'
+        ]) &&
+        (!('institutionId' in cfg) || (cfg.institutionId is string && cfg.institutionId == expectedInstId)) &&
+        cfg.get('isOpen', true) is bool &&
+        cfg.get('title', '') is string &&
+        cfg.get('description', '') is string &&
+        cfg.get('startDate', '') is string &&
+        cfg.get('endDate', '') is string &&
+        cfg.get('academicYear', '') is string &&
+        cfg.get('semester', '') is string &&
+        (!('requiredFields' in cfg) || isSafeOnlineRequiredFields(cfg.requiredFields)) &&
+        isSafeStringList8(cfg.get('requiredDocuments', [])) &&
+        (!('documentRequirements' in cfg) || isSafeDocumentRequirements(cfg.documentRequirements)) &&
+        (!('customQuestions' in cfg) || isSafeOnlineCustomQuestionsList(cfg.customQuestions)) &&
+        (!('coursesConfig' in cfg) || isSafeOnlineCoursesList(cfg.coursesConfig)) &&
+        cfg.get('autoApproveOnPayment', false) is bool &&
+        cfg.get('confirmationMessageTemplate', '') is string &&
+        cfg.get('termsAndConditions', '') is string &&
+        cfg.get('privacyPolicy', '') is string &&
+        cfg.get('contactPhone', '') is string &&
+        cfg.get('contactWhatsapp', '') is string &&
+        cfg.get('contactEmail', '') is string;
+    }
+
+    function isSafePublicInstitutionPayload(d, slug) {
+      return d is map &&
+        d.keys().hasOnly([
+          'id', 'institutionId', 'slug', 'slugAliases', 'name', 'code', 'sigla', 'type',
+          'nuit', 'licenseNumber', 'phone', 'phoneAlt', 'email', 'whatsapp',
+          'address', 'city', 'province', 'logoUrl', 'emblemUrl', 'faviconUrl',
+          'slogan', 'primaryColor', 'accentColor', 'branches',
+          'onlineRegistrationConfig', 'acceptedChannels', 'paymentMethods',
+          'termsAndConditions', 'privacyPolicy', 'updatedAt'
+        ]) &&
+        ('institutionId' in d) &&
         isValidId(d.institutionId) &&
-        !('financialSettings' in d) &&
-        !('financialAccounts' in d) &&
-        !('bankAccounts' in d) &&
-        !('receivingAccounts' in d) &&
-        !('mpesa' in d) &&
-        !('emola' in d) &&
-        !('mkesh' in d) &&
-        !('mpesaNumber' in d) &&
-        !('emolaNumber' in d) &&
-        !('mkeshNumber' in d) &&
-        !('pixKey' in d) &&
-        !('accessCode' in d) &&
-        !('ownerEmail' in d) &&
-        !('subscription' in d) &&
-        !('students' in d) &&
-        !('users' in d) &&
-        !('signatureUrl' in d) &&
-        !('stampUrl' in d) &&
-        !('carnetStaticQrUrl' in d) &&
-        !('representativeName' in d) &&
-        !('representativeRole' in d) &&
-        !('repLegal' in d) &&
-        !('saasBillingStatus' in d) &&
-        !('prefixes' in d) &&
-        !('whatsAppConfig' in d) &&
-        !('whatsappConfig' in d) &&
-        (!('paymentMethods' in d) || (
-          d.paymentMethods is map &&
-          !('mpesa' in d.paymentMethods) &&
-          !('emola' in d.paymentMethods) &&
-          !('mkesh' in d.paymentMethods) &&
-          !('mpesaNumber' in d.paymentMethods) &&
-          !('emolaNumber' in d.paymentMethods) &&
-          !('mkeshNumber' in d.paymentMethods) &&
-          !('accountNumber' in d.paymentMethods) &&
-          !('nib' in d.paymentMethods) &&
-          !('iban' in d.paymentMethods) &&
-          !('pixKey' in d.paymentMethods) &&
-          !('phone' in d.paymentMethods)
-        ));
+        ('slug' in d) &&
+        d.slug == slug &&
+        (!('id' in d) || d.id == slug) &&
+        isSafeStringList6(d.get('slugAliases', [])) &&
+        d.get('name', '') is string &&
+        d.get('code', '') is string &&
+        d.get('sigla', '') is string &&
+        d.get('type', '') is string &&
+        d.get('nuit', '') is string &&
+        d.get('licenseNumber', '') is string &&
+        d.get('phone', '') is string &&
+        d.get('phoneAlt', '') is string &&
+        d.get('email', '') is string &&
+        d.get('whatsapp', '') is string &&
+        d.get('address', '') is string &&
+        d.get('city', '') is string &&
+        d.get('province', '') is string &&
+        d.get('logoUrl', '') is string &&
+        d.get('emblemUrl', '') is string &&
+        d.get('faviconUrl', '') is string &&
+        d.get('slogan', '') is string &&
+        d.get('primaryColor', '') is string &&
+        d.get('accentColor', '') is string &&
+        (!('branches' in d) || isSafePublicBranchesList(d.branches)) &&
+        (!('onlineRegistrationConfig' in d) || isSafeOnlineRegistrationConfig(d.onlineRegistrationConfig, d.institutionId)) &&
+        isSafeStringList6(d.get('acceptedChannels', [])) &&
+        (!('paymentMethods' in d) || isSafePublicPaymentMethods(d.paymentMethods)) &&
+        d.get('termsAndConditions', '') is string &&
+        d.get('privacyPolicy', '') is string &&
+        d.get('updatedAt', '') is string;
     }
 
     function isValidPublicSlugId(slug) {
@@ -744,13 +974,13 @@ service cloud.firestore {
       allow list: if false;
       allow create: if isSignedIn() &&
         isValidPublicSlugId(slug) &&
-        isSafePublicInstitutionPayload(request.resource.data) &&
+        isSafePublicInstitutionPayload(request.resource.data, slug) &&
         isInstAdmin(request.resource.data.institutionId);
       allow update: if isSignedIn() &&
         isValidPublicSlugId(slug) &&
         resource != null &&
         isAuthorizedTenantPublicDoc(resource.data) &&
-        isSafePublicInstitutionPayload(request.resource.data) &&
+        isSafePublicInstitutionPayload(request.resource.data, slug) &&
         request.resource.data.institutionId == resource.data.institutionId;
       allow delete: if isSuperAdmin() || (
         isSignedIn() &&
@@ -877,8 +1107,16 @@ service cloud.firestore {
         isInstAdmin(request.resource.data.institutionId);
       allow update: if isValidId(courseId) &&
         resource != null &&
-        isInstAdmin(resource.data.institutionId) &&
-        request.resource.data.institutionId == resource.data.institutionId;
+        request.resource.data.institutionId == resource.data.institutionId && (
+          isInstAdmin(resource.data.institutionId) || (
+            isSecretaria(resource.data.institutionId) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['filledVacancies', 'updatedAt']) &&
+            ('filledVacancies' in request.resource.data) &&
+            request.resource.data.filledVacancies is int &&
+            request.resource.data.filledVacancies == (('filledVacancies' in resource.data && resource.data.filledVacancies is int) ? resource.data.filledVacancies : 0) + 1 &&
+            (!('totalVacancies' in resource.data) || !(resource.data.totalVacancies is number) || resource.data.totalVacancies <= 0 || request.resource.data.filledVacancies <= resource.data.totalVacancies)
+          )
+        );
       allow delete: if resource != null && (isSuperAdmin() || isInstAdmin(resource.data.institutionId));
     }
 
@@ -1108,6 +1346,38 @@ service cloud.firestore {
         );
     }
 
+    function isCourseOpenItem(c, targetCourseId) {
+      return c is map &&
+        c.get('courseId', '') == targetCourseId &&
+        c.get('active', true) != false &&
+        (
+          !('vacancies' in c) ||
+          !(c.vacancies is number) ||
+          (c.vacancies > 0 && (!(c.get('filledVacancies', 0) is number) || c.get('filledVacancies', 0) < c.vacancies))
+        );
+    }
+
+    function isCourseOpenAndAvailableAt(courses, idx, targetCourseId) {
+      return idx < courses.size() && isCourseOpenItem(courses[idx], targetCourseId);
+    }
+
+    function isCourseAvailableInPublicConfig(pub, targetCourseId) {
+      return ('onlineRegistrationConfig' in pub) &&
+        pub.onlineRegistrationConfig is map &&
+        ('coursesConfig' in pub.onlineRegistrationConfig) &&
+        pub.onlineRegistrationConfig.coursesConfig is list &&
+        pub.onlineRegistrationConfig.coursesConfig.size() > 0 && (
+          isCourseOpenAndAvailableAt(pub.onlineRegistrationConfig.coursesConfig, 0, targetCourseId) ||
+          isCourseOpenAndAvailableAt(pub.onlineRegistrationConfig.coursesConfig, 1, targetCourseId) ||
+          isCourseOpenAndAvailableAt(pub.onlineRegistrationConfig.coursesConfig, 2, targetCourseId) ||
+          isCourseOpenAndAvailableAt(pub.onlineRegistrationConfig.coursesConfig, 3, targetCourseId) ||
+          isCourseOpenAndAvailableAt(pub.onlineRegistrationConfig.coursesConfig, 4, targetCourseId) ||
+          isCourseOpenAndAvailableAt(pub.onlineRegistrationConfig.coursesConfig, 5, targetCourseId) ||
+          isCourseOpenAndAvailableAt(pub.onlineRegistrationConfig.coursesConfig, 6, targetCourseId) ||
+          isCourseOpenAndAvailableAt(pub.onlineRegistrationConfig.coursesConfig, 7, targetCourseId)
+        );
+    }
+
     function isMatchingPublicConfigSubmission(d, slug) {
       let pub = get(/databases/$(database)/documents/publicInstitutions/$(slug)).data;
       return ('institutionId' in pub) &&
@@ -1117,6 +1387,7 @@ service cloud.firestore {
         ('privacyAccepted' in d) && d.privacyAccepted == true &&
         ('courseId' in d) && d.courseId is string && d.courseId.size() > 0 &&
         ('courseName' in d) && d.courseName is string && d.courseName.size() > 0 &&
+        (isSecretaria(d.institutionId) || isCourseAvailableInPublicConfig(pub, d.courseId)) &&
         (
           !('onlineRegistrationConfig' in pub) ||
           !(pub.onlineRegistrationConfig is map) ||
@@ -1247,6 +1518,30 @@ service cloud.firestore {
     }
 
     // Convites unificados para todos os perfis autorizados (/userInvitations/{invId})
+    function isNonAdminInvitePermissionsList(perms) {
+      return perms is list &&
+        perms.size() <= 105 &&
+        !perms.hasAny([
+          'instituicoes.create', 'instituicoes.delete', 'instituicoes.switch',
+          'auditoria.purge'
+        ]);
+    }
+
+    function isSecretariaAllowedInvitePermissions(perms) {
+      return isNonAdminInvitePermissionsList(perms) &&
+        !perms.hasAny([
+          'instituicoes.view', 'instituicoes.edit',
+          'usuarios.view', 'usuarios.create', 'usuarios.edit_role', 'usuarios.delete',
+          'pagamentos.approve', 'pagamentos.reject',
+          'caixa.open', 'caixa.close', 'caixa.bleed', 'caixa.transact',
+          'certificados.approve', 'certificados.revoke',
+          'pautas.approve', 'pautas.override',
+          'candidatos.view', 'candidatos.approve', 'candidatos.reject', 'candidatos.convert', 'candidatos.config',
+          'auditoria.view', 'auditoria.export',
+          'backup.view', 'backup.create', 'backup.restore'
+        ]);
+    }
+
     function isAllowedInvitationCreate(d) {
       return ('institutionId' in d) &&
         d.institutionId is string &&
@@ -1256,15 +1551,28 @@ service cloud.firestore {
         ('email' in d) &&
         d.email is string &&
         d.email.size() >= 5 &&
+        ('createdByUid' in d) &&
+        d.createdByUid == request.auth.uid &&
+        ('expiresAtMs' in d) &&
+        d.expiresAtMs is int &&
+        d.expiresAtMs > request.time.toMillis() &&
+        d.expiresAtMs <= request.time.toMillis() + 2678400000 &&
+        ('permissions' in d) &&
+        d.permissions is list &&
         d.used == false &&
         (!('revoked' in d) || d.revoked == false) &&
         isNonSuperAdminPayload(d) &&
         (
-          isSuperAdmin() ||
-          isInstAdmin(d.institutionId) ||
+          (isSuperAdmin() && isNonAdminInvitePermissionsList(d.permissions)) ||
+          (
+            isInstAdmin(d.institutionId) &&
+            (d.role in ['DIRETOR', 'CEO', 'SECRETARIA', 'FINANCEIRO', 'PROFESSOR', 'FORMADOR', 'PORTEIRO', 'ALUNO', 'RESPONSAVEL', 'EMPRESA']) &&
+            isNonAdminInvitePermissionsList(d.permissions)
+          ) ||
           (
             isSecretaria(d.institutionId) &&
-            (d.role in ['ALUNO', 'RESPONSAVEL', 'PROFESSOR', 'FORMADOR', 'PORTEIRO'])
+            (d.role in ['ALUNO', 'RESPONSAVEL', 'PROFESSOR', 'FORMADOR', 'PORTEIRO']) &&
+            isSecretariaAllowedInvitePermissions(d.permissions)
           )
         );
     }
@@ -1286,6 +1594,8 @@ service cloud.firestore {
             (isSecretaria(resource.data.institutionId) && (resource.data.role in ['ALUNO', 'RESPONSAVEL', 'PROFESSOR', 'FORMADOR', 'PORTEIRO']))
           ) &&
           request.resource.data.institutionId == resource.data.institutionId &&
+          request.resource.data.role == resource.data.role &&
+          request.resource.data.permissions == resource.data.permissions &&
           isNonSuperAdminPayload(request.resource.data)
         ) ||
         (

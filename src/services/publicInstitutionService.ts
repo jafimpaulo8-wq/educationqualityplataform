@@ -1,6 +1,16 @@
 import { doc, getDoc, runTransaction } from 'firebase/firestore';
-import { db, auth } from './firebase';
-import { Branch, Institution, PublicInstitution, OnlineRegistrationConfig, OnlineCourseConfig } from '../types';
+import { httpsCallable } from 'firebase/functions';
+import { db, auth, functions } from './firebase';
+import {
+  Branch,
+  FieldRequirementStatus,
+  Institution,
+  OnlineCourseConfig,
+  OnlineRegistrationConfig,
+  OnlineRegistrationCustomQuestion,
+  OnlineRegistrationRequiredFields,
+  PublicInstitution
+} from '../types';
 import { toCanonicalRole } from '../types/rbac';
 import { CEU_AZUL_INSTITUTION } from '../data/ceuAzulData';
 import { INITIAL_INSTITUTIONS } from '../data/mockData';
@@ -403,6 +413,8 @@ export function extractPublishedPublicCourses(publicInsts: PublicInstitution[]):
 
   for (const inst of publicInsts || []) {
     if (!inst || !inst.institutionId || !inst.slug) continue;
+    const rawStatus = String((inst as any).status || '').trim();
+    if (rawStatus === 'Suspensa' || rawStatus === 'Inativa') continue;
     const cfg = inst.onlineRegistrationConfig;
     if (!cfg || cfg.isOpen === false) continue;
 
@@ -458,13 +470,28 @@ const SAFE_BRANCH_FIELDS = new Set<keyof Branch>([
   'address',
   'city',
   'province',
-  'directorName',
   'isMainBranch',
   'isHeadquarter',
-  'totalStudents',
   'status',
   'createdAt'
 ]);
+
+const SAFE_REQUIRED_FIELD_KEYS: Array<keyof OnlineRegistrationRequiredFields> = [
+  'email',
+  'phone',
+  'documentNumber',
+  'birthDate',
+  'gender',
+  'province',
+  'city',
+  'address',
+  'guardianName',
+  'guardianPhone',
+  'guardianRelationship',
+  'authorizedPickupPersons',
+  'nuit',
+  'previousSchool'
+];
 
 export const PUBLIC_INSTITUTION_ALLOWED_KEYS = [
   'id',
@@ -499,34 +526,214 @@ export const PUBLIC_INSTITUTION_ALLOWED_KEYS = [
   'updatedAt'
 ] as const;
 
+export const PUBLIC_DOCUMENT_REQUIREMENT_ALLOWED_KEYS = new Set<string>([
+  'bi',
+  'passaporte',
+  'dire',
+  'cedula',
+  'certificado_habilitacoes',
+  'declaracao_notas',
+  'nuit',
+  'foto_passe',
+  'boletim_vacinas',
+  'bi_encarregado',
+  'guia_transferencia',
+  'atestado_medico',
+  'comprovativo_residencia',
+  'comprovativo_pagamento',
+  'curriculo_cv',
+  'Bilhete de Identidade (BI) ou Passaporte válido',
+  'Bilhete de Identidade (BI), DIRE ou Passaporte Válido',
+  'Bilhete de Identidade (BI) ou Cédula de Nascimento',
+  'Bilhete de Identidade (BI)',
+  'Passaporte válido',
+  'Cédula de Nascimento ou Assento da Criança',
+  'Cédula de Nascimento ou Assento de Nascimento da Criança',
+  'Cédula de Nascimento',
+  'Certificado de Habilitações Literárias (10ª ou 12ª Classe)',
+  'Certificado de Habilitações ou Declaração com Notas da Escola Anterior',
+  'Certificado de Habilitações',
+  'Declaração de NUIT (Identificação Tributária)',
+  'Declaração ou Cartão de NUIT',
+  'Cartão ou Declaração de NUIT',
+  'Fotografia tipo passe recente (fundo branco)',
+  'Fotografia recente tipo passe da criança (fundo branco)',
+  'Fotografia tipo passe',
+  'Boletim / Cartão de Vacinas Atualizado',
+  'Fotocópia do BI / Identificação dos Pais ou Encarregados',
+  'Guia de Transferência Oficial (quando aplicável)',
+  'Atestado Médico',
+  'Comprovativo de Residência',
+  'Declaração de Compromisso'
+]);
+
+function sanitizeStringArray(raw: unknown, maxItems: number): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    .slice(0, maxItems);
+}
+
+function normalizeRequirementStatus(
+  value: unknown,
+  fallback: FieldRequirementStatus = 'opcional'
+): FieldRequirementStatus {
+  if (value === 'obrigatorio' || value === 'opcional' || value === 'oculto' || typeof value === 'boolean') {
+    return value;
+  }
+  return fallback;
+}
+
 function sanitizePublicBranches(rawBranches: unknown): Branch[] | undefined {
   if (!Array.isArray(rawBranches)) return undefined;
   return rawBranches
     .filter((b): b is Record<string, any> => Boolean(b && typeof b === 'object'))
+    .slice(0, 20)
     .map((b) => {
       const cleanBranch: Record<string, any> = {};
       for (const field of SAFE_BRANCH_FIELDS) {
-        if (b[field] !== undefined) {
-          cleanBranch[field] = b[field];
+        const val = b[field];
+        if (val === undefined) continue;
+        if (field === 'isMainBranch' || field === 'isHeadquarter') {
+          if (typeof val === 'boolean') cleanBranch[field] = val;
+        } else if (typeof val === 'string') {
+          cleanBranch[field] = val;
         }
       }
       return cleanBranch as Branch;
     });
 }
 
+function sanitizePublicOnlineRegistrationConfig(
+  rawCfg: unknown,
+  fallbackInstId: string
+): OnlineRegistrationConfig {
+  const cfg = (rawCfg && typeof rawCfg === 'object') ? (rawCfg as Record<string, any>) : {};
+  const rawRf = (cfg.requiredFields && typeof cfg.requiredFields === 'object')
+    ? (cfg.requiredFields as Record<string, any>)
+    : {};
+
+  const requiredFields: OnlineRegistrationRequiredFields = {
+    email: normalizeRequirementStatus(rawRf.email, 'opcional'),
+    phone: normalizeRequirementStatus(rawRf.phone, 'obrigatorio'),
+    documentNumber: normalizeRequirementStatus(rawRf.documentNumber, 'obrigatorio'),
+    birthDate: normalizeRequirementStatus(rawRf.birthDate, 'obrigatorio'),
+    gender: normalizeRequirementStatus(rawRf.gender, 'obrigatorio'),
+    province: normalizeRequirementStatus(rawRf.province, 'opcional'),
+    city: normalizeRequirementStatus(rawRf.city, 'opcional'),
+    address: normalizeRequirementStatus(rawRf.address, 'opcional'),
+    guardianName: normalizeRequirementStatus(rawRf.guardianName, 'opcional'),
+    guardianPhone: normalizeRequirementStatus(rawRf.guardianPhone, 'opcional'),
+    guardianRelationship: normalizeRequirementStatus(rawRf.guardianRelationship, 'oculto'),
+    authorizedPickupPersons: normalizeRequirementStatus(rawRf.authorizedPickupPersons, 'oculto'),
+    nuit: normalizeRequirementStatus(rawRf.nuit, 'opcional'),
+    previousSchool: normalizeRequirementStatus(rawRf.previousSchool, 'opcional')
+  };
+
+  for (const key of SAFE_REQUIRED_FIELD_KEYS) {
+    if (rawRf[key] !== undefined) {
+      requiredFields[key] = normalizeRequirementStatus(rawRf[key], requiredFields[key] || 'opcional');
+    }
+  }
+
+  const requiredDocuments = sanitizeStringArray(cfg.requiredDocuments, 25);
+
+  const rawDocReq = (cfg.documentRequirements && typeof cfg.documentRequirements === 'object')
+    ? (cfg.documentRequirements as Record<string, any>)
+    : {};
+  const documentRequirements: Record<string, FieldRequirementStatus> = {};
+  for (const [docKey, docVal] of Object.entries(rawDocReq)) {
+    if (Object.keys(documentRequirements).length >= 30) break;
+    if (typeof docKey === 'string' && PUBLIC_DOCUMENT_REQUIREMENT_ALLOWED_KEYS.has(docKey)) {
+      documentRequirements[docKey] = normalizeRequirementStatus(docVal, 'obrigatorio');
+    }
+  }
+
+  const customQuestions: OnlineRegistrationCustomQuestion[] = Array.isArray(cfg.customQuestions)
+    ? cfg.customQuestions
+        .filter((q): q is Record<string, any> => Boolean(q && typeof q === 'object'))
+        .slice(0, 25)
+        .map((q) => ({
+          id: typeof q.id === 'string' ? q.id : '',
+          question: typeof q.question === 'string' ? q.question : '',
+          type: q.type === 'select' || q.type === 'boolean' ? q.type : 'text',
+          ...(Array.isArray(q.options) ? { options: sanitizeStringArray(q.options, 15) } : {}),
+          required: Boolean(q.required),
+          ...(q.active !== undefined ? { active: Boolean(q.active) } : {})
+        }))
+    : [];
+
+  const allowedRegimes = new Set([
+    'Laboral',
+    'Pós-Laboral',
+    'Online EAD',
+    'Híbrido',
+    'Presencial',
+    'Semi-presencial',
+    'Integral'
+  ]);
+
+  const coursesConfig: OnlineCourseConfig[] = Array.isArray(cfg.coursesConfig)
+    ? cfg.coursesConfig
+        .filter((c): c is Record<string, any> => Boolean(c && typeof c === 'object'))
+        .slice(0, 40)
+        .map((c) => ({
+          courseId: typeof c.courseId === 'string' ? c.courseId : '',
+          courseName: typeof c.courseName === 'string' ? c.courseName : '',
+          ...(typeof c.category === 'string' ? { category: c.category } : {}),
+          active: c.active !== false,
+          price: typeof c.price === 'number' && Number.isFinite(c.price) ? c.price : 0,
+          ...(typeof c.monthlyFee === 'number' && Number.isFinite(c.monthlyFee) ? { monthlyFee: c.monthlyFee } : {}),
+          duration: typeof c.duration === 'string' ? c.duration : '',
+          requirements: sanitizeStringArray(c.requirements, 20),
+          vacancies: typeof c.vacancies === 'number' && Number.isFinite(c.vacancies) ? c.vacancies : 0,
+          filledVacancies: typeof c.filledVacancies === 'number' && Number.isFinite(c.filledVacancies) ? c.filledVacancies : 0,
+          regimes: sanitizeStringArray(c.regimes, 10).filter((r) => allowedRegimes.has(r)) as OnlineCourseConfig['regimes'],
+          shifts: sanitizeStringArray(c.shifts, 10),
+          ...(Array.isArray(c.documents) ? { documents: sanitizeStringArray(c.documents, 15) } : {})
+        }))
+    : [];
+
+  return {
+    institutionId: fallbackInstId || (typeof cfg.institutionId === 'string' ? cfg.institutionId : ''),
+    isOpen: cfg.isOpen !== false,
+    title: typeof cfg.title === 'string' ? cfg.title : 'Inscrições Online',
+    description: typeof cfg.description === 'string' ? cfg.description : '',
+    startDate: typeof cfg.startDate === 'string' ? cfg.startDate : '',
+    endDate: typeof cfg.endDate === 'string' ? cfg.endDate : '',
+    academicYear: typeof cfg.academicYear === 'string' ? cfg.academicYear : String(new Date().getFullYear()),
+    semester: typeof cfg.semester === 'string' ? cfg.semester : '',
+    requiredFields,
+    requiredDocuments,
+    documentRequirements,
+    customQuestions,
+    coursesConfig,
+    autoApproveOnPayment: Boolean(cfg.autoApproveOnPayment),
+    confirmationMessageTemplate: typeof cfg.confirmationMessageTemplate === 'string' ? cfg.confirmationMessageTemplate : '',
+    ...(typeof cfg.termsAndConditions === 'string' ? { termsAndConditions: cfg.termsAndConditions } : {}),
+    ...(typeof cfg.privacyPolicy === 'string' ? { privacyPolicy: cfg.privacyPolicy } : {}),
+    ...(typeof cfg.contactPhone === 'string' ? { contactPhone: cfg.contactPhone } : {}),
+    ...(typeof cfg.contactWhatsapp === 'string' ? { contactWhatsapp: cfg.contactWhatsapp } : {}),
+    ...(typeof cfg.contactEmail === 'string' ? { contactEmail: cfg.contactEmail } : {})
+  };
+}
+
 /**
  * Constrói um payload público estritamente filtrado por allowlist, removendo quaisquer campos privados
  * (M-Pesa, e-Mola, mKesh, bancos, assinaturas, carimbos, representantes, credenciais ou flags internas)
- * antes de persistir ou expor em `publicInstitutions/{slug}`.
+ * tanto na raiz como em todos os subobjectos aninhados antes de persistir ou expor em `publicInstitutions/{slug}`.
  */
 export function sanitizePublicInstitutionPayload<T extends Record<string, any>>(raw: T): PublicInstitution {
   const source = (raw || {}) as Record<string, any>;
+  const instId = typeof source.institutionId === 'string' ? source.institutionId : '';
 
   const rawPm = (source.paymentMethods && typeof source.paymentMethods === 'object') ? source.paymentMethods : {};
-  const acceptedChannels = Array.isArray(source.acceptedChannels) && source.acceptedChannels.length > 0
-    ? source.acceptedChannels
-    : Array.isArray(rawPm.acceptedChannels) && rawPm.acceptedChannels.length > 0
-      ? rawPm.acceptedChannels
+  const rawAccepted = sanitizeStringArray(source.acceptedChannels, 15);
+  const rawPmAccepted = sanitizeStringArray(rawPm.acceptedChannels, 15);
+  const acceptedChannels = rawAccepted.length > 0
+    ? rawAccepted
+    : rawPmAccepted.length > 0
+      ? rawPmAccepted
       : ['M-Pesa', 'e-Mola', 'mKesh', 'Transferência Bancária', 'Balcão / Tesouraria'];
 
   const sanitizedPaymentMethods: PublicInstitution['paymentMethods'] = {
@@ -537,105 +744,49 @@ export function sanitizePublicInstitutionPayload<T extends Record<string, any>>(
       : 'Autentique-se no Portal de Pagamentos com a sua conta institucional para consultar as coordenadas oficiais e submeter comprovativos.'
   };
 
-  const sanitizedOnlineRegistrationConfig =
-    source.onlineRegistrationConfig && typeof source.onlineRegistrationConfig === 'object'
-      ? (() => {
-          const {
-            mpesa: _om,
-            emola: _oe,
-            mkesh: _ok,
-            mpesaNumber: _omn,
-            emolaNumber: _oen,
-            mkeshNumber: _okn,
-            bankAccount: _oba,
-            bankAccounts: _obas,
-            financialAccounts: _ofa,
-            financialSettings: _ofs,
-            receivingAccounts: _ora,
-            paymentAccounts: _opa,
-            nib: _onib,
-            nuib: _onuib,
-            iban: _oiban,
-            pixKey: _opix,
-            accountNumber: _oan,
-            accountName: _oanam,
-            signatureUrl: _osig,
-            stampUrl: _ostp,
-            carnetStaticQrUrl: _oqr,
-            accessCode: _oac,
-            ownerEmail: _ooe,
-            ...safeOnlineCfg
-          } = source.onlineRegistrationConfig as Record<string, any>;
-          return safeOnlineCfg;
-        })()
-      : undefined;
+  const sanitizedOnlineRegistrationConfig = sanitizePublicOnlineRegistrationConfig(
+    source.onlineRegistrationConfig,
+    instId
+  );
 
   const logoCheck = validateInstitutionalImageInput(source.logoUrl, { maxBytes: 250_000, label: 'Logo' });
   const emblemCheck = validateInstitutionalImageInput(source.emblemUrl, { maxBytes: 250_000, label: 'Emblema' });
   const faviconCheck = validateInstitutionalImageInput(source.faviconUrl, { maxBytes: 150_000, label: 'Favicon' });
   const safeBranches = sanitizePublicBranches(source.branches);
+  const safeSlugAliases = Array.isArray(source.slugAliases)
+    ? sanitizeStringArray(source.slugAliases, 15)
+    : undefined;
 
   const allowlistedPayload: PublicInstitution = {
     id: typeof source.id === 'string' ? source.id : '',
-    institutionId: typeof source.institutionId === 'string' ? source.institutionId : '',
+    institutionId: instId,
     slug: typeof source.slug === 'string' ? source.slug : '',
-    ...(Array.isArray(source.slugAliases) ? { slugAliases: source.slugAliases } : {}),
+    ...(safeSlugAliases !== undefined ? { slugAliases: safeSlugAliases } : {}),
     name: typeof source.name === 'string' ? source.name : '',
     code: typeof source.code === 'string' ? source.code : '',
-    ...(source.sigla !== undefined ? { sigla: source.sigla } : {}),
-    type: source.type ?? 'outra',
-    ...(source.nuit !== undefined ? { nuit: source.nuit } : {}),
-    ...(source.licenseNumber !== undefined ? { licenseNumber: source.licenseNumber } : {}),
+    ...(typeof source.sigla === 'string' ? { sigla: source.sigla } : {}),
+    type: typeof source.type === 'string' ? source.type : 'outra',
+    ...(typeof source.nuit === 'string' ? { nuit: source.nuit } : {}),
+    ...(typeof source.licenseNumber === 'string' ? { licenseNumber: source.licenseNumber } : {}),
     phone: typeof source.phone === 'string' ? source.phone : '',
-    ...(source.phoneAlt !== undefined ? { phoneAlt: source.phoneAlt } : {}),
+    ...(typeof source.phoneAlt === 'string' ? { phoneAlt: source.phoneAlt } : {}),
     email: typeof source.email === 'string' ? source.email : '',
-    ...(source.whatsapp !== undefined ? { whatsapp: source.whatsapp } : {}),
+    ...(typeof source.whatsapp === 'string' ? { whatsapp: source.whatsapp } : {}),
     address: typeof source.address === 'string' ? source.address : '',
     city: typeof source.city === 'string' ? source.city : '',
     province: typeof source.province === 'string' ? source.province : '',
     logoUrl: logoCheck.valid ? logoCheck.normalized : undefined,
     emblemUrl: emblemCheck.valid ? emblemCheck.normalized : undefined,
     faviconUrl: faviconCheck.valid ? faviconCheck.normalized : undefined,
-    ...(source.slogan !== undefined ? { slogan: source.slogan } : {}),
-    ...(source.primaryColor !== undefined ? { primaryColor: source.primaryColor } : {}),
-    ...(source.accentColor !== undefined ? { accentColor: source.accentColor } : {}),
+    ...(typeof source.slogan === 'string' ? { slogan: source.slogan } : {}),
+    ...(typeof source.primaryColor === 'string' ? { primaryColor: source.primaryColor } : {}),
+    ...(typeof source.accentColor === 'string' ? { accentColor: source.accentColor } : {}),
     ...(safeBranches !== undefined ? { branches: safeBranches } : {}),
-    onlineRegistrationConfig: (sanitizedOnlineRegistrationConfig || {
-      institutionId: typeof source.institutionId === 'string' ? source.institutionId : '',
-      isOpen: true,
-      title: 'Inscrições Online',
-      description: '',
-      startDate: '',
-      endDate: '',
-      academicYear: String(new Date().getFullYear()),
-      semester: '',
-      requiredFields: {
-        email: 'opcional',
-        phone: 'obrigatorio',
-        documentNumber: 'obrigatorio',
-        birthDate: 'obrigatorio',
-        gender: 'obrigatorio',
-        province: 'opcional',
-        city: 'opcional',
-        address: 'opcional',
-        guardianName: 'opcional',
-        guardianPhone: 'opcional',
-        guardianRelationship: 'oculto',
-        authorizedPickupPersons: 'oculto',
-        nuit: 'opcional',
-        previousSchool: 'opcional'
-      },
-      requiredDocuments: [],
-      documentRequirements: {},
-      customQuestions: [],
-      coursesConfig: [],
-      autoApproveOnPayment: false,
-      confirmationMessageTemplate: ''
-    }) as OnlineRegistrationConfig,
+    onlineRegistrationConfig: sanitizedOnlineRegistrationConfig,
     acceptedChannels,
     paymentMethods: sanitizedPaymentMethods,
-    ...(source.termsAndConditions !== undefined ? { termsAndConditions: source.termsAndConditions } : {}),
-    ...(source.privacyPolicy !== undefined ? { privacyPolicy: source.privacyPolicy } : {}),
+    ...(typeof source.termsAndConditions === 'string' ? { termsAndConditions: source.termsAndConditions } : {}),
+    ...(typeof source.privacyPolicy === 'string' ? { privacyPolicy: source.privacyPolicy } : {}),
     updatedAt: (typeof source.updatedAt === 'string' && source.updatedAt) ? source.updatedAt : new Date().toISOString()
   };
 
@@ -1129,9 +1280,52 @@ function createFirestoreTxAdapter(transaction: any): PublicInstitutionTxAdapter 
   };
 }
 
+export function getClientDirectWriteOverflowReasons(publicData: PublicInstitution): string[] {
+  const reasons: string[] = [];
+  if (Array.isArray(publicData.slugAliases) && publicData.slugAliases.length > 6) {
+    reasons.push(`slugAliases (${publicData.slugAliases.length} > 6)`);
+  }
+  if (Array.isArray(publicData.acceptedChannels) && publicData.acceptedChannels.length > 6) {
+    reasons.push(`acceptedChannels (${publicData.acceptedChannels.length} > 6)`);
+  }
+  if (Array.isArray(publicData.paymentMethods?.acceptedChannels) && publicData.paymentMethods!.acceptedChannels.length > 6) {
+    reasons.push(`paymentMethods.acceptedChannels (${publicData.paymentMethods!.acceptedChannels.length} > 6)`);
+  }
+  if (Array.isArray(publicData.branches) && publicData.branches.length > 3) {
+    reasons.push(`branches (${publicData.branches.length} > 3)`);
+  }
+  const cfg = publicData.onlineRegistrationConfig;
+  if (cfg) {
+    if (Array.isArray(cfg.requiredDocuments) && cfg.requiredDocuments.length > 8) {
+      reasons.push(`requiredDocuments (${cfg.requiredDocuments.length} > 8)`);
+    }
+    if (Array.isArray(cfg.customQuestions) && cfg.customQuestions.length > 4) {
+      reasons.push(`customQuestions (${cfg.customQuestions.length} > 4)`);
+    }
+    if (Array.isArray(cfg.coursesConfig)) {
+      if (cfg.coursesConfig.length > 5) {
+        reasons.push(`coursesConfig (${cfg.coursesConfig.length} > 5)`);
+      }
+      for (const c of cfg.coursesConfig) {
+        if (Array.isArray(c.requirements) && c.requirements.length > 3) {
+          reasons.push(`course(${c.courseId}).requirements (${c.requirements.length} > 3)`);
+        }
+        if (Array.isArray(c.shifts) && c.shifts.length > 3) {
+          reasons.push(`course(${c.courseId}).shifts (${c.shifts.length} > 3)`);
+        }
+        if (Array.isArray(c.documents) && c.documents.length > 3) {
+          reasons.push(`course(${c.courseId}).documents (${c.documents.length} > 3)`);
+        }
+      }
+    }
+  }
+  return reasons;
+}
+
 /**
  * Sincroniza metadados estritamente públicos da instituição para `publicInstitutions/{slug}`
  * e actualiza atomicamente `publicInstitutions/_index` via `runTransaction()`.
+ * Se o catálogo exceder o orçamento de validação directa das Firestore Rules, utiliza `publishPublicInstitutionCallable`.
  */
 export async function syncPublicInstitutionMetadata(
   inst: Institution
@@ -1140,6 +1334,14 @@ export async function syncPublicInstitutionMetadata(
     return {
       status: 'error',
       error: 'Instituição inválida: identificador em falta ou inválido para sincronização pública.'
+    };
+  }
+
+  const normalizedStatus = String(inst.status || '').trim().toLowerCase();
+  if (normalizedStatus === 'suspensa' || normalizedStatus === 'inativa') {
+    return {
+      status: 'error',
+      error: `A instituição encontra-se com estado "${inst.status}" e não pode ser publicada no portal público.`
     };
   }
 
@@ -1168,6 +1370,33 @@ export async function syncPublicInstitutionMetadata(
       slug,
       error: authCheck.error || 'Autorização administrativa insuficiente.'
     };
+  }
+
+  const overflowReasons = getClientDirectWriteOverflowReasons(publicData);
+  if (overflowReasons.length > 0) {
+    try {
+      const callable = httpsCallable<
+        { institutionId: string; slug: string; publicData: PublicInstitution },
+        { ok: boolean; slug?: string }
+      >(functions, 'publishPublicInstitutionCallable');
+      const res = await callable({ institutionId: inst.id, slug, publicData });
+      if (res.data?.ok) {
+        return { status: 'success', slug: res.data.slug || slug };
+      }
+      return {
+        status: 'error',
+        slug,
+        error: 'O servidor não confirmou a publicação do portal alargado.'
+      };
+    } catch (fnErr: any) {
+      const code = fnErr?.code ? `${fnErr.code}: ` : '';
+      const msg = fnErr?.message || String(fnErr || 'Cloud Function publishPublicInstitutionCallable indisponível.');
+      return {
+        status: 'error',
+        slug,
+        error: `Configuração pública excede o orçamento de escrita directa das Firestore Rules (${overflowReasons.join(', ')}) e a Cloud Function publishPublicInstitutionCallable falhou/não está publicada: ${code}${msg}`
+      };
+    }
   }
 
   try {
@@ -1373,8 +1602,11 @@ export async function fetchPublishedPublicInstitutionStrict(
     if (!snap.exists()) {
       return { institution: null };
     }
-    const data = snap.data() as PublicInstitution;
-    return { institution: sanitizePublicInstitutionPayload(data) };
+    const rawData = snap.data() as Record<string, any>;
+    if (rawData?.status === 'Suspensa' || rawData?.status === 'Inativa') {
+      return { institution: null };
+    }
+    return { institution: sanitizePublicInstitutionPayload(rawData as PublicInstitution) };
   } catch (error: any) {
     const code = error?.code ? `${error.code}: ` : '';
     const message = error?.message || String(error);
@@ -1386,74 +1618,92 @@ export async function fetchPublishedPublicInstitutionStrict(
   }
 }
 
+function matchesPublicInstitutionAlias(inst: PublicInstitution, slug: string): boolean {
+  if (normalizeSlug(inst.slug || '') === slug) return true;
+  if (Array.isArray(inst.slugAliases) && inst.slugAliases.some((a) => normalizeSlug(a) === slug)) {
+    return true;
+  }
+  if (inst.code && normalizeSlug(inst.code) === slug) return true;
+  if (inst.institutionId && normalizeSlug(inst.institutionId) === slug) return true;
+  if (inst.sigla && normalizeSlug(inst.sigla) === slug) return true;
+  return false;
+}
+
+/**
+ * Resolução estrita por slug exclusivamente via Firestore (`publicInstitutions/{slug}` e aliases publicados em `_index`).
+ * Nunca faz fallback para `KNOWN_INSTITUTIONS`, `CEU_AZUL_INSTITUTION` ou `INITIAL_INSTITUTIONS`.
+ * O fallback local só é permitido em modo explícito de pré-visualização autenticada (`isPreviewMode === true`).
+ */
+export async function resolvePublicInstitutionStrictWithAliases(
+  rawSlug: string,
+  options?: { isPreviewMode?: boolean; previewPool?: Institution[] }
+): Promise<StrictPublicInstitutionResult> {
+  const slug = normalizeSlug(rawSlug);
+  if (!isValidPublicInstitutionSlug(slug)) {
+    return { institution: null };
+  }
+
+  const direct = await fetchPublishedPublicInstitutionStrict(slug);
+  if (direct.error) {
+    return direct;
+  }
+  if (direct.institution) {
+    return direct;
+  }
+
+  const indexRes = await fetchPublicInstitutionsIndex();
+  if (indexRes.error) {
+    return { institution: null, error: indexRes.error };
+  }
+
+  for (const candidateSlug of indexRes.slugs) {
+    if (candidateSlug === slug) continue;
+    const candidate = await fetchPublishedPublicInstitutionStrict(candidateSlug);
+    if (candidate.institution && matchesPublicInstitutionAlias(candidate.institution, slug)) {
+      return { institution: candidate.institution };
+    }
+  }
+
+  if (options?.isPreviewMode === true && Array.isArray(options.previewPool) && options.previewPool.length > 0) {
+    const matched = options.previewPool.find((inst) => {
+      if (!inst) return false;
+      const instStatus = String(inst.status || '').trim().toLowerCase();
+      if (instStatus === 'suspensa' || instStatus === 'inativa') return false;
+      const primary = inst.slug ? normalizeSlug(inst.slug) : '';
+      if (primary && primary === slug) return true;
+      const aliases = (inst.slugAliases || []).map((a) => normalizeSlug(a));
+      if (aliases.includes(slug)) return true;
+      if (inst.code && normalizeSlug(inst.code) === slug) return true;
+      if (inst.id && normalizeSlug(inst.id) === slug) return true;
+      if (inst.sigla && normalizeSlug(inst.sigla) === slug) return true;
+      return false;
+    });
+    if (matched) {
+      return { institution: buildPublicInstitutionFromModel(matched) };
+    }
+  }
+
+  return { institution: null };
+}
+
 /**
  * Resolve e valida a instituição a partir do slug do endereço público.
  *
  * Regra Mandatória:
- * - Nunca utilizar a instituição ativa do browser para determinar o portal público.
- * - Validar primeiramente em publicInstitutions/{slug}.
- * - Sanitizar sempre quaisquer campos financeiros privados legados antes de retornar.
- * - Se o slug for inválido ou não existir, retorna NULL (nunca redireciona nem aplica fallback cruzado).
+ * - Nunca utilizar a instituição ativa do browser nem listas estáticas (`KNOWN_INSTITUTIONS`) para determinar o portal público.
+ * - Consultar estritamente `publicInstitutions/{slug}` e aliases publicados no índice `publicInstitutions/_index`.
+ * - Só aceita `previewPool` quando `options.isPreviewMode === true` (pré-visualização explícita autenticada).
  */
 export async function resolvePublicInstitutionBySlug(
   rawSlug: string,
-  localInstitutionsPool?: Institution[]
+  localInstitutionsPool?: Institution[],
+  options?: { isPreviewMode?: boolean }
 ): Promise<PublicInstitution | null> {
-  const slug = normalizeSlug(rawSlug);
-  if (!slug) {
-    return null;
-  }
-
-  // 1. Tentar obter do Firestore na coleção publicInstitutions/{slug}
-  try {
-    const docRef = doc(db, PUBLIC_INSTITUTIONS_COLLECTION, slug);
-    const snap = await getDoc(docRef);
-    if (snap.exists()) {
-      const data = snap.data() as PublicInstitution;
-      return sanitizePublicInstitutionPayload(data);
-    }
-  } catch (error) {
-    console.warn(`[PublicInstitutionService] Nota ao buscar publicInstitutions/${slug}:`, error);
-  }
-
-  // 2. Tentar encontrar por correspondência exata de slug/aliases/id/code/sigla na pool conhecida
-  const pool = localInstitutionsPool && localInstitutionsPool.length > 0
-    ? localInstitutionsPool
-    : KNOWN_INSTITUTIONS;
-
-  const matched = pool.find(inst => {
-    const primary = inst.slug ? normalizeSlug(inst.slug) : '';
-    if (primary && primary === slug) return true;
-
-    const aliases = (inst.slugAliases || []).map(a => normalizeSlug(a));
-    if (aliases.includes(slug)) return true;
-
-    if (inst.code && normalizeSlug(inst.code) === slug) return true;
-    if (inst.id && inst.id.toLowerCase() === slug) return true;
-    if (inst.sigla && normalizeSlug(inst.sigla) === slug) return true;
-
-    const slugifiedName = normalizeSlug(
-      inst.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    );
-    if (slugifiedName && slugifiedName === slug) return true;
-
-    if ((slug === 'moztechwave' || slug === 'cftpm' || slug === 'cftpm-moztechwave' || slug === 'cftpm-nacala') && inst.id === 'inst-1') {
-      return true;
-    }
-
-    if ((slug === 'ceu-azul' || slug === 'centro-infantil-ceu-azul' || slug === 'ceu-azul-nacala') && inst.id === 'ceu-azul-nacala') {
-      return true;
-    }
-
-    return false;
+  const res = await resolvePublicInstitutionStrictWithAliases(rawSlug, {
+    isPreviewMode: options?.isPreviewMode === true,
+    previewPool: localInstitutionsPool
   });
-
-  if (matched) {
-    return buildPublicInstitutionFromModel(matched);
-  }
-
-  // 3. Slug inválido ou inexistente: NUNCA retornar o tenant ativo nem outra instituição!
-  return null;
+  return res.institution;
 }
 
 /**

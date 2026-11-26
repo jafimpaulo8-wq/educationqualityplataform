@@ -34,7 +34,6 @@ import {
 } from '../../types';
 import {
   extractSlugFromLocation,
-  KNOWN_INSTITUTIONS,
   normalizeSlug,
   resolveInstitutionSlug,
   resolvePublicInstitutionBySlug
@@ -163,8 +162,11 @@ export const PublicJobsView: React.FC = () => {
 
   const institutionOptions = useMemo(() => {
     const map = new Map<string, string>();
-    [...KNOWN_INSTITUTIONS, ...(allInstitutions || [])].forEach((inst: Institution) => {
-      if (inst?.id) map.set(inst.id, inst.name);
+    (allInstitutions || []).forEach((inst: Institution) => {
+      const st = String(inst?.status || '').trim().toLowerCase();
+      if (inst?.id && st !== 'suspensa' && st !== 'inativa') {
+        map.set(inst.id, inst.name);
+      }
     });
     vacancies.forEach(v => {
       if (v.institutionId && !map.has(v.institutionId)) {

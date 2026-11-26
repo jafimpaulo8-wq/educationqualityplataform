@@ -492,3 +492,431 @@ export function evaluateRateLimitWindow(
   }
   return { allowed: true, nextTimestamps: [...recent, nowMs] };
 }
+
+export const PUBLIC_DOCUMENT_REQUIREMENT_ALLOWED_KEYS_SERVER = new Set<string>([
+  'bi', 'passaporte', 'dire', 'cedula', 'certificado_habilitacoes',
+  'declaracao_notas', 'nuit', 'foto_passe', 'boletim_vacinas',
+  'bi_encarregado', 'guia_transferencia', 'atestado_medico',
+  'comprovativo_residencia', 'comprovativo_pagamento', 'curriculo_cv',
+  'Bilhete de Identidade (BI) ou Passaporte válido',
+  'Bilhete de Identidade (BI), DIRE ou Passaporte Válido',
+  'Bilhete de Identidade (BI) ou Cédula de Nascimento',
+  'Bilhete de Identidade (BI)',
+  'Passaporte válido',
+  'Cédula de Nascimento ou Assento da Criança',
+  'Cédula de Nascimento ou Assento de Nascimento da Criança',
+  'Cédula de Nascimento',
+  'Certificado de Habilitações Literárias (10ª ou 12ª Classe)',
+  'Certificado de Habilitações ou Declaração com Notas da Escola Anterior',
+  'Certificado de Habilitações',
+  'Declaração de NUIT (Identificação Tributária)',
+  'Declaração ou Cartão de NUIT',
+  'Cartão ou Declaração de NUIT',
+  'Fotografia tipo passe recente (fundo branco)',
+  'Fotografia recente tipo passe da criança (fundo branco)',
+  'Fotografia tipo passe',
+  'Boletim / Cartão de Vacinas Atualizado',
+  'Fotocópia do BI / Identificação dos Pais ou Encarregados',
+  'Guia de Transferência Oficial (quando aplicável)',
+  'Atestado Médico',
+  'Comprovativo de Residência',
+  'Declaração de Compromisso'
+]);
+
+export function validateCourseVacancyAvailable(
+  courseCfg: Record<string, any> | null | undefined
+): { ok: true; remaining: number | null } | { ok: false; error: ServerValidationError } {
+  if (!courseCfg) {
+    return { ok: false, error: { code: 'not-found', message: 'Curso ou sala não encontrado na oferta pública.' } };
+  }
+  if (courseCfg.active === false) {
+    return {
+      ok: false,
+      error: { code: 'failed-precondition', message: 'Este curso encontra-se inactivo para novas inscrições.' }
+    };
+  }
+  const rawMax =
+    typeof courseCfg.vacancies === 'number' && Number.isFinite(courseCfg.vacancies)
+      ? courseCfg.vacancies
+      : typeof courseCfg.totalVacancies === 'number' && Number.isFinite(courseCfg.totalVacancies)
+        ? courseCfg.totalVacancies
+        : null;
+  if (rawMax === null) {
+    return { ok: true, remaining: null };
+  }
+  const filled =
+    typeof courseCfg.filledVacancies === 'number' && Number.isFinite(courseCfg.filledVacancies) && courseCfg.filledVacancies > 0
+      ? courseCfg.filledVacancies
+      : 0;
+  const remaining = Math.max(0, rawMax - filled);
+  if (rawMax <= 0 || remaining <= 0) {
+    return {
+      ok: false,
+      error: { code: 'failed-precondition', message: 'As vagas para este curso encontram-se esgotadas.' }
+    };
+  }
+  return { ok: true, remaining };
+}
+
+export function buildCourseApplicationDedupKeys(params: {
+  institutionId: string;
+  courseId: string;
+  documentNumber?: string;
+  email?: string;
+  phone?: string;
+}): Array<{ id: string; hash: string }> {
+  const keys: Array<{ id: string; hash: string }> = [];
+  const safeCourse = String(params.courseId || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 48);
+  const normDoc = String(params.documentNumber || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const normEmail = String(params.email || '').trim().toLowerCase();
+  const normPhone = String(params.phone || '').replace(/\D/g, '');
+
+  if (normDoc.length >= 4) {
+    const hash = sha256Hex(`${params.institutionId}|${params.courseId}|doc:${normDoc}`);
+    keys.push({ id: `doc_${safeCourse}_${hash.slice(0, 32)}`, hash });
+  }
+  if (normEmail.length >= 5 && normEmail.includes('@')) {
+    const hash = sha256Hex(`${params.institutionId}|${params.courseId}|email:${normEmail}`);
+    keys.push({ id: `eml_${safeCourse}_${hash.slice(0, 32)}`, hash });
+  }
+  if (normPhone.length >= 6) {
+    const hash = sha256Hex(`${params.institutionId}|${params.courseId}|phone:${normPhone}`);
+    keys.push({ id: `phn_${safeCourse}_${hash.slice(0, 32)}`, hash });
+  }
+  return keys;
+}
+
+export function validateCourseApplicationServerPayload(
+  input: Record<string, any>
+): { ok: true; clean: Record<string, any> } | { ok: false; error: ServerValidationError } {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { ok: false, error: { code: 'invalid-argument', message: 'Dados de candidatura ausentes.' } };
+  }
+
+  const forbiddenKeys = [
+    'studentId',
+    'matricula',
+    'approved',
+    'convertedStudentId',
+    'convertedStudentCode',
+    'convertedAt',
+    'convertedClassId',
+    'convertedClassName',
+    'analyzedBy',
+    'analyzedAt',
+    'analysisNotes',
+    'rejectionReason',
+    'role',
+    'roles',
+    'permissions',
+    'institutionIds',
+    'isSuperAdmin',
+    'emailVerified'
+  ];
+  for (const fk of forbiddenKeys) {
+    if (fk in input && input[fk] !== undefined) {
+      return {
+        ok: false,
+        error: { code: 'permission-denied', message: `Campo administrativo não permitido na submissão pública: ${fk}` }
+      };
+    }
+  }
+
+  const optStr = (v: unknown, max = 300): string | undefined => {
+    if (typeof v !== 'string') return undefined;
+    const t = v.trim();
+    return t ? t.slice(0, max) : undefined;
+  };
+
+  const institutionId = String(input.institutionId || '').trim();
+  const slug = String(input.slug || '').trim().toLowerCase();
+  const courseId = String(input.courseId || '').trim();
+  const courseName = String(input.courseName || '').trim();
+  const fullName = String(input.fullName || '').trim();
+
+  if (!isValidFirestoreId(institutionId)) {
+    return { ok: false, error: { code: 'invalid-argument', message: 'Instituição inválida.' } };
+  }
+  if (!isValidFirestoreId(slug) || slug === '_index') {
+    return { ok: false, error: { code: 'invalid-argument', message: 'Slug institucional inválido.' } };
+  }
+  if (!courseId || courseId.length > 128 || !isValidFirestoreId(courseId)) {
+    return { ok: false, error: { code: 'invalid-argument', message: 'Curso selecionado inválido.' } };
+  }
+  if (!courseName || courseName.length > 200) {
+    return { ok: false, error: { code: 'invalid-argument', message: 'Nome do curso inválido.' } };
+  }
+  if (fullName.length < 2 || fullName.length > 200) {
+    return { ok: false, error: { code: 'invalid-argument', message: 'Nome completo inválido.' } };
+  }
+  if (input.termsAccepted !== true || input.privacyAccepted !== true) {
+    return {
+      ok: false,
+      error: { code: 'invalid-argument', message: 'É obrigatório aceitar o regulamento e a política de privacidade.' }
+    };
+  }
+
+  const email = typeof input.email === 'string' ? input.email.trim().toLowerCase().slice(0, 180) : '';
+  const phone = typeof input.phone === 'string' ? input.phone.trim().slice(0, 40) : '';
+  const documentNumber = typeof input.documentNumber === 'string' ? input.documentNumber.trim().slice(0, 60) : '';
+
+  const hasValidDoc = documentNumber.replace(/[^A-Za-z0-9]/g, '').length >= 4;
+  const hasValidEmail = email.length >= 5 && email.includes('@');
+  const hasValidPhone = phone.replace(/\D/g, '').length >= 6;
+  if (!hasValidDoc && !hasValidEmail && !hasValidPhone) {
+    return {
+      ok: false,
+      error: {
+        code: 'invalid-argument',
+        message: 'Informe pelo menos um contacto ou documento válido (telefone, e-mail ou BI/Passaporte).'
+      }
+    };
+  }
+
+  const documents = Array.isArray(input.documents)
+    ? input.documents
+        .filter((d: unknown): d is Record<string, any> => Boolean(d && typeof d === 'object' && !Array.isArray(d)))
+        .slice(0, 15)
+        .map((d, idx) => {
+          const url = typeof d.url === 'string' ? d.url.slice(0, 600_000) : '';
+          return {
+            id: typeof d.id === 'string' && d.id.trim() ? d.id.trim().slice(0, 80) : `cand-doc-${idx}`,
+            name: typeof d.name === 'string' ? d.name.trim().slice(0, 120) : 'Documento',
+            type: typeof d.type === 'string' ? d.type.trim().slice(0, 80) : 'Outro',
+            fileName: typeof d.fileName === 'string' ? d.fileName.trim().slice(0, 180) : 'anexo',
+            fileSize: typeof d.fileSize === 'string' ? d.fileSize.trim().slice(0, 40) : '',
+            url,
+            verified: false,
+            uploadedAt: typeof d.uploadedAt === 'string' ? d.uploadedAt.trim().slice(0, 40) : new Date().toISOString()
+          };
+        })
+    : [];
+
+  const customAnswers = Array.isArray(input.customAnswers)
+    ? input.customAnswers
+        .filter((a: unknown): a is Record<string, any> => Boolean(a && typeof a === 'object' && !Array.isArray(a)))
+        .slice(0, 25)
+        .map((a) => ({
+          questionId: typeof a.questionId === 'string' ? a.questionId.trim().slice(0, 80) : '',
+          question: typeof a.question === 'string' ? a.question.trim().slice(0, 300) : '',
+          answer: typeof a.answer === 'string' ? a.answer.trim().slice(0, 1000) : ''
+        }))
+        .filter((a) => a.questionId.length > 0)
+    : [];
+
+  const clean: Record<string, any> = {
+    institutionId,
+    slug,
+    branchId: optStr(input.branchId, 80) || 'branch-main',
+    courseId,
+    courseName,
+    fullName,
+    documentType: optStr(input.documentType, 40) || 'BI',
+    documentNumber,
+    birthDate: typeof input.birthDate === 'string' ? input.birthDate.trim().slice(0, 30) : '',
+    gender: optStr(input.gender, 30) || 'Outro',
+    phone,
+    email,
+    province: typeof input.province === 'string' ? input.province.trim().slice(0, 80) : '',
+    city: typeof input.city === 'string' ? input.city.trim().slice(0, 80) : '',
+    regime: optStr(input.regime, 40) || 'Pós-Laboral',
+    shift: optStr(input.shift, 40) || '',
+    photoUrl: typeof input.photoUrl === 'string' ? input.photoUrl.slice(0, 250_000) : '',
+    paymentMethod: optStr(input.paymentMethod, 60) || 'M-Pesa',
+    paymentReference: optStr(input.paymentReference, 100) || '',
+    documents,
+    customAnswers,
+    termsAccepted: true,
+    termsAcceptedAt: optStr(input.termsAcceptedAt, 40) || new Date().toISOString(),
+    privacyAccepted: true,
+    isPrivateApplication: input.isPrivateApplication === true,
+    status: 'submetida',
+    paymentStatus: 'Pendente'
+  };
+
+  const optionalFields: Array<[string, string | undefined]> = [
+    ['address', optStr(input.address, 250)],
+    ['guardianName', optStr(input.guardianName, 180)],
+    ['guardianPhone', optStr(input.guardianPhone, 40)],
+    ['guardianRelationship', optStr(input.guardianRelationship, 60)],
+    ['authorizedPickupPersons', optStr(input.authorizedPickupPersons, 300)],
+    ['nuit', optStr(input.nuit, 40)],
+    ['previousSchool', optStr(input.previousSchool, 180)],
+    ['payerPhone', optStr(input.payerPhone, 40)],
+    ['privateInviteToken', optStr(input.privateInviteToken, 128)]
+  ];
+  for (const [k, v] of optionalFields) {
+    if (v !== undefined) {
+      clean[k] = v;
+    }
+  }
+
+  if (Buffer.byteLength(JSON.stringify(clean), 'utf8') > 950_000) {
+    return {
+      ok: false,
+      error: {
+        code: 'invalid-argument',
+        message: 'O tamanho total dos anexos da candidatura excede o limite permitido (950 KB).'
+      }
+    };
+  }
+
+  return { ok: true, clean };
+}
+
+export function sanitizePublicInstitutionServerPayload(
+  raw: Record<string, any>,
+  slug: string,
+  institutionId: string
+): Record<string, any> {
+  const safeStr = (v: unknown, max = 500) => (typeof v === 'string' ? v.slice(0, max) : undefined);
+  const safeStrArr = (arr: unknown, maxItems: number) =>
+    Array.isArray(arr)
+      ? arr.filter((x): x is string => typeof x === 'string' && x.trim().length > 0).slice(0, maxItems)
+      : [];
+
+  const allowedReqStatus = (v: unknown, fallback = 'opcional') =>
+    v === 'obrigatorio' || v === 'opcional' || v === 'oculto' || typeof v === 'boolean' ? v : fallback;
+
+  const rawCfg = raw.onlineRegistrationConfig && typeof raw.onlineRegistrationConfig === 'object' ? raw.onlineRegistrationConfig : {};
+  const rawRf = rawCfg.requiredFields && typeof rawCfg.requiredFields === 'object' ? rawCfg.requiredFields : {};
+  const requiredFieldsKeys = [
+    'email', 'phone', 'documentNumber', 'birthDate', 'gender',
+    'province', 'city', 'address', 'guardianName', 'guardianPhone',
+    'guardianRelationship', 'authorizedPickupPersons', 'nuit', 'previousSchool'
+  ];
+  const requiredFields: Record<string, any> = {};
+  for (const k of requiredFieldsKeys) {
+    if (rawRf[k] !== undefined) requiredFields[k] = allowedReqStatus(rawRf[k], 'opcional');
+  }
+
+  const rawDr = rawCfg.documentRequirements && typeof rawCfg.documentRequirements === 'object' ? rawCfg.documentRequirements : {};
+  const documentRequirements: Record<string, any> = {};
+  for (const [k, v] of Object.entries(rawDr)) {
+    if (Object.keys(documentRequirements).length >= 30) break;
+    if (PUBLIC_DOCUMENT_REQUIREMENT_ALLOWED_KEYS_SERVER.has(k)) {
+      documentRequirements[k] = allowedReqStatus(v, 'obrigatorio');
+    }
+  }
+
+  const customQuestions = Array.isArray(rawCfg.customQuestions)
+    ? rawCfg.customQuestions
+        .filter((q: any) => q && typeof q === 'object')
+        .slice(0, 25)
+        .map((q: any) => ({
+          id: String(q.id || ''),
+          question: String(q.question || ''),
+          type: q.type === 'select' || q.type === 'boolean' ? q.type : 'text',
+          ...(Array.isArray(q.options) ? { options: safeStrArr(q.options, 15) } : {}),
+          required: Boolean(q.required),
+          ...(q.active !== undefined ? { active: Boolean(q.active) } : {})
+        }))
+    : [];
+
+  const allowedRegimes = new Set([
+    'Laboral', 'Pós-Laboral', 'Online EAD', 'Híbrido', 'Presencial', 'Semi-presencial', 'Integral'
+  ]);
+  const coursesConfig = Array.isArray(rawCfg.coursesConfig)
+    ? rawCfg.coursesConfig
+        .filter((c: any) => c && typeof c === 'object')
+        .slice(0, 40)
+        .map((c: any) => ({
+          courseId: String(c.courseId || ''),
+          courseName: String(c.courseName || ''),
+          ...(typeof c.category === 'string' ? { category: c.category } : {}),
+          active: c.active !== false,
+          price: typeof c.price === 'number' && Number.isFinite(c.price) ? c.price : 0,
+          ...(typeof c.monthlyFee === 'number' && Number.isFinite(c.monthlyFee) ? { monthlyFee: c.monthlyFee } : {}),
+          duration: String(c.duration || ''),
+          requirements: safeStrArr(c.requirements, 20),
+          vacancies: typeof c.vacancies === 'number' && Number.isFinite(c.vacancies) ? c.vacancies : 0,
+          filledVacancies: typeof c.filledVacancies === 'number' && Number.isFinite(c.filledVacancies) ? c.filledVacancies : 0,
+          regimes: safeStrArr(c.regimes, 10).filter((r) => allowedRegimes.has(r)),
+          shifts: safeStrArr(c.shifts, 10),
+          ...(Array.isArray(c.documents) ? { documents: safeStrArr(c.documents, 15) } : {})
+        }))
+    : [];
+
+  const branches = Array.isArray(raw.branches)
+    ? raw.branches
+        .filter((b: any) => b && typeof b === 'object')
+        .slice(0, 20)
+        .map((b: any) => {
+          const cleanB: Record<string, any> = {};
+          const branchStringFields = [
+            'id', 'institutionId', 'name', 'code', 'phone', 'email',
+            'address', 'city', 'province', 'status', 'createdAt'
+          ];
+          for (const f of branchStringFields) {
+            if (typeof b[f] === 'string') cleanB[f] = b[f];
+          }
+          if (typeof b.isMainBranch === 'boolean') cleanB.isMainBranch = b.isMainBranch;
+          if (typeof b.isHeadquarter === 'boolean') cleanB.isHeadquarter = b.isHeadquarter;
+          return cleanB;
+        })
+    : undefined;
+
+  const rawPm = raw.paymentMethods && typeof raw.paymentMethods === 'object' ? raw.paymentMethods : {};
+  const acceptedChannels = safeStrArr(raw.acceptedChannels, 15);
+  const pmChannels = safeStrArr(rawPm.acceptedChannels, 15);
+
+  const out: Record<string, any> = {
+    id: slug,
+    institutionId,
+    slug,
+    slugAliases: safeStrArr(raw.slugAliases, 15),
+    name: safeStr(raw.name) || '',
+    code: safeStr(raw.code) || '',
+    type: safeStr(raw.type) || 'outra',
+    phone: safeStr(raw.phone) || '',
+    email: safeStr(raw.email) || '',
+    address: safeStr(raw.address) || '',
+    city: safeStr(raw.city) || '',
+    province: safeStr(raw.province) || '',
+    acceptedChannels: acceptedChannels.length > 0 ? acceptedChannels : pmChannels,
+    paymentMethods: {
+      ...(typeof rawPm.bankName === 'string' ? { bankName: rawPm.bankName } : {}),
+      acceptedChannels: pmChannels.length > 0 ? pmChannels : acceptedChannels,
+      instructions: typeof rawPm.instructions === 'string' ? rawPm.instructions : ''
+    },
+    onlineRegistrationConfig: {
+      institutionId,
+      isOpen: rawCfg.isOpen !== false,
+      title: safeStr(rawCfg.title) || 'Inscrições Online',
+      description: safeStr(rawCfg.description, 4000) || '',
+      startDate: safeStr(rawCfg.startDate) || '',
+      endDate: safeStr(rawCfg.endDate) || '',
+      academicYear: safeStr(rawCfg.academicYear) || String(new Date().getUTCFullYear()),
+      semester: safeStr(rawCfg.semester) || '',
+      requiredFields,
+      requiredDocuments: safeStrArr(rawCfg.requiredDocuments, 25),
+      documentRequirements,
+      customQuestions,
+      coursesConfig,
+      autoApproveOnPayment: Boolean(rawCfg.autoApproveOnPayment),
+      confirmationMessageTemplate: safeStr(rawCfg.confirmationMessageTemplate, 2000) || '',
+      ...(typeof rawCfg.termsAndConditions === 'string' ? { termsAndConditions: rawCfg.termsAndConditions } : {}),
+      ...(typeof rawCfg.privacyPolicy === 'string' ? { privacyPolicy: rawCfg.privacyPolicy } : {}),
+      ...(typeof rawCfg.contactPhone === 'string' ? { contactPhone: rawCfg.contactPhone } : {}),
+      ...(typeof rawCfg.contactWhatsapp === 'string' ? { contactWhatsapp: rawCfg.contactWhatsapp } : {}),
+      ...(typeof rawCfg.contactEmail === 'string' ? { contactEmail: rawCfg.contactEmail } : {})
+    },
+    updatedAt: new Date().toISOString()
+  };
+
+  const optionalStrings = [
+    'sigla', 'nuit', 'licenseNumber', 'phoneAlt', 'whatsapp',
+    'logoUrl', 'emblemUrl', 'faviconUrl', 'slogan', 'primaryColor',
+    'accentColor', 'termsAndConditions', 'privacyPolicy'
+  ];
+  for (const key of optionalStrings) {
+    if (typeof raw[key] === 'string' && raw[key].length > 0) {
+      out[key] = raw[key];
+    }
+  }
+  if (branches !== undefined) {
+    out.branches = branches;
+  }
+
+  return out;
+}

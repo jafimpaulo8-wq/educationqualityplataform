@@ -160,7 +160,7 @@ import {
   INITIAL_PAUTA_HOMOLOGATIONS,
   CERTIFICATES_DATA
 } from '../data/mockData';
-import { createEmptyOnlineRegistrationConfig } from '../utils/registrationConfigUtils';
+import { createEmptyOnlineRegistrationConfig, isCourseSoldOut } from '../utils/registrationConfigUtils';
 import { useToast } from './ToastContext';
 import {
   INITIAL_INSTITUTION_WHATSAPP_CONFIG,
@@ -173,7 +173,8 @@ import {
 } from '../data/whatsappData';
 import { INITIAL_ANNOUNCEMENTS } from '../data/announcementsData';
 import { soundManager } from '../utils/audio';
-import { auth, signInWithGoogle, signOutUser, testConnection } from '../services/firebase';
+import { httpsCallable } from 'firebase/functions';
+import { auth, functions, signInWithGoogle, signOutUser, testConnection } from '../services/firebase';
 import { 
   getInstitutions, 
   getInstitutionById,
@@ -184,6 +185,7 @@ import {
   getCoursesByInstitution,
   saveCourseToFirestore,
   deleteCourseFromFirestore,
+  incrementCourseFilledVacancyInFirestore,
   getClassesByInstitution,
   saveClassToFirestore, 
   deleteClassFromFirestore,
@@ -616,11 +618,12 @@ interface AppContextType {
   onlineRegistrationConfig: OnlineRegistrationConfig;
   updateOnlineRegistrationConfig: (configUpdates: Partial<OnlineRegistrationConfig>) => Promise<PublicInstitutionSyncResult>;
   addApplication: (newApp: Omit<RegistrationApplication, 'id' | 'code' | 'createdAt'> & Partial<Pick<RegistrationApplication, 'id' | 'code' | 'createdAt'>> & { skipFirestoreSync?: boolean }) => RegistrationApplication;
-  updateApplication: (id: string, updates: Partial<RegistrationApplication>) => void;
-  approveApplication: (id: string, notes: string, actorName?: string) => void;
-  rejectApplication: (id: string, rejectionReason: string, notes?: string, actorName?: string) => void;
-  convertCandidateToStudent: (candidateId: string, classId: string, initialStatus?: StudentStatus, targetRegime?: string) => Student | null;
-  deleteApplication: (id: string) => void;
+  updateApplication: (id: string, updates: Partial<RegistrationApplication>) => Promise<boolean>;
+  approveApplication: (id: string, notes: string, actorName?: string) => Promise<boolean>;
+  rejectApplication: (id: string, rejectionReason: string, notes?: string, actorName?: string) => Promise<boolean>;
+  convertCandidateToStudent: (candidateId: string, classId: string, initialStatus?: StudentStatus, targetRegime?: string) => Promise<Student | null>;
+  deleteApplication: (id: string) => Promise<boolean>;
+  incrementCourseFilledVacancy: (courseId: string, institutionId?: string) => Promise<boolean>;
 
   // 29. FINANCEIRO (CONTAS A RECEBER E CONTAS A PAGAR)
   contasReceber: ContaReceber[];
@@ -3228,16 +3231,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAllStudents(prev => [newStudent, ...prev]);
 
     // Async persist to Firestore
-    saveStudentToFirestore(newStudent).catch(err => console.warn('Firestore sync student:', err));
+    saveStudentToFirestore(newStudent)
+      .then(() => {
+        addNotification({
+          title: `Novo Aluno Matriculado: ${newStudent.fullName}`,
+          message: `Processo ${code} registrado sob a instituição ${activeInstitution.name}.`,
+          type: 'registration',
+          metadata: { code, name: newStudent.fullName }
+        });
+        soundManager.playNotification();
+      })
+      .catch(err => {
+        setAllStudents(prev => prev.filter(s => s.id !== newStudent.id));
+        reportPersistenceFailure(`matrícula do aluno "${newStudent.fullName}"`, err);
+      });
 
-    addNotification({
-      title: `Novo Aluno Matriculado: ${newStudent.fullName}`,
-      message: `Processo ${code} registrado sob a instituição ${activeInstitution.name}.`,
-      type: 'registration',
-      metadata: { code, name: newStudent.fullName }
-    });
-
-    soundManager.playNotification();
     return newStudent;
   };
 
@@ -3288,6 +3296,114 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   };
 
+  const incrementCourseFilledVacancy = async (
+    courseId: string,
+    institutionId?: string
+  ): Promise<boolean> => {
+    const targetInstId = institutionId || activeInstitution.id;
+    if (!courseId || !targetInstId) return false;
+
+    const targetInst = allInstitutions.find(i => i.id === targetInstId) || activeInstitution;
+    const existingCourse = allCourses.find(
+      c => c.id === courseId && c.institutionId === targetInstId
+    );
+    const existingPortalCfg = targetInst?.onlineRegistrationConfig?.coursesConfig?.find(
+      c => c.courseId === courseId
+    );
+
+    const vacancySource = existingCourse || existingPortalCfg;
+    if (vacancySource && isCourseSoldOut(vacancySource)) {
+      reportPersistenceFailure(
+        'vaga do curso',
+        `As vagas para "${(existingCourse?.name || existingPortalCfg?.courseName || courseId)}" encontram-se esgotadas.`
+      );
+      return false;
+    }
+
+    const currentFilled = Math.max(
+      typeof existingCourse?.filledVacancies === 'number' ? existingCourse.filledVacancies : 0,
+      typeof existingPortalCfg?.filledVacancies === 'number' ? existingPortalCfg.filledVacancies : 0
+    );
+    const nextFilled = currentFilled + 1;
+
+    try {
+      const callable = httpsCallable<{ institutionId: string; courseId: string }, { ok: boolean; filledVacancies?: number }>(
+        functions,
+        'confirmEnrollmentVacancyCallable'
+      );
+      const res = await callable({ institutionId: targetInstId, courseId });
+      if (res.data?.ok) {
+        const finalFilled = typeof res.data.filledVacancies === 'number' ? res.data.filledVacancies : nextFilled;
+        setAllCourses(prev =>
+          prev.map(c => (c.id === courseId && c.institutionId === targetInstId ? { ...c, filledVacancies: finalFilled } : c))
+        );
+        setAllInstitutions(prev =>
+          prev.map(inst => {
+            if (inst.id !== targetInstId || !inst.onlineRegistrationConfig?.coursesConfig) return inst;
+            return {
+              ...inst,
+              onlineRegistrationConfig: {
+                ...inst.onlineRegistrationConfig,
+                coursesConfig: inst.onlineRegistrationConfig.coursesConfig.map(c =>
+                  c.courseId === courseId ? { ...c, filledVacancies: finalFilled } : c
+                )
+              }
+            };
+          })
+        );
+        return true;
+      }
+    } catch (fnErr: any) {
+      const code = String(fnErr?.code || '');
+      if (code.includes('failed-precondition') || code.includes('permission-denied')) {
+        reportPersistenceFailure('vaga do curso', fnErr?.message || fnErr);
+        return false;
+      }
+      // Fallback directo ao Firestore quando a Cloud Function não está publicada localmente
+    }
+
+    if (existingCourse) {
+      try {
+        await incrementCourseFilledVacancyInFirestore(courseId, nextFilled);
+        setAllCourses(prev =>
+          prev.map(c => (c.id === courseId && c.institutionId === targetInstId ? { ...c, filledVacancies: nextFilled } : c))
+        );
+      } catch (err) {
+        reportPersistenceFailure(`vagas do curso "${existingCourse.name}"`, err);
+        return false;
+      }
+    }
+
+    if (targetInst?.onlineRegistrationConfig?.coursesConfig?.some(c => c.courseId === courseId)) {
+      const updatedInst: Institution = {
+        ...targetInst,
+        onlineRegistrationConfig: {
+          ...targetInst.onlineRegistrationConfig,
+          coursesConfig: targetInst.onlineRegistrationConfig.coursesConfig.map(c =>
+            c.courseId === courseId ? { ...c, filledVacancies: nextFilled } : c
+          )
+        }
+      };
+      setAllInstitutions(prev => prev.map(inst => (inst.id === targetInstId ? updatedInst : inst)));
+
+      const canonical = toCanonicalRole(activeRole);
+      const canWriteInstitutionDoc =
+        canonical === 'SUPER_ADMIN' ||
+        canonical === 'ADMIN_INSTITUICAO' ||
+        canonical === 'DIRETOR' ||
+        canonical === 'CEO';
+      if (canWriteInstitutionDoc) {
+        await persistInstitutionAndPublicState(
+          updatedInst,
+          'vagas do curso na instituição',
+          'vagas do curso no portal público'
+        );
+      }
+    }
+
+    return true;
+  };
+
   const addApplication = (
     newApp: Omit<RegistrationApplication, 'id' | 'code' | 'createdAt'> &
       Partial<Pick<RegistrationApplication, 'id' | 'code' | 'createdAt'>> & {
@@ -3324,145 +3440,206 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAllApplications(prev => [application, ...prev]);
 
     if (!skipFirestoreSync) {
-      // Persist application directly to Firestore without duplicating already-synced public portal submissions
-      saveApplicationToFirestore(application).catch(err => console.warn('Firestore sync application error:', err));
-    }
-
-    addNotification({
-      title: `Nova Inscrição Online: ${application.fullName}`,
-      message: `Candidato #${code} submeteu inscrição para ${application.courseName}.`,
-      type: 'registration',
-      metadata: { code, name: application.fullName, phone: application.phone }
-    });
-
-    soundManager.playSuccess();
-    return application;
-  };
-
-  const updateApplication = (id: string, updates: Partial<RegistrationApplication>) => {
-    let updatedApp: RegistrationApplication | null = null;
-    setAllApplications(prev => prev.map(app => {
-      if (app.id === id) {
-        updatedApp = { ...app, ...updates, updatedAt: new Date().toISOString() };
-        return updatedApp;
-      }
-      return app;
-    }));
-    if (updatedApp) {
-      saveApplicationToFirestore(updatedApp).catch(err => console.warn('Firestore sync update application error:', err));
-      syncApplicationStatusToSubcollections(updatedApp);
-    }
-  };
-
-  const approveApplication = (id: string, notes: string, actorName = 'Secretaria Acadêmica') => {
-    const timestamp = new Date().toLocaleString('pt-MZ');
-    let approvedCandidate: RegistrationApplication | null = null;
-
-    setAllApplications(prev => prev.map(app => {
-      if (app.id === id) {
-        approvedCandidate = {
-          ...app,
-          status: 'Aprovada',
-          analysisNotes: notes,
-          analyzedBy: actorName,
-          analyzedAt: timestamp,
-          updatedAt: new Date().toISOString()
-        };
-        return approvedCandidate;
-      }
-      return app;
-    }));
-
-    if (approvedCandidate) {
-      saveApplicationToFirestore(approvedCandidate).catch(err => console.warn('Firestore sync approve application error:', err));
-      syncApplicationStatusToSubcollections(approvedCandidate);
+      void (async () => {
+        try {
+          await saveApplicationToFirestore(application);
+          await syncApplicationStatusToSubcollections(application);
+          addNotification({
+            title: `Nova Inscrição: ${application.fullName}`,
+            message: `Candidato #${code} registado para ${application.courseName}.`,
+            type: 'registration',
+            metadata: { code, name: application.fullName, phone: application.phone }
+          });
+          soundManager.playSuccess();
+        } catch (err) {
+          setAllApplications(prev => prev.filter(a => a.id !== application.id));
+          reportPersistenceFailure(`candidatura "${application.fullName}"`, err);
+        }
+      })();
+    } else {
       addNotification({
-        title: `Candidatura Aprovada: ${(approvedCandidate as RegistrationApplication).fullName}`,
-        message: `Inscrição ${(approvedCandidate as RegistrationApplication).code} deferida pela secretaria. Candidato liberado para matrícula.`,
-        type: 'system'
+        title: `Nova Inscrição Online: ${application.fullName}`,
+        message: `Candidato #${code} submeteu inscrição para ${application.courseName}.`,
+        type: 'registration',
+        metadata: { code, name: application.fullName, phone: application.phone }
       });
       soundManager.playSuccess();
     }
+
+    return application;
   };
 
-  const rejectApplication = (id: string, rejectionReason: string, notes = '', actorName = 'Secretaria Acadêmica') => {
+  const updateApplication = async (id: string, updates: Partial<RegistrationApplication>): Promise<boolean> => {
+    const existing = allApplications.find(app => app.id === id);
+    if (!existing) {
+      reportPersistenceFailure('actualização da candidatura', `Candidatura "${id}" não encontrada.`);
+      return false;
+    }
+
+    const updatedApp: RegistrationApplication = {
+      ...existing,
+      ...updates,
+      updatedAt: new Date().toISOString()
+    };
+
+    setAllApplications(prev => prev.map(app => (app.id === id ? updatedApp : app)));
+
+    try {
+      await saveApplicationToFirestore(updatedApp);
+      await syncApplicationStatusToSubcollections(updatedApp);
+      return true;
+    } catch (err) {
+      setAllApplications(prev => prev.map(app => (app.id === id ? existing : app)));
+      reportPersistenceFailure(`actualização da candidatura "${existing.fullName}"`, err);
+      return false;
+    }
+  };
+
+  const approveApplication = async (
+    id: string,
+    notes: string,
+    actorName = 'Secretaria Acadêmica'
+  ): Promise<boolean> => {
+    const existing = allApplications.find(app => app.id === id);
+    if (!existing) {
+      reportPersistenceFailure('aprovação da candidatura', `Candidatura "${id}" não encontrada.`);
+      return false;
+    }
+
     const timestamp = new Date().toLocaleString('pt-MZ');
-    let rejectedCandidate: RegistrationApplication | null = null;
+    const approvedCandidate: RegistrationApplication = {
+      ...existing,
+      status: 'Aprovada',
+      analysisNotes: notes,
+      analyzedBy: actorName,
+      analyzedAt: timestamp,
+      updatedAt: new Date().toISOString()
+    };
 
-    setAllApplications(prev => prev.map(app => {
-      if (app.id === id) {
-        rejectedCandidate = {
-          ...app,
-          status: 'Rejeitada',
-          rejectionReason,
-          analysisNotes: notes,
-          analyzedBy: actorName,
-          analyzedAt: timestamp,
-          updatedAt: new Date().toISOString()
-        };
-        return rejectedCandidate;
-      }
-      return app;
-    }));
+    setAllApplications(prev => prev.map(app => (app.id === id ? approvedCandidate : app)));
 
-    if (rejectedCandidate) {
-      saveApplicationToFirestore(rejectedCandidate).catch(err => console.warn('Firestore sync reject application error:', err));
-      syncApplicationStatusToSubcollections(rejectedCandidate);
+    try {
+      await saveApplicationToFirestore(approvedCandidate);
+      await syncApplicationStatusToSubcollections(approvedCandidate);
       addNotification({
-        title: `Candidatura Indeferida: ${(rejectedCandidate as RegistrationApplication).fullName}`,
+        title: `Candidatura Aprovada: ${approvedCandidate.fullName}`,
+        message: `Inscrição ${approvedCandidate.code} deferida pela secretaria. Candidato liberado para matrícula.`,
+        type: 'system'
+      });
+      soundManager.playSuccess();
+      return true;
+    } catch (err) {
+      setAllApplications(prev => prev.map(app => (app.id === id ? existing : app)));
+      reportPersistenceFailure(`aprovação da candidatura "${existing.fullName}"`, err);
+      return false;
+    }
+  };
+
+  const rejectApplication = async (
+    id: string,
+    rejectionReason: string,
+    notes = '',
+    actorName = 'Secretaria Acadêmica'
+  ): Promise<boolean> => {
+    const existing = allApplications.find(app => app.id === id);
+    if (!existing) {
+      reportPersistenceFailure('rejeição da candidatura', `Candidatura "${id}" não encontrada.`);
+      return false;
+    }
+
+    const timestamp = new Date().toLocaleString('pt-MZ');
+    const rejectedCandidate: RegistrationApplication = {
+      ...existing,
+      status: 'Rejeitada',
+      rejectionReason,
+      analysisNotes: notes,
+      analyzedBy: actorName,
+      analyzedAt: timestamp,
+      updatedAt: new Date().toISOString()
+    };
+
+    setAllApplications(prev => prev.map(app => (app.id === id ? rejectedCandidate : app)));
+
+    try {
+      await saveApplicationToFirestore(rejectedCandidate);
+      await syncApplicationStatusToSubcollections(rejectedCandidate);
+      addNotification({
+        title: `Candidatura Indeferida: ${rejectedCandidate.fullName}`,
         message: `Motivo registrado: ${rejectionReason}`,
         type: 'system'
       });
       soundManager.playClick();
+      return true;
+    } catch (err) {
+      setAllApplications(prev => prev.map(app => (app.id === id ? existing : app)));
+      reportPersistenceFailure(`indeferimento da candidatura "${existing.fullName}"`, err);
+      return false;
     }
   };
 
-  const convertCandidateToStudent = (
-    candidateId: string, 
-    classId: string, 
-    initialStatus: StudentStatus = 'Matriculado', 
+  const convertCandidateToStudent = async (
+    candidateId: string,
+    classId: string,
+    initialStatus: StudentStatus = 'Matriculado',
     targetRegime?: string
-  ): Student | null => {
+  ): Promise<Student | null> => {
     const candidate = allApplications.find(a => a.id === candidateId);
     if (!candidate) return null;
 
+    const targetInstId = candidate.institutionId || activeInstitution.id;
+    const targetInst = allInstitutions.find(i => i.id === targetInstId) || activeInstitution;
     const targetClass = classes.find(c => c.id === classId);
 
-    // Duplicate check: check if student with same BI or email already exists in institution
-    const existingStudent = allStudents.find(s => 
-      s.institutionId === (candidate.institutionId || activeInstitution.id) &&
+    const existingStudent = allStudents.find(s =>
+      s.institutionId === targetInstId &&
       (
-        (s.documentNumber && s.documentNumber.trim().toLowerCase() === candidate.documentNumber.trim().toLowerCase()) ||
+        (s.documentNumber && candidate.documentNumber && s.documentNumber.trim().toLowerCase() === candidate.documentNumber.trim().toLowerCase()) ||
         (s.email && candidate.email && s.email.trim().toLowerCase() === candidate.email.trim().toLowerCase())
       )
     );
 
     if (existingStudent) {
-      addNotification({
-        title: 'Candidato Já Cadastrado como Aluno',
-        message: `O candidato ${candidate.fullName} já possui registo de estudante ativo com o código ${existingStudent.code}. O processo foi associado.`,
-        type: 'warning'
-      });
-      // Link candidate to existing student
-      setAllApplications(prev => prev.map(app => {
-        if (app.id === candidateId) {
-          const updated: RegistrationApplication = {
-            ...app,
-            status: 'Matriculado',
-            convertedStudentId: existingStudent.id,
-            convertedStudentCode: existingStudent.code,
-            convertedAt: new Date().toLocaleString('pt-MZ'),
-            convertedClassId: existingStudent.classGroupId || classId,
-            convertedClassName: existingStudent.classGroupName || targetClass?.name || 'Turma Designada',
-            updatedAt: new Date().toISOString()
-          };
-          saveApplicationToFirestore(updated).catch(err => console.warn('Firestore sync candidate conversion error:', err));
-          syncApplicationStatusToSubcollections(updated);
-          return updated;
-        }
-        return app;
-      }));
-      return existingStudent;
+      const updatedExistingApp: RegistrationApplication = {
+        ...candidate,
+        status: 'Matriculado',
+        convertedStudentId: existingStudent.id,
+        convertedStudentCode: existingStudent.code,
+        convertedAt: new Date().toLocaleString('pt-MZ'),
+        convertedClassId: existingStudent.classGroupId || classId,
+        convertedClassName: existingStudent.classGroupName || targetClass?.name || 'Turma Designada',
+        updatedAt: new Date().toISOString()
+      };
+
+      setAllApplications(prev => prev.map(app => (app.id === candidateId ? updatedExistingApp : app)));
+
+      try {
+        await saveApplicationToFirestore(updatedExistingApp);
+        await syncApplicationStatusToSubcollections(updatedExistingApp);
+        addNotification({
+          title: 'Candidato Já Cadastrado como Aluno',
+          message: `O candidato ${candidate.fullName} já possui registo de estudante ativo com o código ${existingStudent.code}. O processo foi associado.`,
+          type: 'warning'
+        });
+        return existingStudent;
+      } catch (err) {
+        setAllApplications(prev => prev.map(app => (app.id === candidateId ? candidate : app)));
+        reportPersistenceFailure(`associação do candidato "${candidate.fullName}"`, err);
+        return null;
+      }
+    }
+
+    // Verificar disponibilidade de vaga no curso antes de efectivar matrícula
+    const targetCourse = allCourses.find(c => c.id === candidate.courseId && c.institutionId === targetInstId);
+    const targetPortalCourse = targetInst?.onlineRegistrationConfig?.coursesConfig?.find(
+      c => c.courseId === candidate.courseId
+    );
+    const vacancyModel = targetCourse || targetPortalCourse;
+    if (vacancyModel && isCourseSoldOut(vacancyModel)) {
+      reportPersistenceFailure(
+        'conversão em matrícula',
+        `Não é possível matricular "${candidate.fullName}": as vagas do curso "${candidate.courseName}" estão esgotadas.`
+      );
+      return null;
     }
 
     const attachedDocs: StudentAttachedDocument[] = (candidate.documents || []).map((d, idx) => ({
@@ -3475,9 +3652,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       status: d.verified ? 'Verificado' : 'Pendente'
     }));
 
-    const createdStudent = addStudent({
-      institutionId: candidate.institutionId || activeInstitution.id,
-      branchId: candidate.branchId || activeBranchId,
+    const randomSeq = Math.floor(1000 + Math.random() * 9000);
+    const prefix = targetInst.prefixes?.studentPrefix || `${targetInst.code || 'SIGAR'}-AL`;
+    const studentCode = `${prefix}-2026-${randomSeq}`;
+    const targetBranch = candidate.branchId || (activeBranchId !== 'todas' ? activeBranchId : (targetInst.branches?.[0]?.id || 'branch-default'));
+
+    const createdStudent: Student = {
+      id: `std-${Date.now()}`,
+      code: studentCode,
+      institutionId: targetInstId,
+      branchId: targetBranch,
       fullName: candidate.fullName,
       documentType: candidate.documentType,
       documentNumber: candidate.documentNumber,
@@ -3537,62 +3721,93 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           qrVerificationCode: `SIVERC-REC-CAND-${Date.now()}`
         }
       ] : []
-    });
+    };
 
-    // Update the candidate record so it links to the new student
-    setAllApplications(prev => prev.map(app => {
-      if (app.id === candidateId) {
-        const updated: RegistrationApplication = {
-          ...app,
-          status: 'Matriculado',
-          convertedStudentId: createdStudent.id,
-          convertedStudentCode: createdStudent.code,
-          convertedAt: new Date().toLocaleString('pt-MZ'),
-          convertedClassId: classId,
-          convertedClassName: targetClass?.name || 'Turma Designada',
-          updatedAt: new Date().toISOString()
-        };
-        saveApplicationToFirestore(updated).catch(err => console.warn('Firestore sync candidate conversion error:', err));
-        syncApplicationStatusToSubcollections(updated);
-        return updated;
+    const updatedApp: RegistrationApplication = {
+      ...candidate,
+      status: 'Matriculado',
+      convertedStudentId: createdStudent.id,
+      convertedStudentCode: createdStudent.code,
+      convertedAt: new Date().toLocaleString('pt-MZ'),
+      convertedClassId: classId,
+      convertedClassName: targetClass?.name || 'Turma Designada',
+      updatedAt: new Date().toISOString()
+    };
+
+    setAllStudents(prev => [createdStudent, ...prev]);
+    setAllApplications(prev => prev.map(app => (app.id === candidateId ? updatedApp : app)));
+
+    try {
+      if (candidate.courseId) {
+        const vacancyConfirmed = await incrementCourseFilledVacancy(candidate.courseId, targetInstId);
+        if (!vacancyConfirmed) {
+          setAllStudents(prev => prev.filter(s => s.id !== createdStudent.id));
+          setAllApplications(prev => prev.map(app => (app.id === candidateId ? candidate : app)));
+          return null;
+        }
       }
-      return app;
-    }));
+      await saveStudentToFirestore(createdStudent);
+      await saveApplicationToFirestore(updatedApp);
+      await syncApplicationStatusToSubcollections(updatedApp);
 
-    addNotification({
-      title: `Candidato Convertido em Aluno com Sucesso!`,
-      message: `${candidate.fullName} matriculado(a) com código oficial ${createdStudent.code}.`,
-      type: 'registration',
-      metadata: { code: createdStudent.code, name: createdStudent.fullName }
-    });
+      addNotification({
+        title: `Candidato Convertido em Aluno com Sucesso!`,
+        message: `${candidate.fullName} matriculado(a) com código oficial ${createdStudent.code}.`,
+        type: 'registration',
+        metadata: { code: createdStudent.code, name: createdStudent.fullName }
+      });
 
-    soundManager.playSuccess();
-    return createdStudent;
+      soundManager.playSuccess();
+      return createdStudent;
+    } catch (err) {
+      setAllStudents(prev => prev.filter(s => s.id !== createdStudent.id));
+      setAllApplications(prev => prev.map(app => (app.id === candidateId ? candidate : app)));
+      reportPersistenceFailure(`matrícula de "${candidate.fullName}"`, err);
+      return null;
+    }
   };
 
-  const deleteApplication = (id: string) => {
+  const deleteApplication = async (id: string): Promise<boolean> => {
+    const existingIndex = allApplications.findIndex(app => app.id === id);
+    const existing = existingIndex >= 0 ? allApplications[existingIndex] : undefined;
+    if (!existing) {
+      reportPersistenceFailure('remoção da candidatura', `Candidatura "${id}" não encontrada.`);
+      return false;
+    }
+
     setAllApplications(prev => prev.filter(app => app.id !== id));
-    deleteApplicationFromFirestore(id).catch(err => console.warn('Firestore sync delete application error:', err));
-    addNotification({
-      title: 'Candidatura Removida',
-      message: 'O processo de inscrição do candidato foi removido com sucesso.',
-      type: 'system'
-    });
-    soundManager.playClick();
+
+    try {
+      await deleteApplicationFromFirestore(id);
+      addNotification({
+        title: 'Candidatura Removida',
+        message: 'O processo de inscrição do candidato foi removido com sucesso.',
+        type: 'system'
+      });
+      soundManager.playClick();
+      return true;
+    } catch (err) {
+      setAllApplications(prev => {
+        if (prev.some(a => a.id === id)) return prev;
+        const restored = [...prev];
+        const insertAt = Math.min(Math.max(existingIndex, 0), restored.length);
+        restored.splice(insertAt, 0, existing);
+        return restored;
+      });
+      reportPersistenceFailure(`remoção da candidatura "${existing.fullName}"`, err);
+      return false;
+    }
   };
 
   const updateStudent = (id: string, updates: Partial<Student>) => {
-    let updatedStudent: Student | null = null;
-    setAllStudents(prev => prev.map(s => {
-      if (s.id === id) {
-        updatedStudent = { ...s, ...updates };
-        return updatedStudent;
-      }
-      return s;
-    }));
-    if (updatedStudent) {
-      saveStudentToFirestore(updatedStudent).catch(err => console.warn('Firestore sync student update:', err));
-    }
+    const previousStudent = allStudents.find(s => s.id === id) || null;
+    if (!previousStudent) return;
+    const updatedStudent: Student = { ...previousStudent, ...updates };
+    setAllStudents(prev => prev.map(s => (s.id === id ? updatedStudent : s)));
+    saveStudentToFirestore(updatedStudent).catch(err => {
+      setAllStudents(prev => prev.map(s => (s.id === id ? previousStudent : s)));
+      reportPersistenceFailure(`actualização do aluno "${previousStudent.fullName}"`, err);
+    });
   };
 
   const deleteStudent = (id: string) => {
@@ -3895,6 +4110,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           monthlyFee: courseObj.monthlyFee ?? courseObj.feeMonthly ?? prevItem.monthlyFee ?? 0,
           duration: courseObj.duration || prevItem.duration,
           vacancies: courseObj.totalVacancies ?? prevItem.vacancies ?? 40,
+          filledVacancies: courseObj.filledVacancies ?? prevItem.filledVacancies ?? 0,
           active: isCourseOpen ? prevItem.active : false
         };
       } else {
@@ -9106,6 +9322,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         rejectApplication,
         convertCandidateToStudent,
         deleteApplication,
+        incrementCourseFilledVacancy,
         // 29. FINANCEIRO (CONTAS A RECEBER E CONTAS A PAGAR)
         contasReceber,
         allContasReceber,

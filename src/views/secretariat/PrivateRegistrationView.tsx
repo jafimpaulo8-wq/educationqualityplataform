@@ -44,6 +44,7 @@ import {
   revokeAndRegeneratePrivateInvite 
 } from '../../services/privateInviteService';
 import { resolveInstitutionSlug } from '../../services/publicInstitutionService';
+import { getRemainingVacancies, isCourseSoldOut } from '../../utils/registrationConfigUtils';
 
 export const PrivateRegistrationView: React.FC = () => {
   const { 
@@ -55,6 +56,7 @@ export const PrivateRegistrationView: React.FC = () => {
     classes, 
     addStudent, 
     addApplication,
+    incrementCourseFilledVacancy,
     applications,
     navigate,
     openWhatsAppMessage,
@@ -135,7 +137,7 @@ export const PrivateRegistrationView: React.FC = () => {
 
   // Institution Slug (Requisito 4: usa a instituição do perfil/SuperAdmin, NUNCA da URL atual)
   const institutionSlug = useMemo(() => {
-    return activeInstitution.slug || (activeInstitution.id === 'ceu-azul-nacala' ? 'ceu-azul' : 'cftpm-moztechwave');
+    return resolveInstitutionSlug(activeInstitution);
   }, [activeInstitution]);
 
   // Carrega ou recupera o convite estável existente
@@ -199,7 +201,7 @@ export const PrivateRegistrationView: React.FC = () => {
   };
 
   // Handle Submit Balcão Form
-  const handleSubmitBalcao = (e: React.FormEvent) => {
+  const handleSubmitBalcao = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fullName.trim() || !documentNumber.trim() || !phone.trim()) {
       toastError('Campos Obrigatórios', 'Preencha o Nome Completo, Número do Documento e Contacto Telefónico.');
@@ -210,9 +212,22 @@ export const PrivateRegistrationView: React.FC = () => {
       return;
     }
 
+    if (enrollmentMode === 'direta' && isCourseSoldOut(selectedCourse)) {
+      toastError(
+        'Vagas Esgotadas',
+        `O curso "${selectedCourse.name}" não possui vagas disponíveis para matrícula directa. Aumente o limite de vagas primeiro.`
+      );
+      return;
+    }
+
     soundManager.playClick();
 
     if (enrollmentMode === 'direta') {
+      const vacancyReserved = await incrementCourseFilledVacancy(selectedCourse.id, activeInstitution.id);
+      if (!vacancyReserved) {
+        return;
+      }
+
       // Create student directly
       const chosenClass = classes.find(c => c.id === selectedClassId) || availableClasses[0];
 
@@ -712,12 +727,21 @@ export const PrivateRegistrationView: React.FC = () => {
                       }}
                       className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs sm:text-sm text-white focus:outline-none focus:border-amber-500 cursor-pointer font-medium"
                     >
-                      {courses.map((crs) => (
-                        <option key={crs.id} value={crs.id}>
-                          {crs.name} • {crs.duration} ({crs.category || 'Técnico'})
-                        </option>
-                      ))}
+                      {courses.map((crs) => {
+                        const rem = getRemainingVacancies(crs);
+                        const soldOut = isCourseSoldOut(crs);
+                        return (
+                          <option key={crs.id} value={crs.id}>
+                            {crs.name} • {crs.duration} ({crs.category || 'Técnico'}) — {soldOut ? 'Esgotado (0 vagas)' : `${rem} vaga(s)`}
+                          </option>
+                        );
+                      })}
                     </select>
+                    {enrollmentMode === 'direta' && selectedCourse && isCourseSoldOut(selectedCourse) && (
+                      <p className="text-[11px] text-rose-400 font-semibold pt-1">
+                        Este curso está esgotado para matrícula directa. Seleccione outro curso, mude para Candidatura Balcão ou aumente as vagas.
+                      </p>
+                    )}
                   </div>
 
                   <div className="space-y-1">
@@ -899,11 +923,16 @@ export const PrivateRegistrationView: React.FC = () => {
               {/* Submit Button */}
               <button
                 type="submit"
-                className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-sm shadow-xl shadow-amber-950/40 transition-all cursor-pointer flex items-center justify-center gap-2 active:scale-95"
+                disabled={enrollmentMode === 'direta' && Boolean(selectedCourse) && isCourseSoldOut(selectedCourse)}
+                className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-sm shadow-xl shadow-amber-950/40 transition-all cursor-pointer flex items-center justify-center gap-2 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <CheckCircle2 className="w-5 h-5 text-slate-950" />
                 <span>
-                  {enrollmentMode === 'direta' ? 'Efetivar Matrícula Direta' : 'Aprovar Candidatura Balcão'}
+                  {enrollmentMode === 'direta' && selectedCourse && isCourseSoldOut(selectedCourse)
+                    ? 'Curso Esgotado para Matrícula'
+                    : enrollmentMode === 'direta'
+                    ? 'Efetivar Matrícula Direta'
+                    : 'Aprovar Candidatura Balcão'}
                 </span>
               </button>
 

@@ -55,7 +55,11 @@ import { RecordHistoryModal } from '../../components/common/RecordHistoryModal';
 import { RecordDetailsModal, DetailField } from '../../components/common/RecordDetailsModal';
 import { StudentInvitationModal } from '../../components/students/StudentInvitationModal';
 import { resolveInstitutionSlug } from '../../services/publicInstitutionService';
-import { normalizeFieldRequirement } from '../../utils/registrationConfigUtils';
+import {
+  getRemainingVacancies,
+  isCourseSoldOut,
+  normalizeFieldRequirement
+} from '../../utils/registrationConfigUtils';
 import {
   dataUrlToBlobUrl,
   getSuggestedDownloadFilename,
@@ -337,18 +341,21 @@ export const CandidatesManagementView: React.FC = () => {
   };
 
   // Handle Approval Action
-  const handleApprove = () => {
+  const handleApprove = async () => {
     if (!selectedCandidate) return;
-    approveApplication(selectedCandidate.id, reviewNotes || 'Candidatura analisada e aprovada pela secretaria acadêmica.');
-    setSelectedCandidate(prev => prev ? { ...prev, status: 'Aprovada', analysisNotes: reviewNotes } : null);
+    const notes = reviewNotes || 'Candidatura analisada e aprovada pela secretaria acadêmica.';
+    const ok = await approveApplication(selectedCandidate.id, notes);
+    if (!ok) return;
+    setSelectedCandidate(prev => prev ? { ...prev, status: 'Aprovada', analysisNotes: notes } : null);
     success('Candidatura Aprovada', `A candidatura de ${selectedCandidate.fullName} (#${selectedCandidate.code}) foi aprovada para matrícula.`);
   };
 
   // Handle Rejection Action
-  const handleConfirmReject = () => {
+  const handleConfirmReject = async () => {
     if (!selectedCandidate) return;
     const finalReason = rejectionCustomNotes ? `${rejectionReason}: ${rejectionCustomNotes}` : rejectionReason;
-    rejectApplication(selectedCandidate.id, finalReason, reviewNotes);
+    const ok = await rejectApplication(selectedCandidate.id, finalReason, reviewNotes);
+    if (!ok) return;
     setSelectedCandidate(prev => prev ? { ...prev, status: 'Rejeitada', rejectionReason: finalReason, analysisNotes: reviewNotes } : null);
     setShowRejectModal(false);
     setRejectionCustomNotes('');
@@ -356,7 +363,7 @@ export const CandidatesManagementView: React.FC = () => {
   };
 
   // Handle Correction Request Action
-  const handleRequestCorrection = () => {
+  const handleRequestCorrection = async () => {
     if (!selectedCandidate || !correctionNote.trim()) {
       toastError('Nota Obrigatória', 'Informe o que o candidato precisa corrigir ou anexar.');
       return;
@@ -364,10 +371,11 @@ export const CandidatesManagementView: React.FC = () => {
     const updatedNote = reviewNotes 
       ? `${reviewNotes}\n[Correcção Solicitada]: ${correctionNote.trim()}`
       : `[Correcção Solicitada]: ${correctionNote.trim()}`;
-    updateApplication(selectedCandidate.id, {
+    const ok = await updateApplication(selectedCandidate.id, {
       status: 'Correcção Solicitada',
       analysisNotes: updatedNote
     });
+    if (!ok) return;
     setSelectedCandidate(prev => prev ? {
       ...prev,
       status: 'Correcção Solicitada',
@@ -379,15 +387,16 @@ export const CandidatesManagementView: React.FC = () => {
   };
 
   // Handle Mark Pending Documents Action
-  const handleMarkPendingDocs = () => {
+  const handleMarkPendingDocs = async () => {
     if (!selectedCandidate) return;
     const updatedNote = reviewNotes 
       ? `${reviewNotes}\n[Doc. Pendente]: Documentação de suporte pendente de conferência.`
       : 'Documentação de suporte pendente de conferência.';
-    updateApplication(selectedCandidate.id, {
+    const ok = await updateApplication(selectedCandidate.id, {
       status: 'Documentação Pendente',
       analysisNotes: updatedNote
     });
+    if (!ok) return;
     setSelectedCandidate(prev => prev ? {
       ...prev,
       status: 'Documentação Pendente',
@@ -397,7 +406,7 @@ export const CandidatesManagementView: React.FC = () => {
   };
 
   // Handle Convert to Student Action
-  const handleConvert = () => {
+  const handleConvert = async () => {
     if (!selectedCandidate) return;
     const chosenClassId = targetClassId || (candidateClasses[0]?.id || classes[0]?.id);
     if (!chosenClassId) {
@@ -405,7 +414,18 @@ export const CandidatesManagementView: React.FC = () => {
       return;
     }
 
-    const createdStudent = convertCandidateToStudent(
+    const matchedCourse =
+      courses.find(c => c.id === selectedCandidate.courseId) ||
+      onlineRegistrationConfig?.coursesConfig?.find(c => c.courseId === selectedCandidate.courseId);
+    if (matchedCourse && isCourseSoldOut(matchedCourse)) {
+      toastError(
+        'Vagas Esgotadas',
+        `As vagas do curso "${selectedCandidate.courseName}" estão esgotadas. Aumente as vagas do curso antes de confirmar a matrícula.`
+      );
+      return;
+    }
+
+    const createdStudent = await convertCandidateToStudent(
       selectedCandidate.id, 
       chosenClassId, 
       targetStudentStatus, 
@@ -613,12 +633,12 @@ export const CandidatesManagementView: React.FC = () => {
   };
 
   // Handle Save Edit Candidate
-  const handleSaveEditCandidate = (e: React.FormEvent) => {
+  const handleSaveEditCandidate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!candidateToEdit) return;
 
     const selectedCourse = courses.find(c => c.id === editFormData.courseId) || courses.find(c => c.name === editFormData.courseName);
-    updateApplication(candidateToEdit.id, {
+    const ok = await updateApplication(candidateToEdit.id, {
       fullName: editFormData.fullName,
       documentType: editFormData.documentType as any,
       documentNumber: editFormData.documentNumber,
@@ -641,12 +661,13 @@ export const CandidatesManagementView: React.FC = () => {
       analysisNotes: editFormData.analysisNotes
     });
 
+    if (!ok) return;
     success('Dados Atualizados', `Ficha do candidato #${candidateToEdit.code} foi atualizada com sucesso.`);
     setCandidateToEdit(null);
   };
 
   // Handle Document Verification Toggle
-  const handleToggleDocVerification = (docId: string, currentStatus: boolean) => {
+  const handleToggleDocVerification = async (docId: string, currentStatus: boolean) => {
     if (!selectedCandidate || !selectedCandidate.documents) return;
     const updatedDocs = selectedCandidate.documents.map(d => {
       if (d.id === docId) {
@@ -655,7 +676,8 @@ export const CandidatesManagementView: React.FC = () => {
       return d;
     });
 
-    updateApplication(selectedCandidate.id, { documents: updatedDocs });
+    const ok = await updateApplication(selectedCandidate.id, { documents: updatedDocs });
+    if (!ok) return;
     setSelectedCandidate({ ...selectedCandidate, documents: updatedDocs });
     soundManager.playClick();
   };
@@ -2068,8 +2090,9 @@ export const CandidatesManagementView: React.FC = () => {
 
               <div className="flex items-center gap-2.5">
                 <button
-                  onClick={() => {
-                    updateApplication(selectedCandidate.id, { status: 'Aguardando Matrícula' });
+                  onClick={async () => {
+                    const ok = await updateApplication(selectedCandidate.id, { status: 'Aguardando Matrícula' });
+                    if (!ok) return;
                     setSelectedCandidate(prev => prev ? { ...prev, status: 'Aguardando Matrícula' } : null);
                     info('Aguardando Matrícula', `Candidatura #${selectedCandidate.code} marcada como aguardando formalização de matrícula.`);
                   }}
@@ -2205,7 +2228,13 @@ export const CandidatesManagementView: React.FC = () => {
       )}
 
       {/* Convert Candidate to Student Modal */}
-      {showConvertModal && selectedCandidate && (
+      {showConvertModal && selectedCandidate && (() => {
+        const convertMatchedCourse =
+          courses.find(c => c.id === selectedCandidate.courseId) ||
+          onlineRegistrationConfig?.coursesConfig?.find(c => c.courseId === selectedCandidate.courseId);
+        const convertCourseSoldOut = convertMatchedCourse ? isCourseSoldOut(convertMatchedCourse) : false;
+        const convertRemainingVacancies = convertMatchedCourse ? getRemainingVacancies(convertMatchedCourse) : null;
+        return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-lg p-6 space-y-5 shadow-2xl">
             <div className="flex items-start justify-between">
@@ -2227,13 +2256,29 @@ export const CandidatesManagementView: React.FC = () => {
             </div>
 
             <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
-              <p className="font-bold text-white text-xs">{selectedCandidate.fullName}</p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-bold text-white text-xs">{selectedCandidate.fullName}</p>
+                {convertRemainingVacancies !== null && (
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                    convertCourseSoldOut
+                      ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                      : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                  }`}>
+                    {convertCourseSoldOut ? 'Esgotado (0 vagas)' : `${convertRemainingVacancies} vaga(s) no curso`}
+                  </span>
+                )}
+              </div>
               <p className="text-[11px] text-slate-400">
                 Curso: <span className="text-emerald-400 font-medium">{selectedCandidate.courseName}</span>
               </p>
               <p className="text-[11px] text-slate-400 font-mono">
                 Candidatura #{selectedCandidate.code} • BI: {selectedCandidate.documentNumber}
               </p>
+              {convertCourseSoldOut && (
+                <p className="text-[11px] text-rose-300 font-semibold pt-1">
+                  As vagas deste curso estão esgotadas. Aumente o limite de vagas na gestão académica/inscrições antes de matricular.
+                </p>
+              )}
             </div>
 
             {/* Target Class Selection */}
@@ -2320,15 +2365,17 @@ export const CandidatesManagementView: React.FC = () => {
               </button>
               <button
                 onClick={handleConvert}
-                className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-lg shadow-emerald-500/20 cursor-pointer transition-all"
+                disabled={convertCourseSoldOut}
+                className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-lg shadow-emerald-500/20 cursor-pointer transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <GraduationCap className="w-4 h-4" />
-                Confirmar Matrícula Oficial
+                {convertCourseSoldOut ? 'Vagas Esgotadas' : 'Confirmar Matrícula Oficial'}
               </button>
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Conversion Success Celebratory Modal */}
       {conversionSuccessResult && (
@@ -3006,11 +3053,13 @@ export const CandidatesManagementView: React.FC = () => {
         <ConfirmationModal
           isOpen={!!candidateToDelete}
           onCancel={() => setCandidateToDelete(null)}
-          onConfirm={() => {
-            deleteApplication(candidateToDelete.id);
-            success('Candidatura Excluída', `O processo de candidatura #${candidateToDelete.code} de ${candidateToDelete.fullName} foi removido.`);
+          onConfirm={async () => {
+            const targetToDelete = candidateToDelete;
+            const ok = await deleteApplication(targetToDelete.id);
             setCandidateToDelete(null);
-            if (selectedCandidate?.id === candidateToDelete.id) {
+            if (!ok) return;
+            success('Candidatura Excluída', `O processo de candidatura #${targetToDelete.code} de ${targetToDelete.fullName} foi removido.`);
+            if (selectedCandidate?.id === targetToDelete.id) {
               setSelectedCandidate(null);
             }
           }}

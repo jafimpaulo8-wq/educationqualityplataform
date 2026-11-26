@@ -31,6 +31,7 @@ export interface InviteActorContext {
   email: string;
   role: UserRole | string;
   institutionId: string;
+  permissions?: Permission[] | string[];
 }
 
 export interface CreateInviteInput {
@@ -136,7 +137,8 @@ export function canCallerInviteRole(callerRole: string, targetRole: string): boo
 export function sanitizeInvitePermissions(
   callerRole: string,
   targetRole: CanonicalRole,
-  requestedPermissions?: Permission[]
+  requestedPermissions?: Permission[],
+  actorPermissions?: Array<Permission | string>
 ): Permission[] {
   const targetRolePerms = ROLE_DEFINITIONS[targetRole]?.permissions || [];
   const callerCanonical = toCanonicalRole(callerRole);
@@ -144,13 +146,22 @@ export function sanitizeInvitePermissions(
     ? targetRolePerms
     : (ROLE_DEFINITIONS[callerCanonical]?.permissions || []);
 
+  const hasExplicitActorCeiling =
+    callerCanonical !== 'SUPER_ADMIN' &&
+    Array.isArray(actorPermissions) &&
+    actorPermissions.length > 0;
+  const actorPermSet = hasExplicitActorCeiling
+    ? new Set(actorPermissions.map(p => String(p)))
+    : null;
+
   const baseSet = (requestedPermissions && requestedPermissions.length > 0)
     ? requestedPermissions
     : targetRolePerms;
 
   const allowedSet = baseSet.filter((perm) =>
     targetRolePerms.includes(perm) &&
-    (callerCanonical === 'SUPER_ADMIN' || callerPerms.includes(perm))
+    (callerCanonical === 'SUPER_ADMIN' || callerPerms.includes(perm)) &&
+    (!actorPermSet || actorPermSet.has(String(perm)))
   );
 
   return Array.from(new Set(allowedSet));
@@ -219,7 +230,12 @@ export function validateInviteCreationInput(
     };
   }
 
-  const safePermissions = sanitizeInvitePermissions(callerCanonical, safeRole, input.permissions);
+  const safePermissions = sanitizeInvitePermissions(
+    callerCanonical,
+    safeRole,
+    input.permissions,
+    actor.permissions
+  );
   return {
     ok: true,
     normalizedEmail,
@@ -297,11 +313,17 @@ export function buildInviteActivationUrl(token: string): string {
 
 /**
  * Cria um convite individual de uso único e expiração configurável na coleção userInvitations/{token}.
+ * NOTA: Não há envio automático de e-mail SMTP nesta chamada — devolve o link de activação para partilha manual/WhatsApp/mailto.
  */
 export async function createUserInvitation(
   actor: InviteActorContext,
   input: CreateInviteInput
-): Promise<{ invitation: UserInvitation; activationUrl: string }> {
+): Promise<{
+  invitation: UserInvitation;
+  activationUrl: string;
+  emailDeliveryStatus: 'manual_link_required';
+  emailDeliveryNote: string;
+}> {
   const validation = validateInviteCreationInput(actor, input);
   if (!validation.ok) {
     throw new Error(validation.error || 'Dados de convite inválidos.');
@@ -341,7 +363,10 @@ export async function createUserInvitation(
     await setDoc(doc(db, USER_INVITATIONS_COLLECTION, token), invitation);
     return {
       invitation,
-      activationUrl: buildInviteActivationUrl(token)
+      activationUrl: buildInviteActivationUrl(token),
+      emailDeliveryStatus: 'manual_link_required',
+      emailDeliveryNote:
+        'Nenhum e-mail automático foi enviado nesta etapa. Partilhe o link único por cópia, WhatsApp ou rascunho de e-mail (mailto:); o Firebase Auth enviará a verificação oficial de e-mail quando o convidado activar a conta.'
     };
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, `${USER_INVITATIONS_COLLECTION}/${token}`);

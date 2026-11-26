@@ -93,7 +93,7 @@ export const UserInvitationsPanel: React.FC<UserInvitationsPanelProps> = ({
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState<CanonicalRole>(() => allowedRoles[0] || 'ALUNO');
   const [selectedPermissions, setSelectedPermissions] = useState<Permission[]>(() =>
-    sanitizeInvitePermissions(callerCanonical, allowedRoles[0] || 'ALUNO')
+    sanitizeInvitePermissions(callerCanonical, allowedRoles[0] || 'ALUNO', undefined, userProfile?.permissions)
   );
   const [expiresInDays, setExpiresInDays] = useState<number>(7);
   const [linkedEntityId, setLinkedEntityId] = useState<string>('');
@@ -108,24 +108,26 @@ export const UserInvitationsPanel: React.FC<UserInvitationsPanelProps> = ({
   const [lastCreatedResult, setLastCreatedResult] = useState<{
     invitation: UserInvitation;
     activationUrl: string;
+    emailDeliveryStatus?: 'manual_link_required';
+    emailDeliveryNote?: string;
   } | null>(null);
 
   useEffect(() => {
     if (allowedRoles.length > 0 && !allowedRoles.includes(role)) {
       const nextRole = allowedRoles[0];
       setRole(nextRole);
-      setSelectedPermissions(sanitizeInvitePermissions(callerCanonical, nextRole));
+      setSelectedPermissions(sanitizeInvitePermissions(callerCanonical, nextRole, undefined, userProfile?.permissions));
     }
-  }, [allowedRoles, callerCanonical]);
+  }, [allowedRoles, callerCanonical, userProfile?.permissions]);
 
   const handleRoleChange = (nextRole: CanonicalRole) => {
     setRole(nextRole);
-    setSelectedPermissions(sanitizeInvitePermissions(callerCanonical, nextRole));
+    setSelectedPermissions(sanitizeInvitePermissions(callerCanonical, nextRole, undefined, userProfile?.permissions));
     setLinkedEntityId('');
   };
 
   const togglePermission = (perm: Permission) => {
-    const ceiling = sanitizeInvitePermissions(callerCanonical, role);
+    const ceiling = sanitizeInvitePermissions(callerCanonical, role, undefined, userProfile?.permissions);
     if (!ceiling.includes(perm)) return;
     setSelectedPermissions((prev) =>
       prev.includes(perm) ? prev.filter((p) => p !== perm) : [...prev, perm]
@@ -181,7 +183,8 @@ export const UserInvitationsPanel: React.FC<UserInvitationsPanelProps> = ({
           name: userProfile?.name || firebaseUser?.displayName || 'Administrador',
           email: firebaseUser?.email || userProfile?.email || '',
           role: callerCanonical,
-          institutionId: isSuperAdmin ? targetInstitution.id : (userProfile?.institutionId || targetInstitution.id)
+          institutionId: isSuperAdmin ? targetInstitution.id : (userProfile?.institutionId || targetInstitution.id),
+          permissions: userProfile?.permissions
         },
         {
           fullName,
@@ -203,7 +206,10 @@ export const UserInvitationsPanel: React.FC<UserInvitationsPanelProps> = ({
       setEmail('');
       setPhone('');
       setLinkedEntityId('');
-      success('Convite Gerado!', `Link único criado para ${result.invitation.fullName} (${result.invitation.role}).`);
+      success(
+        'Link de Convite Criado',
+        `Link único gerado para ${result.invitation.fullName}. Partilhe-o manualmente por cópia, WhatsApp ou e-mail.`
+      );
       addNotification({
         title: 'Convite de Acesso Emitido',
         message: `${result.invitation.fullName} (${getRoleDisplayName(result.invitation.role)}) convidado para ${targetInstitution.name}.`,
@@ -236,8 +242,8 @@ export const UserInvitationsPanel: React.FC<UserInvitationsPanelProps> = ({
   };
 
   const availableCeilingPermissions = useMemo(
-    () => sanitizeInvitePermissions(callerCanonical, role),
-    [callerCanonical, role]
+    () => sanitizeInvitePermissions(callerCanonical, role, undefined, userProfile?.permissions),
+    [callerCanonical, role, userProfile?.permissions]
   );
 
   const filteredInvitations = useMemo(() => {
@@ -502,12 +508,16 @@ export const UserInvitationsPanel: React.FC<UserInvitationsPanelProps> = ({
               <div className="flex items-center gap-2 text-emerald-300 font-bold text-xs">
                 <CheckCircle2 className="w-4 h-4" />
                 <span>
-                  Convite gerado para {lastCreatedResult.invitation.fullName} ({getRoleDisplayName(lastCreatedResult.invitation.role)})
+                  Link único criado para {lastCreatedResult.invitation.fullName} ({getRoleDisplayName(lastCreatedResult.invitation.role)})
                 </span>
               </div>
               <span className="text-[10px] font-mono text-emerald-400">
                 Expira em {new Date(lastCreatedResult.invitation.expiresAt).toLocaleDateString('pt-MZ')}
               </span>
+            </div>
+
+            <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-200 leading-relaxed">
+              <strong>Envio manual necessário:</strong> {lastCreatedResult.emailDeliveryNote || 'O sistema não envia e-mail automático ao criar o convite. Copie o link ou utilize WhatsApp / rascunho de e-mail abaixo.'}
             </div>
 
             <div className="flex flex-col sm:flex-row gap-2">
@@ -525,6 +535,13 @@ export const UserInvitationsPanel: React.FC<UserInvitationsPanelProps> = ({
                 {copiedId === 'last-invite' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                 <span>{copiedId === 'last-invite' ? 'Copiado!' : 'Copiar Link'}</span>
               </button>
+              <a
+                href={`mailto:${encodeURIComponent(lastCreatedResult.invitation.email)}?subject=${encodeURIComponent(`Convite de Acesso ao SIGAR PRO — ${targetInstitution?.name || 'Instituição'}`)}&body=${encodeURIComponent(`Olá ${lastCreatedResult.invitation.fullName},\n\nFoi convidado(a) para aceder ao SIGAR PRO (${targetInstitution?.name || 'Instituição'}) com o perfil ${getRoleDisplayName(lastCreatedResult.invitation.role)}.\n\nActive a sua conta com o e-mail ${lastCreatedResult.invitation.email} através deste link único:\n${lastCreatedResult.activationUrl}\n\nValidade até ${new Date(lastCreatedResult.invitation.expiresAt).toLocaleDateString('pt-MZ')}.`)}`}
+                className="px-4 py-2 rounded-xl bg-sky-600/20 hover:bg-sky-600/30 border border-sky-500/40 text-sky-300 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Mail className="w-3.5 h-3.5" />
+                <span>Rascunho E-mail</span>
+              </a>
               {validateAndFormatInternationalPhone(lastCreatedResult.invitation.phone) && (
                 <button
                   type="button"

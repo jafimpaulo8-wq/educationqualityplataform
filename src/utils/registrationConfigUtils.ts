@@ -203,6 +203,64 @@ function getFieldLabel(fieldKey: string): string {
 }
 
 /**
+ * Retorna o número real de vagas restantes de um curso configurado no portal ou na oferta formativa.
+ * Retorna `null` apenas quando o curso não tem limite numérico de vagas definido.
+ */
+export function getRemainingVacancies(
+  course?: { vacancies?: number; totalVacancies?: number; filledVacancies?: number } | null
+): number | null {
+  if (!course) return null;
+  const maxVacancies =
+    typeof course.vacancies === 'number' && Number.isFinite(course.vacancies)
+      ? course.vacancies
+      : typeof course.totalVacancies === 'number' && Number.isFinite(course.totalVacancies)
+        ? course.totalVacancies
+        : null;
+  if (maxVacancies === null) return null;
+  const filled =
+    typeof course.filledVacancies === 'number' && Number.isFinite(course.filledVacancies) && course.filledVacancies > 0
+      ? course.filledVacancies
+      : 0;
+  return Math.max(0, maxVacancies - filled);
+}
+
+/**
+ * Indica se o curso está esgotado (`vacancies <= 0` ou `filledVacancies >= vacancies`).
+ */
+export function isCourseSoldOut(
+  course?: { vacancies?: number; totalVacancies?: number; filledVacancies?: number } | null
+): boolean {
+  const remaining = getRemainingVacancies(course);
+  if (remaining === null) return false;
+  return remaining <= 0;
+}
+
+/**
+ * Calcula hash SHA-256 em hexadecimal (browser WebCrypto / Node 20+) para chaves de deduplicação sem PII.
+ */
+export async function computeSha256Hex(value: string): Promise<string> {
+  const text = String(value || '');
+  if (typeof globalThis !== 'undefined' && globalThis.crypto?.subtle && typeof TextEncoder !== 'undefined') {
+    const encoded = new TextEncoder().encode(text);
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', encoded);
+    return Array.from(new Uint8Array(digest))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+  // Fallback determinístico FNV-1a estendido (64+ chars hex) apenas em ambientes sem WebCrypto
+  let h1 = 0x811c9dc5;
+  let h2 = 0x9e3779b9;
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i);
+    h1 ^= code;
+    h1 = Math.imul(h1, 0x01000193);
+    h2 ^= code + i;
+    h2 = Math.imul(h2, 0x85ebca6b);
+  }
+  return `${(h1 >>> 0).toString(16).padStart(8, '0')}${(h2 >>> 0).toString(16).padStart(8, '0')}${text.length.toString(16).padStart(8, '0')}00000000`;
+}
+
+/**
  * Valida uma etapa específica do formulário de inscrição pública usando estritamente
  * os requisitos configurados pela instituição.
  */
@@ -225,6 +283,13 @@ export function validateRegistrationStep(
     } else if (!data.selectedCourseId || !activeCourses.some(c => c.courseId === data.selectedCourseId)) {
       fieldErrors.selectedCourseId = 'Selecione uma opção válida.';
       errors.push('Selecione um curso ou sala disponível para prosseguir.');
+    } else {
+      const selectedCourse = activeCourses.find(c => c.courseId === data.selectedCourseId);
+      if (selectedCourse && isCourseSoldOut(selectedCourse)) {
+        const msg = `As vagas para "${selectedCourse.courseName}" encontram-se esgotadas.`;
+        fieldErrors.selectedCourseId = msg;
+        errors.push(msg);
+      }
     }
   }
 

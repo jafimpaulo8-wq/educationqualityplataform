@@ -5,13 +5,18 @@ import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import {
+  buildCourseApplicationDedupKeys,
   buildJobDedupKey,
   evaluateInvitationForActivation,
   evaluateRateLimitWindow,
   isValidFirestoreId,
   isValidInviteTokenFormat,
   maskCandidateNameServer,
+  normalizeRoleUpper,
+  sanitizePublicInstitutionServerPayload,
   sha256Hex,
+  validateCourseApplicationServerPayload,
+  validateCourseVacancyAvailable,
   validateJobApplicationServerPayload,
   validateVacancyAcceptingApplications
 } from './src/validation';
@@ -480,3 +485,407 @@ export const onJobApplicationCreated = onDocumentCreated(
     });
   }
 );
+
+async function verifyServerInstitutionActor(
+  uid: string,
+  token: Record<string, any> | undefined,
+  institutionId: string,
+  allowedRoles: string[]
+): Promise<{ isSuperAdmin: boolean; role: string }> {
+  const email = String(token?.email || '').trim().toLowerCase();
+  const isVerifiedSuper =
+    token?.email_verified === true &&
+    (email === 'moztechwavenacala8@gmail.com' ||
+      (uid === '2dRLWqnY1zf1MlR9rZYhAKPvGbV2' && (!email || email === 'moztechwavenacala8@gmail.com')));
+  if (isVerifiedSuper) {
+    return { isSuperAdmin: true, role: 'SUPER_ADMIN' };
+  }
+
+  const userSnap = await db.collection('users').doc(uid).get();
+  if (!userSnap.exists) {
+    throw new HttpsError('permission-denied', 'Perfil SIGAR PRO não encontrado para o utilizador autenticado.');
+  }
+  const u = userSnap.data() || {};
+  const rawEstado = String(u.estado || '').trim().toLowerCase();
+  const rawStatus = String(u.status || '').trim().toLowerCase();
+  const blockedStates = new Set(['inativo', 'inactivo', 'suspenso', 'suspensa', 'revogado', 'revogada', 'bloqueado', 'bloqueada', 'desativado', 'desactivado', 'pendente']);
+  if (u.disabled === true || blockedStates.has(rawEstado) || blockedStates.has(rawStatus)) {
+    throw new HttpsError('permission-denied', 'Conta de utilizador inactiva, suspensa ou revogada.');
+  }
+  const role = normalizeRoleUpper(u.role || '');
+  if (!allowedRoles.includes(role)) {
+    throw new HttpsError('permission-denied', `Perfil "${role}" não autorizado para esta operação.`);
+  }
+  const belongs =
+    u.institutionId === institutionId ||
+    (Array.isArray(u.institutionIds) && u.institutionIds.includes(institutionId)) ||
+    (Array.isArray(u.ownedInstitutions) && u.ownedInstitutions.includes(institutionId)) ||
+    token?.institutionId === institutionId;
+  if (!belongs) {
+    throw new HttpsError('permission-denied', 'Utilizador não pertence à instituição alvo.');
+  }
+  return { isSuperAdmin: false, role };
+}
+
+/**
+ * 4. Publicação segura no servidor para catálogos maiores (>5 cursos, >4 perguntas ou >3 polos)
+ * sem exceder o orçamento CEL das Firestore Rules cliente.
+ */
+export const publishPublicInstitutionCallable = onCall(async (request) => {
+  if (!request.auth?.uid) {
+    throw new HttpsError('unauthenticated', 'Autenticação obrigatória para publicar portal público.');
+  }
+  const institutionId = String(request.data?.institutionId || '').trim();
+  const slug = String(request.data?.slug || '').trim().toLowerCase();
+  const rawPublicData = request.data?.publicData;
+
+  if (!isValidFirestoreId(institutionId)) {
+    throw new HttpsError('invalid-argument', 'Identificador institucional inválido.');
+  }
+  if (!isValidFirestoreId(slug) || slug === '_index') {
+    throw new HttpsError('invalid-argument', 'Slug institucional inválido ou reservado.');
+  }
+  if (!rawPublicData || typeof rawPublicData !== 'object') {
+    throw new HttpsError('invalid-argument', 'Payload público em falta.');
+  }
+
+  const actor = await verifyServerInstitutionActor(
+    request.auth.uid,
+    request.auth.token as any,
+    institutionId,
+    ['ADMIN_INSTITUICAO', 'DIRETOR', 'CEO']
+  );
+
+  const nowIso = new Date().toISOString();
+  const sanitized = sanitizePublicInstitutionServerPayload(rawPublicData, slug, institutionId);
+
+  await db.runTransaction(async (tx) => {
+    const privRef = db.collection('institutions').doc(institutionId);
+    const pubRef = db.collection('publicInstitutions').doc(slug);
+    const indexRef = db.collection('publicInstitutions').doc('_index');
+
+    const [privSnap, pubSnap, indexSnap] = await Promise.all([
+      tx.get(privRef),
+      tx.get(pubRef),
+      tx.get(indexRef)
+    ]);
+
+    if (privSnap.exists) {
+      const status = String(privSnap.data()?.status || '');
+      if (status === 'Suspensa' || status === 'Inativa') {
+        throw new HttpsError('failed-precondition', `Instituição com estado "${status}" não pode ser publicada.`);
+      }
+    }
+
+    if (pubSnap.exists) {
+      const existingOwner = String(pubSnap.data()?.institutionId || '').trim();
+      if (existingOwner && existingOwner !== institutionId) {
+        throw new HttpsError('permission-denied', `Slug "${slug}" já pertence a outra instituição.`);
+      }
+      if (!existingOwner && !actor.isSuperAdmin) {
+        throw new HttpsError('permission-denied', `Documento público "${slug}" sem proprietário válido.`);
+      }
+    }
+
+    const rawSlugs = indexSnap.exists && Array.isArray(indexSnap.data()?.slugs) ? indexSnap.data()!.slugs : [];
+    const nextSlugs = Array.from(
+      new Set([
+        ...rawSlugs.filter((s: unknown): s is string => typeof s === 'string' && isValidFirestoreId(s) && s !== '_index'),
+        slug
+      ])
+    );
+
+    tx.set(pubRef, sanitized);
+    tx.set(indexRef, { slugs: nextSlugs, updatedAt: nowIso });
+    if (privSnap.exists) {
+      tx.set(privRef, { publicPortalPublished: true, updatedAt: nowIso }, { merge: true });
+    }
+
+    const auditRef = db.collection('auditLogs').doc(`pubaud_${institutionId}_${Date.now()}`);
+    tx.set(auditRef, {
+      id: auditRef.id,
+      institutionId,
+      action: 'PUBLIC_PORTAL_PUBLISHED_SERVER',
+      severity: 'info',
+      actorUid: request.auth!.uid,
+      actorRole: actor.role,
+      targetEntity: 'publicInstitutions',
+      targetId: slug,
+      timestamp: nowIso
+    });
+  });
+
+  return { ok: true, slug };
+});
+
+/**
+ * 5. Submissão transaccional de candidatura pública a curso com verificação de vagas e deduplicação no servidor.
+ */
+export const submitPublicCourseApplicationCallable = onCall(async (request) => {
+  const validation = validateCourseApplicationServerPayload(request.data);
+  if (!validation.ok) {
+    throw new HttpsError(validation.error.code, validation.error.message);
+  }
+
+  const clean = validation.clean;
+  const nowMs = Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+  const appId = `app-${nowMs}-${crypto.randomBytes(4).toString('hex')}`;
+  const trackingToken = crypto.randomBytes(16).toString('hex');
+  const year = new Date(nowMs).getUTCFullYear();
+  const appCode = `CAND-${year}-${crypto.randomInt(1000, 9999)}`;
+  const dedupKeys = buildCourseApplicationDedupKeys({
+    institutionId: clean.institutionId,
+    courseId: clean.courseId,
+    documentNumber: clean.documentNumber,
+    email: clean.email,
+    phone: clean.phone
+  });
+
+  await db.runTransaction(async (tx) => {
+    const pubRef = db.collection('publicInstitutions').doc(clean.slug);
+    const privRef = db.collection('institutions').doc(clean.institutionId);
+    const courseRef = db.collection('courses').doc(clean.courseId);
+    const dedupRefs = dedupKeys.map((k) =>
+      db.collection('institutions').doc(clean.institutionId).collection('courseApplicationDedup').doc(k.id)
+    );
+
+    const [pubSnap, privSnap, courseSnap, ...dedupSnaps] = await Promise.all([
+      tx.get(pubRef),
+      tx.get(privRef),
+      tx.get(courseRef),
+      ...dedupRefs.map((ref) => tx.get(ref))
+    ]);
+
+    if (!pubSnap.exists) {
+      throw new HttpsError('not-found', 'Portal público não encontrado ou despublicado.');
+    }
+    const pub = pubSnap.data() || {};
+    if (pub.institutionId !== clean.institutionId) {
+      throw new HttpsError('permission-denied', 'O slug não corresponde à instituição indicada.');
+    }
+    if (privSnap.exists) {
+      const st = String(privSnap.data()?.status || '');
+      if (st === 'Suspensa' || st === 'Inativa') {
+        throw new HttpsError('failed-precondition', 'Esta instituição não está activa para candidaturas.');
+      }
+    }
+
+    const cfg = pub.onlineRegistrationConfig || {};
+    if (cfg.isOpen === false) {
+      throw new HttpsError('failed-precondition', 'As inscrições online desta instituição estão encerradas.');
+    }
+
+    const coursesCfg: Array<Record<string, any>> = Array.isArray(cfg.coursesConfig) ? cfg.coursesConfig : [];
+    const targetCourse = coursesCfg.find((c) => c && c.courseId === clean.courseId) || null;
+    const vacancyCheck = validateCourseVacancyAvailable(targetCourse);
+    if (!vacancyCheck.ok) {
+      throw new HttpsError(vacancyCheck.error.code, vacancyCheck.error.message);
+    }
+
+    if (courseSnap.exists && courseSnap.data()?.institutionId === clean.institutionId) {
+      const privVacCheck = validateCourseVacancyAvailable(courseSnap.data());
+      if (!privVacCheck.ok) {
+        throw new HttpsError(privVacCheck.error.code, privVacCheck.error.message);
+      }
+    }
+
+    if (dedupSnaps.some((s) => s.exists)) {
+      throw new HttpsError(
+        'already-exists',
+        'Já existe uma candidatura registada para este curso com os dados informados.'
+      );
+    }
+
+    const serverCoursePrice =
+      typeof targetCourse?.price === 'number' && Number.isFinite(targetCourse.price) && targetCourse.price >= 0
+        ? targetCourse.price
+        : courseSnap.exists &&
+            courseSnap.data()?.institutionId === clean.institutionId &&
+            typeof courseSnap.data()?.price === 'number' &&
+            Number.isFinite(courseSnap.data()!.price) &&
+            courseSnap.data()!.price >= 0
+          ? courseSnap.data()!.price
+          : 0;
+
+    const appRecord = {
+      ...clean,
+      id: appId,
+      code: appCode,
+      trackingToken,
+      paymentAmount: serverCoursePrice,
+      paymentReference: clean.paymentReference || `PEND-${appCode}`,
+      status: 'submetida',
+      paymentStatus: 'Pendente',
+      origin: 'online_portal',
+      submittedAt: nowIso,
+      updatedAt: nowIso
+    };
+
+    const trackingRecord = {
+      token: trackingToken,
+      code: appCode,
+      applicationId: appId,
+      institutionId: clean.institutionId,
+      institutionName: String(pub.name || ''),
+      slug: clean.slug,
+      courseId: clean.courseId,
+      courseName: clean.courseName,
+      maskedCandidateName: maskCandidateNameServer(clean.fullName),
+      maskedName: maskCandidateNameServer(clean.fullName),
+      status: 'submetida',
+      paymentStatus: 'Pendente',
+      submittedAt: nowIso,
+      createdAt: nowIso,
+      updatedAt: nowIso
+    };
+
+    tx.set(db.collection('applications').doc(appId), appRecord);
+    tx.set(
+      db.collection('institutions').doc(clean.institutionId).collection('applications').doc(appId),
+      appRecord
+    );
+    tx.set(db.collection('applicationTracking').doc(trackingToken), trackingRecord);
+    tx.set(db.collection('applicationTracking').doc(appCode), trackingRecord);
+
+    dedupKeys.forEach((k, idx) => {
+      tx.set(dedupRefs[idx], {
+        institutionId: clean.institutionId,
+        courseId: clean.courseId,
+        dedupHash: k.hash,
+        createdAt: nowIso
+      });
+    });
+
+    const auditRef = db.collection('auditLogs').doc(`cappaud_${appId}`);
+    tx.set(auditRef, {
+      id: auditRef.id,
+      institutionId: clean.institutionId,
+      action: 'PUBLIC_COURSE_APPLICATION_SUBMITTED',
+      severity: 'info',
+      actorUid: request.auth?.uid || 'public_applicant',
+      actorRole: 'CANDIDATO',
+      targetEntity: 'applications',
+      targetId: appId,
+      courseId: clean.courseId,
+      timestamp: nowIso
+    });
+  });
+
+  return {
+    ok: true,
+    applicationId: appId,
+    code: appCode,
+    trackingToken
+  };
+});
+
+/**
+ * 6. Confirmação atómica de vaga preenchida na conversão para matrícula / inscrição directa.
+ */
+export const confirmEnrollmentVacancyCallable = onCall(async (request) => {
+  if (!request.auth?.uid) {
+    throw new HttpsError('unauthenticated', 'Sessão autenticada obrigatória.');
+  }
+  const institutionId = String(request.data?.institutionId || '').trim();
+  const courseId = String(request.data?.courseId || '').trim();
+  if (!isValidFirestoreId(institutionId) || !isValidFirestoreId(courseId)) {
+    throw new HttpsError('invalid-argument', 'Instituição ou curso inválido.');
+  }
+
+  await verifyServerInstitutionActor(
+    request.auth.uid,
+    request.auth.token as any,
+    institutionId,
+    ['ADMIN_INSTITUICAO', 'DIRETOR', 'CEO', 'SECRETARIA']
+  );
+
+  const nowIso = new Date().toISOString();
+  const result = await db.runTransaction(async (tx) => {
+    const courseRef = db.collection('courses').doc(courseId);
+    const instRef = db.collection('institutions').doc(institutionId);
+    const [courseSnap, instSnap] = await Promise.all([tx.get(courseRef), tx.get(instRef)]);
+
+    const instData = instSnap.exists ? instSnap.data() || {} : {};
+    const slug = String(instData.slug || '').trim().toLowerCase();
+    const pubRef = slug && isValidFirestoreId(slug) && slug !== '_index'
+      ? db.collection('publicInstitutions').doc(slug)
+      : null;
+    const pubSnap = pubRef ? await tx.get(pubRef) : null;
+
+    const hasCourseDoc = courseSnap.exists && courseSnap.data()?.institutionId === institutionId;
+    const courseData = hasCourseDoc ? (courseSnap.data() || {}) : null;
+
+    const instCoursesCfg: Array<Record<string, any>> = Array.isArray(instData.onlineRegistrationConfig?.coursesConfig)
+      ? instData.onlineRegistrationConfig.coursesConfig
+      : [];
+    const instCourseCfg = instCoursesCfg.find((c) => c && c.courseId === courseId) || null;
+
+    const pubCoursesCfg: Array<Record<string, any>> =
+      pubSnap && pubSnap.exists && pubSnap.data()?.institutionId === institutionId &&
+      Array.isArray(pubSnap.data()?.onlineRegistrationConfig?.coursesConfig)
+        ? pubSnap.data()!.onlineRegistrationConfig.coursesConfig
+        : [];
+    const pubCourseCfg = pubCoursesCfg.find((c) => c && c.courseId === courseId) || null;
+
+    if (!courseData && !instCourseCfg && !pubCourseCfg) {
+      throw new HttpsError('not-found', 'Curso não encontrado na instituição informada.');
+    }
+
+    const vacancySources = [courseData, instCourseCfg, pubCourseCfg].filter(
+      (src): src is Record<string, any> => Boolean(src)
+    );
+    const currentFilled = Math.max(
+      0,
+      ...vacancySources.map((src) =>
+        typeof src.filledVacancies === 'number' && Number.isFinite(src.filledVacancies) && src.filledVacancies > 0
+          ? src.filledVacancies
+          : 0
+      )
+    );
+
+    for (const src of vacancySources) {
+      const check = validateCourseVacancyAvailable({ ...src, filledVacancies: currentFilled });
+      if (!check.ok) {
+        throw new HttpsError(check.error.code, check.error.message);
+      }
+    }
+
+    const nextFilled = currentFilled + 1;
+
+    if (hasCourseDoc) {
+      tx.update(courseRef, { filledVacancies: nextFilled, updatedAt: nowIso });
+    }
+
+    const updateCoursesConfig = (cfg: any) => {
+      if (!cfg || !Array.isArray(cfg.coursesConfig)) return null;
+      let changed = false;
+      const updated = cfg.coursesConfig.map((c: any) => {
+        if (c && c.courseId === courseId) {
+          changed = true;
+          return { ...c, filledVacancies: nextFilled };
+        }
+        return c;
+      });
+      return changed ? { ...cfg, coursesConfig: updated } : null;
+    };
+
+    if (instSnap.exists) {
+      const nextCfg = updateCoursesConfig(instData.onlineRegistrationConfig);
+      if (nextCfg) {
+        tx.update(instRef, { onlineRegistrationConfig: nextCfg, updatedAt: nowIso });
+      }
+    }
+
+    if (pubRef && pubSnap && pubSnap.exists && pubSnap.data()?.institutionId === institutionId) {
+      const nextPubCfg = updateCoursesConfig(pubSnap.data()?.onlineRegistrationConfig);
+      if (nextPubCfg) {
+        tx.update(pubRef, { onlineRegistrationConfig: nextPubCfg, updatedAt: nowIso });
+      }
+    }
+
+    return { filledVacancies: nextFilled };
+  });
+
+  return { ok: true, ...result };
+});

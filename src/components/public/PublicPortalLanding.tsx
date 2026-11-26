@@ -42,6 +42,7 @@ import {
   fetchPublishedPublicInstitutionStrict,
   PublishedPublicCourseItem
 } from '../../services/publicInstitutionService';
+import { getRemainingVacancies, isCourseSoldOut } from '../../utils/registrationConfigUtils';
 import { InstitutionLogoBadge } from '../common/InstitutionLogoBadge';
 import { PublicInstitution } from '../../types';
 
@@ -420,7 +421,10 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
             </div>
           ) : filteredCourses.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredCourses.map((c) => (
+              {filteredCourses.map((c) => {
+                const remainingVacancies = getRemainingVacancies(c);
+                const soldOut = isCourseSoldOut(c);
+                return (
                 <div
                   key={c.id}
                   className={`group rounded-3xl border overflow-hidden flex flex-col justify-between transition-all duration-300 hover:shadow-xl ${
@@ -505,6 +509,22 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
                           <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                           <span className="truncate">{c.instCity || 'Moçambique'}</span>
                         </div>
+                        <div className="col-span-2 flex items-center justify-between pt-1">
+                          <span className="text-slate-500 dark:text-slate-400">Vagas disponíveis:</span>
+                          <span className={`font-bold ${
+                            soldOut
+                              ? 'text-rose-500'
+                              : remainingVacancies !== null && remainingVacancies <= 5
+                                ? 'text-amber-500'
+                                : 'text-emerald-500'
+                          }`}>
+                            {soldOut
+                              ? 'Esgotado (0 vagas)'
+                              : remainingVacancies !== null
+                                ? `${remainingVacancies} de ${c.vacancies} vagas`
+                                : 'Vagas abertas'}
+                          </span>
+                        </div>
                       </div>
                     </div>
 
@@ -525,17 +545,23 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
 
                         <button
                           type="button"
+                          disabled={soldOut}
                           onClick={() => {
+                            if (soldOut) return;
                             if (onOpenOnlineRegistration) {
                               onOpenOnlineRegistration(c.name, c.instSlug);
                             } else {
                               navigate('inscricao_publica', { inst: c.instSlug });
                             }
                           }}
-                          className="flex-1 py-2 px-3 rounded-xl text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white shadow-xs transition-all cursor-pointer text-center flex items-center justify-center gap-1"
+                          className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold shadow-xs transition-all text-center flex items-center justify-center gap-1 ${
+                            soldOut
+                              ? 'bg-slate-700 text-slate-400 cursor-not-allowed opacity-60'
+                              : 'bg-sky-600 hover:bg-sky-500 text-white cursor-pointer'
+                          }`}
                         >
-                          <span>Inscrever-se</span>
-                          <ArrowRight className="w-3 h-3" />
+                          <span>{soldOut ? 'Esgotado' : 'Inscrever-se'}</span>
+                          {!soldOut && <ArrowRight className="w-3 h-3" />}
                         </button>
                       </div>
 
@@ -561,7 +587,8 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           ) : catalogError ? (
             <div className={`p-12 text-center rounded-3xl border ${
@@ -909,6 +936,18 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
                       : 'Consultar'}
                   </div>
                 </div>
+                <div className="col-span-2 sm:col-span-4 pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
+                  <span className="text-slate-400">Disponibilidade de Vagas:</span>
+                  <span className={`font-bold ${
+                    isCourseSoldOut(selectedCourseDetails) ? 'text-rose-500' : 'text-emerald-500'
+                  }`}>
+                    {isCourseSoldOut(selectedCourseDetails)
+                      ? 'Esgotado (0 vagas disponíveis)'
+                      : getRemainingVacancies(selectedCourseDetails) !== null
+                        ? `${getRemainingVacancies(selectedCourseDetails)} de ${selectedCourseDetails.vacancies} vagas disponíveis`
+                        : 'Vagas abertas'}
+                  </span>
+                </div>
               </div>
 
               {/* Requisitos */}
@@ -975,7 +1014,9 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
 
                 <button
                   type="button"
+                  disabled={isCourseSoldOut(selectedCourseDetails)}
                   onClick={() => {
+                    if (isCourseSoldOut(selectedCourseDetails)) return;
                     const courseName = selectedCourseDetails.name;
                     const slug = selectedCourseDetails.instSlug;
                     setSelectedCourseDetails(null);
@@ -985,11 +1026,15 @@ export const PublicPortalLanding: React.FC<PublicPortalLandingProps> = ({
                       navigate('inscricao_publica', { inst: slug });
                     }
                   }}
-                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-md transition cursor-pointer flex items-center gap-2"
+                  className={`px-6 py-2.5 rounded-xl font-bold text-xs shadow-md transition flex items-center gap-2 ${
+                    isCourseSoldOut(selectedCourseDetails)
+                      ? 'bg-slate-700 text-slate-400 cursor-not-allowed opacity-60'
+                      : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white cursor-pointer'
+                  }`}
                 >
                   <GraduationCap className="w-4 h-4" />
-                  <span>Inscrever-se neste Curso</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
+                  <span>{isCourseSoldOut(selectedCourseDetails) ? 'Vagas Esgotadas' : 'Inscrever-se neste Curso'}</span>
+                  {!isCourseSoldOut(selectedCourseDetails) && <ArrowRight className="w-3.5 h-3.5" />}
                 </button>
               </div>
             </div>

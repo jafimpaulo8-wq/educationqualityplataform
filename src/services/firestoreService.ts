@@ -235,7 +235,8 @@ export async function getStudentByUidOrEmail(uid: string, email?: string): Promi
 export async function saveStudentToFirestore(student: Student): Promise<void> {
   const path = `${COLLECTIONS.STUDENTS}/${student.id}`;
   try {
-    await setDoc(doc(db, COLLECTIONS.STUDENTS, student.id), student, { merge: true });
+    const cleanStudent = sanitizeFirestoreData(student);
+    await setDoc(doc(db, COLLECTIONS.STUDENTS, student.id), cleanStudent, { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -260,6 +261,21 @@ export async function saveCourseToFirestore(course: Course): Promise<void> {
     await setDoc(doc(db, COLLECTIONS.COURSES, course.id), cleanCourse, { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function incrementCourseFilledVacancyInFirestore(
+  courseId: string,
+  nextFilledVacancies: number
+): Promise<void> {
+  const path = `${COLLECTIONS.COURSES}/${courseId}`;
+  try {
+    await updateDoc(doc(db, COLLECTIONS.COURSES, courseId), {
+      filledVacancies: nextFilledVacancies,
+      updatedAt: new Date().toISOString()
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
   }
 }
 
@@ -555,7 +571,8 @@ export async function getApplicationById(applicationId: string): Promise<Registr
 export async function saveApplicationToFirestore(app: RegistrationApplication): Promise<void> {
   const path = `${COLLECTIONS.APPLICATIONS}/${app.id}`;
   try {
-    await setDoc(doc(db, COLLECTIONS.APPLICATIONS, app.id), app, { merge: true });
+    const cleanApp = sanitizeFirestoreData(app);
+    await setDoc(doc(db, COLLECTIONS.APPLICATIONS, app.id), cleanApp, { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -564,38 +581,55 @@ export async function saveApplicationToFirestore(app: RegistrationApplication): 
 export async function syncApplicationStatusToSubcollections(app: RegistrationApplication): Promise<void> {
   if (!app) return;
   const instId = app.institutionId;
+
   if (instId && app.id) {
-    setDoc(
-      doc(db, 'institutions', instId, 'applications', app.id),
-      {
-        status: app.status,
-        analysisNotes: app.analysisNotes || null,
-        rejectionReason: app.rejectionReason || null,
-        analyzedBy: app.analyzedBy || null,
-        analyzedAt: app.analyzedAt || null,
-        convertedStudentId: app.convertedStudentId || null,
-        convertedStudentCode: app.convertedStudentCode || null,
-        convertedClassId: app.convertedClassId || null,
-        convertedClassName: app.convertedClassName || null,
-        updatedAt: serverTimestamp()
-      },
-      { merge: true }
-    ).catch(err => console.warn('Firestore sync institutions/applications:', err));
+    const subPath = `institutions/${instId}/applications/${app.id}`;
+    try {
+      await setDoc(
+        doc(db, 'institutions', instId, 'applications', app.id),
+        sanitizeFirestoreData({
+          institutionId: instId,
+          status: app.status,
+          analysisNotes: app.analysisNotes || null,
+          rejectionReason: app.rejectionReason || null,
+          analyzedBy: app.analyzedBy || null,
+          analyzedAt: app.analyzedAt || null,
+          convertedStudentId: app.convertedStudentId || null,
+          convertedStudentCode: app.convertedStudentCode || null,
+          convertedClassId: app.convertedClassId || null,
+          convertedClassName: app.convertedClassName || null,
+          updatedAt: serverTimestamp()
+        }),
+        { merge: true }
+      );
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, subPath);
+    }
   }
-  if (app.code) {
-    // Sem PII: apenas estado público e metadados não pessoais do acompanhamento
-    setDoc(
-      doc(db, 'applicationTracking', app.code),
-      {
-        status: app.status,
-        courseId: app.courseId,
-        courseName: app.courseName,
-        paymentStatus: app.paymentStatus,
-        ...(app.convertedStudentCode ? { convertedStudentCode: app.convertedStudentCode } : {}),
-        updatedAt: serverTimestamp()
-      },
-      { merge: true }
-    ).catch(err => console.warn('Firestore sync applicationTracking:', err));
+
+  const trackingKeys = Array.from(
+    new Set([app.code, (app as any).trackingToken].filter((k): k is string => typeof k === 'string' && k.trim().length > 0))
+  );
+  for (const key of trackingKeys) {
+    const trackingPath = `applicationTracking/${key}`;
+    try {
+      // Sem PII: apenas estado público e metadados não pessoais do acompanhamento
+      await setDoc(
+        doc(db, 'applicationTracking', key),
+        sanitizeFirestoreData({
+          institutionId: instId,
+          status: app.status,
+          courseId: app.courseId,
+          courseName: app.courseName,
+          paymentStatus: app.paymentStatus,
+          ...(app.convertedStudentCode ? { convertedStudentCode: app.convertedStudentCode } : {}),
+          updatedAt: serverTimestamp()
+        }),
+        { merge: true }
+      );
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, trackingPath);
+    }
   }
 }
 
