@@ -179,7 +179,8 @@ import {
   getInstitutions, 
   getInstitutionById,
   getUserInstitutions,
-  saveInstitutionToFirestore, 
+  saveInstitutionToFirestore,
+  saveInstitutionPublicConfigToFirestore,
   getStudentsByInstitution,
   saveStudentToFirestore, 
   getCoursesByInstitution,
@@ -363,7 +364,7 @@ interface AppContextType {
   // Courses & Classes (Strictly Isolated by Institution & Branch)
   courses: Course[];
   allCourses: Course[];
-  addCourse: (courseData: Omit<Course, 'id' | 'institutionId'>) => Course;
+  addCourse: (courseData: Omit<Course, 'id' | 'institutionId'>) => Promise<PublicInstitutionSyncResult & { course?: Course }>;
   updateCourse: (courseId: string, updates: Partial<Course>) => Promise<PublicInstitutionSyncResult>;
   deleteCourse: (courseId: string) => Promise<PublicInstitutionSyncResult>;
   addModuleToCourse: (courseId: string, module: Omit<CourseModule, 'id'>) => CourseModule;
@@ -2090,8 +2091,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     },
     onPrivateSaveFailed?: () => void
   ): Promise<PublicInstitutionSyncResult> => {
+    const canonical = toCanonicalRole(activeRole);
+    const isFullInstAdmin =
+      canonical === 'SUPER_ADMIN' ||
+      canonical === 'ADMIN_INSTITUICAO' ||
+      canonical === 'DIRETOR' ||
+      canonical === 'CEO';
+
     try {
-      await saveInstitutionToFirestore(inst);
+      if (isFullInstAdmin) {
+        await saveInstitutionToFirestore(inst);
+      } else {
+        await saveInstitutionPublicConfigToFirestore(inst.id, {
+          onlineRegistrationConfig: inst.onlineRegistrationConfig,
+          phone: inst.phone,
+          whatsapp: inst.whatsapp,
+          email: inst.email,
+          ...(inst.publicPortalPublished !== undefined
+            ? { publicPortalPublished: inst.publicPortalPublished }
+            : {})
+        });
+      }
     } catch (err) {
       if (onPrivateSaveFailed) {
         onPrivateSaveFailed();
@@ -3387,11 +3407,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setAllInstitutions(prev => prev.map(inst => (inst.id === targetInstId ? updatedInst : inst)));
 
       const canonical = toCanonicalRole(activeRole);
+      const userPerms = Array.isArray(userProfile?.permissions) ? userProfile.permissions : [];
       const canWriteInstitutionDoc =
         canonical === 'SUPER_ADMIN' ||
         canonical === 'ADMIN_INSTITUICAO' ||
         canonical === 'DIRETOR' ||
-        canonical === 'CEO';
+        canonical === 'CEO' ||
+        (canonical === 'SECRETARIA' &&
+          userPerms.some(p => ['candidatos.config', 'cursos.create', 'cursos.edit'].includes(p)));
       if (canWriteInstitutionDoc) {
         await persistInstitutionAndPublicState(
           updatedInst,
@@ -4109,6 +4132,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           price: courseObj.registrationFee ?? prevItem.price ?? 1500,
           monthlyFee: courseObj.monthlyFee ?? courseObj.feeMonthly ?? prevItem.monthlyFee ?? 0,
           duration: courseObj.duration || prevItem.duration,
+          requirements: courseObj.requirements ?? prevItem.requirements ?? [],
           vacancies: courseObj.totalVacancies ?? prevItem.vacancies ?? 40,
           filledVacancies: courseObj.filledVacancies ?? prevItem.filledVacancies ?? 0,
           active: isCourseOpen ? prevItem.active : false
@@ -4157,7 +4181,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   };
 
-  const addCourse = (courseData: Omit<Course, 'id' | 'institutionId'>): Course => {
+  const addCourse = async (
+    courseData: Omit<Course, 'id' | 'institutionId'>
+  ): Promise<PublicInstitutionSyncResult & { course?: Course }> => {
     const newCourse: Course = {
       ...courseData,
       id: `crs-${Date.now()}`,
@@ -4167,31 +4193,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setAllCourses(prev => [newCourse, ...prev]);
 
-    void (async () => {
-      try {
-        await saveCourseToFirestore(newCourse);
-      } catch (err) {
-        setAllCourses(prev => prev.filter(c => c.id !== newCourse.id));
-        reportPersistenceFailure(`curso "${newCourse.name}"`, err);
-        return;
-      }
+    try {
+      await saveCourseToFirestore(newCourse);
+    } catch (err) {
+      setAllCourses(prev => prev.filter(c => c.id !== newCourse.id));
+      reportPersistenceFailure(`curso "${newCourse.name}"`, err);
+      return {
+        status: 'error',
+        error: err instanceof Error ? err.message : String(err)
+      };
+    }
 
-      const syncRes = await syncCourseWithOnlinePortal(newCourse);
-      if (syncRes.status === 'success') {
-        addNotification({
-          title: `Novo Curso Cadastrado: ${newCourse.name}`,
-          message: `Curso vinculado com exclusividade à instituição ${activeInstitution.name} e publicado no catálogo.`,
-          type: 'system'
-        });
-        toastSuccess(
-          'Curso Cadastrado',
-          `O curso "${newCourse.name}" foi criado e sincronizado com sucesso.`
-        );
-        soundManager.playSuccess();
-      }
-    })();
+    const syncRes = await syncCourseWithOnlinePortal(newCourse);
+    if (syncRes.status === 'success') {
+      addNotification({
+        title: `Novo Curso Cadastrado: ${newCourse.name}`,
+        message: `Curso vinculado com exclusividade à instituição ${activeInstitution.name} e publicado no catálogo.`,
+        type: 'system'
+      });
+      toastSuccess(
+        'Curso Cadastrado',
+        `O curso "${newCourse.name}" foi criado e sincronizado com sucesso.`
+      );
+      soundManager.playSuccess();
+    }
 
-    return newCourse;
+    return { ...syncRes, course: newCourse };
   };
 
   const updateCourse = async (

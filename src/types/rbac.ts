@@ -373,7 +373,7 @@ export const ROLE_DEFINITIONS: Record<CanonicalRole, RoleDefinition> = {
       'pagamentos.view', 'pagamentos.create',
       'caixa.view', 'caixa.transact',
       'certificados.view', 'certificados.create', 'certificados.export',
-      'cursos.view',
+      'cursos.view', 'cursos.create', 'cursos.edit',
       'turmas.view', 'turmas.create', 'turmas.edit', 'turmas.transfer',
       'horarios.view', 'horarios.manage',
       'professores.view', 'professores.create', 'professores.edit', 'professores.assign',

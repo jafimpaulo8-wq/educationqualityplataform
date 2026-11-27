@@ -490,7 +490,8 @@ async function verifyServerInstitutionActor(
   uid: string,
   token: Record<string, any> | undefined,
   institutionId: string,
-  allowedRoles: string[]
+  allowedRoles: string[],
+  requiredSecretariaPermissions?: string[]
 ): Promise<{ isSuperAdmin: boolean; role: string }> {
   const email = String(token?.email || '').trim().toLowerCase();
   const isVerifiedSuper =
@@ -515,6 +516,16 @@ async function verifyServerInstitutionActor(
   const role = normalizeRoleUpper(u.role || '');
   if (!allowedRoles.includes(role)) {
     throw new HttpsError('permission-denied', `Perfil "${role}" não autorizado para esta operação.`);
+  }
+  if (role === 'SECRETARIA' && Array.isArray(requiredSecretariaPermissions) && requiredSecretariaPermissions.length > 0) {
+    const userPerms = Array.isArray(u.permissions) ? u.permissions : [];
+    const hasPerm = requiredSecretariaPermissions.some((p) => userPerms.includes(p));
+    if (!hasPerm) {
+      throw new HttpsError(
+        'permission-denied',
+        'Perfil SECRETARIA sem permissão explícita atribuída para esta operação.'
+      );
+    }
   }
   const belongs =
     u.institutionId === institutionId ||
@@ -553,7 +564,8 @@ export const publishPublicInstitutionCallable = onCall(async (request) => {
     request.auth.uid,
     request.auth.token as any,
     institutionId,
-    ['ADMIN_INSTITUICAO', 'DIRETOR', 'CEO']
+    ['ADMIN_INSTITUICAO', 'DIRETOR', 'CEO', 'SECRETARIA'],
+    ['candidatos.config', 'cursos.create', 'cursos.edit']
   );
 
   const nowIso = new Date().toISOString();

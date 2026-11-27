@@ -171,6 +171,9 @@ export const CourseModal: React.FC<CourseModalProps> = ({
   const [coursePeriods, setCoursePeriods] = useState<CoursePeriodConfig[]>([]);
   const [totalPoints, setTotalPoints] = useState<number>(100);
   const [passingScore, setPassingScore] = useState<number>(60);
+  const [totalVacancies, setTotalVacancies] = useState<number>(40);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'geral' | 'financeiro' | 'requisitos' | 'certificado'>('geral');
 
   useEffect(() => {
@@ -197,6 +200,9 @@ export const CourseModal: React.FC<CourseModalProps> = ({
       setCoursePeriods(courseToEdit.coursePeriods || []);
       setTotalPoints(courseToEdit.totalPoints ?? 100);
       setPassingScore(courseToEdit.passingScore ?? 60);
+      setTotalVacancies(courseToEdit.totalVacancies ?? 40);
+      setSaveError(null);
+      setIsSaving(false);
     } else {
       setName('');
       setCode('');
@@ -221,6 +227,9 @@ export const CourseModal: React.FC<CourseModalProps> = ({
       ]);
       setTotalPoints(100);
       setPassingScore(60);
+      setTotalVacancies(40);
+      setSaveError(null);
+      setIsSaving(false);
     }
   }, [courseToEdit, isOpen]);
 
@@ -304,33 +313,45 @@ export const CourseModal: React.FC<CourseModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!name.trim() || isSaving) return;
 
-    await onSave({
-      name: name.trim(),
-      code: code.trim() || `CUR-${Date.now().toString().slice(-4)}`,
-      category,
-      description: description.trim(),
-      image: image.trim() || undefined,
-      duration: duration.trim() || '6 Meses',
-      workloadHours: Number(workloadHours) || (Number(theoryHours) + Number(practiceHours)),
-      theoryHours: Number(theoryHours) || 0,
-      practiceHours: Number(practiceHours) || 0,
-      modality,
-      periodType,
-      requirements,
-      price: Number(price) || 0,
-      registrationFee: Number(registrationFee) || 0,
-      monthlyFee: Number(monthlyFee) || 0,
-      feeMonthly: Number(monthlyFee) || 0,
-      certificate: certificate.trim(),
-      status,
-      coursePeriods,
-      totalPoints: Number(totalPoints) || 100,
-      passingScore: Number(passingScore) || 60,
-      modules: courseToEdit?.modules || []
-    });
-    onClose();
+    setSaveError(null);
+    setIsSaving(true);
+    try {
+      await onSave({
+        name: name.trim(),
+        code: code.trim() || `CUR-${Date.now().toString().slice(-4)}`,
+        category,
+        description: description.trim(),
+        image: image.trim() || undefined,
+        duration: duration.trim() || '6 Meses',
+        workloadHours: Number(workloadHours) || (Number(theoryHours) + Number(practiceHours)),
+        theoryHours: Number(theoryHours) || 0,
+        practiceHours: Number(practiceHours) || 0,
+        modality,
+        periodType,
+        requirements,
+        price: Number(price) || 0,
+        registrationFee: Number(registrationFee) || 0,
+        monthlyFee: Number(monthlyFee) || 0,
+        feeMonthly: Number(monthlyFee) || 0,
+        totalVacancies: Math.max(0, Number(totalVacancies) || 0),
+        filledVacancies: courseToEdit?.filledVacancies ?? 0,
+        certificate: certificate.trim(),
+        status,
+        coursePeriods,
+        totalPoints: Number(totalPoints) || 100,
+        passingScore: Number(passingScore) || 60,
+        modules: courseToEdit?.modules || []
+      });
+      onClose();
+    } catch (err: any) {
+      setSaveError(
+        err?.message || 'Não foi possível guardar o curso. Verifique as suas permissões e tente novamente.'
+      );
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -733,7 +754,7 @@ export const CourseModal: React.FC<CourseModalProps> = ({
                     Estrutura Financeira (Moeda: Meticais MTn)
                   </span>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <div>
                     <label className="block text-xs text-slate-600 font-semibold mb-1">
                       Preço Total do Curso (MTn)
@@ -778,6 +799,21 @@ export const CourseModal: React.FC<CourseModalProps> = ({
                       className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm font-bold text-slate-800 focus:border-blue-500 outline-hidden"
                     />
                     <span className="text-[11px] text-slate-400">Informe 0 para cursos de valor único</span>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-slate-600 font-semibold mb-1">
+                      Total de Vagas Disponíveis
+                    </label>
+                    <input
+                      id="input-course-vacancies"
+                      type="number"
+                      min="0"
+                      value={totalVacancies}
+                      onChange={e => setTotalVacancies(Math.max(0, Number(e.target.value)))}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm font-bold text-slate-800 focus:border-blue-500 outline-hidden"
+                    />
+                    <span className="text-[11px] text-slate-400">0 = sem vagas abertas no portal</span>
                   </div>
                 </div>
               </div>
@@ -1042,6 +1078,12 @@ export const CourseModal: React.FC<CourseModalProps> = ({
             </div>
           )}
 
+          {saveError && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-medium text-rose-700">
+              {saveError}
+            </div>
+          )}
+
           {/* Footer Buttons */}
           <div className="flex items-center justify-between pt-4 border-t border-slate-100">
             <div className="text-xs text-slate-400">
@@ -1051,18 +1093,20 @@ export const CourseModal: React.FC<CourseModalProps> = ({
               <button
                 id="btn-cancel-course"
                 type="button"
+                disabled={isSaving}
                 onClick={onClose}
-                className="rounded-xl px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 transition"
+                className="rounded-xl px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 transition disabled:opacity-50"
               >
                 Cancelar
               </button>
               <button
                 id="btn-save-course"
                 type="submit"
-                className="flex items-center gap-2 rounded-xl bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 transition"
+                disabled={isSaving}
+                className="flex items-center gap-2 rounded-xl bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 transition disabled:opacity-60"
               >
                 <CheckCircle2 className="h-4 w-4" />
-                {courseToEdit ? 'Salvar Alterações' : 'Concluir Cadastro'}
+                {isSaving ? 'A guardar...' : courseToEdit ? 'Salvar Alterações' : 'Concluir Cadastro'}
               </button>
             </div>
           </div>

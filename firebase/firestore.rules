@@ -68,54 +68,152 @@ service cloud.firestore {
              (!('isSuperAdmin' in d) || d.isSuperAdmin == false);
     }
 
+    function userDataBelongsToInst(u, instId) {
+      return (('institutionId' in u) && u.institutionId == instId) ||
+        (('institutionIds' in u) && u.institutionIds is list && instId in u.institutionIds) ||
+        (('ownedInstitutions' in u) && u.ownedInstitutions is list && instId in u.ownedInstitutions) ||
+        (('institutionId' in request.auth.token) && request.auth.token.institutionId == instId);
+    }
+
+    function isUserDocActive(u) {
+      return (!('disabled' in u) || u.disabled != true) &&
+        (!('status' in u) || !(u.status in ['Inativo', 'Inactivo', 'Suspenso', 'Suspensa', 'Revogado', 'Revogada', 'Bloqueado', 'Bloqueada'])) &&
+        (!('estado' in u) || !(u.estado in ['inativo', 'inactivo', 'suspenso', 'suspensa', 'revogado', 'revogada', 'bloqueado', 'bloqueada', 'pendente']));
+    }
+
+    function hasPermissionInProfile(u, permList) {
+      return ('permissions' in u) && u.permissions is list && u.permissions.hasAny(permList);
+    }
+
+    function isActiveUserDoc() {
+      return hasUserProfile() && isUserDocActive(getUserData());
+    }
+
     function belongsToInstitution(instId) {
       return isSignedIn() &&
         instId is string &&
         instId.size() > 0 && (
-          userInstitution() == instId ||
-          (hasUserProfile() && ('institutionIds' in getUserData()) && getUserData().institutionIds is list && instId in getUserData().institutionIds) ||
-          (hasUserProfile() && ('ownedInstitutions' in getUserData()) && getUserData().ownedInstitutions is list && instId in getUserData().ownedInstitutions) ||
-          (('institutionId' in request.auth.token) && request.auth.token.institutionId == instId)
+          (('institutionId' in request.auth.token) && request.auth.token.institutionId == instId) ||
+          (hasUserProfile() && userDataBelongsToInst(getUserData(), instId))
         );
+    }
+
+    function isInstAdminProfile(u, instId) {
+      return userDataBelongsToInst(u, instId) &&
+        ('role' in u) &&
+        u.role in ['ADMIN_INSTITUICAO', 'DIRETOR', 'director', 'CEO', 'ceo'];
     }
 
     function isInstAdmin(instId) {
       return isSuperAdmin() || (
-        belongsToInstitution(instId) &&
-        userRole() in ['ADMIN_INSTITUICAO', 'DIRETOR', 'director', 'CEO', 'ceo']
+        isSignedIn() &&
+        instId is string &&
+        instId.size() > 0 &&
+        hasUserProfile() &&
+        isInstAdminProfile(getUserData(), instId)
       );
+    }
+
+    function isSecretariaProfile(u, instId) {
+      return userDataBelongsToInst(u, instId) &&
+        ('role' in u) &&
+        u.role in ['ADMIN_INSTITUICAO', 'DIRETOR', 'director', 'CEO', 'ceo', 'SECRETARIA', 'secretaria'];
     }
 
     function isSecretaria(instId) {
       return isSuperAdmin() || (
-        belongsToInstitution(instId) &&
-        userRole() in ['ADMIN_INSTITUICAO', 'DIRETOR', 'director', 'CEO', 'ceo', 'SECRETARIA', 'secretaria']
+        isSignedIn() &&
+        instId is string &&
+        instId.size() > 0 &&
+        hasUserProfile() &&
+        isSecretariaProfile(getUserData(), instId)
       );
     }
 
     function hasExplicitUserPermission(permList) {
-      return hasUserProfile() &&
-        ('permissions' in getUserData()) &&
-        getUserData().permissions is list &&
-        getUserData().permissions.hasAny(permList);
+      return hasUserProfile() && hasPermissionInProfile(getUserData(), permList);
+    }
+
+    function canManageCoursesProfile(u, instId) {
+      return userDataBelongsToInst(u, instId) &&
+        ('role' in u) && (
+          u.role in ['ADMIN_INSTITUICAO', 'DIRETOR', 'director', 'CEO', 'ceo'] || (
+            isUserDocActive(u) &&
+            u.role in ['SECRETARIA', 'secretaria'] &&
+            hasPermissionInProfile(u, ['cursos.create', 'cursos.edit', 'candidatos.config', 'vagas.manage'])
+          )
+        );
+    }
+
+    function canManageCourses(instId) {
+      return isSuperAdmin() || (
+        isSignedIn() &&
+        instId is string &&
+        instId.size() > 0 &&
+        hasUserProfile() &&
+        canManageCoursesProfile(getUserData(), instId)
+      );
+    }
+
+    function canPublishPublicPortalProfile(u, instId) {
+      return userDataBelongsToInst(u, instId) &&
+        ('role' in u) && (
+          u.role in ['ADMIN_INSTITUICAO', 'DIRETOR', 'director', 'CEO', 'ceo'] || (
+            isUserDocActive(u) &&
+            u.role in ['SECRETARIA', 'secretaria'] &&
+            hasPermissionInProfile(u, ['candidatos.config', 'cursos.create', 'cursos.edit'])
+          )
+        );
+    }
+
+    function canPublishPublicPortal(instId) {
+      return isSuperAdmin() || (
+        isSignedIn() &&
+        instId is string &&
+        instId.size() > 0 &&
+        hasUserProfile() &&
+        canPublishPublicPortalProfile(getUserData(), instId)
+      );
+    }
+
+    function canManageJobVacanciesProfile(u, instId) {
+      return userDataBelongsToInst(u, instId) &&
+        ('role' in u) && (
+          u.role in ['ADMIN_INSTITUICAO', 'DIRETOR', 'director', 'CEO', 'ceo'] || (
+            u.role in ['SECRETARIA', 'secretaria'] &&
+            hasPermissionInProfile(u, ['vagas.manage', 'publish_vacancies', 'manage_recruitment'])
+          )
+        );
     }
 
     function canManageJobVacancies(instId) {
-      return isSuperAdmin() ||
-        isInstAdmin(instId) || (
-          belongsToInstitution(instId) &&
-          userRole() in ['SECRETARIA', 'secretaria'] &&
-          hasExplicitUserPermission(['vagas.manage', 'publish_vacancies', 'manage_recruitment'])
+      return isSuperAdmin() || (
+        isSignedIn() &&
+        instId is string &&
+        instId.size() > 0 &&
+        hasUserProfile() &&
+        canManageJobVacanciesProfile(getUserData(), instId)
+      );
+    }
+
+    function canReviewJobApplicationsProfile(u, instId) {
+      return userDataBelongsToInst(u, instId) &&
+        ('role' in u) && (
+          u.role in ['ADMIN_INSTITUICAO', 'DIRETOR', 'director', 'CEO', 'ceo'] || (
+            u.role in ['SECRETARIA', 'secretaria'] &&
+            hasPermissionInProfile(u, ['vagas.review_applications', 'vagas.manage', 'review_job_applications', 'manage_recruitment'])
+          )
         );
     }
 
     function canReviewJobApplications(instId) {
-      return isSuperAdmin() ||
-        isInstAdmin(instId) || (
-          belongsToInstitution(instId) &&
-          userRole() in ['SECRETARIA', 'secretaria'] &&
-          hasExplicitUserPermission(['vagas.review_applications', 'vagas.manage', 'review_job_applications', 'manage_recruitment'])
-        );
+      return isSuperAdmin() || (
+        isSignedIn() &&
+        instId is string &&
+        instId.size() > 0 &&
+        hasUserProfile() &&
+        canReviewJobApplicationsProfile(getUserData(), instId)
+      );
     }
 
     // FASE C: Permissão financeira estrita (exclui SECRETARIA de validações, recibos e contas)
@@ -526,6 +624,14 @@ service cloud.firestore {
           (!('institutionId' in request.resource.data) || request.resource.data.institutionId == institutionId)
         ) || (
           resource != null &&
+          canPublishPublicPortal(institutionId) &&
+          (!('id' in request.resource.data) || request.resource.data.id == institutionId) &&
+          (!('institutionId' in request.resource.data) || request.resource.data.institutionId == institutionId) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'onlineRegistrationConfig', 'phone', 'whatsapp', 'email', 'publicPortalPublished', 'updatedAt'
+          ])
+        ) || (
+          resource != null &&
           isFinanceiro(institutionId) &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'financialAccounts', 'financialSettings', 'updatedAt'
@@ -630,83 +736,111 @@ service cloud.firestore {
     }
 
     // FASE C: Portais Públicos por Slug — NUNCA expõe números privados M-Pesa, e-Mola, mKesh ou dados administrativos internos
-    function isSafeStringList3(arr) {
-      return arr is list && arr.size() <= 3 &&
-        (arr.size() < 1 || arr[0] is string) &&
-        (arr.size() < 2 || arr[1] is string) &&
-        (arr.size() < 3 || arr[2] is string);
+    function checkStrings5(rawArr) {
+      let arr = rawArr;
+      let s = arr.size();
+      return s == 0 || (
+        arr[0] is string &&
+        (s < 2 || (arr[1] is string &&
+        (s < 3 || (arr[2] is string &&
+        (s < 4 || (arr[3] is string &&
+        (s < 5 || arr[4] is string)))))))
+      );
     }
 
-    function isSafeStringList5(arr) {
-      return arr is list && arr.size() <= 5 &&
-        (arr.size() < 1 || arr[0] is string) &&
-        (arr.size() < 2 || arr[1] is string) &&
-        (arr.size() < 3 || arr[2] is string) &&
-        (arr.size() < 4 || arr[3] is string) &&
-        (arr.size() < 5 || arr[4] is string);
+    function isSafeStringList5(rawArr) {
+      let arr = rawArr;
+      return arr is list && arr.size() <= 5 && checkStrings5(arr);
     }
 
-    function isSafeStringList6(arr) {
-      return arr is list && arr.size() <= 6 &&
-        (arr.size() < 1 || arr[0] is string) &&
-        (arr.size() < 2 || arr[1] is string) &&
-        (arr.size() < 3 || arr[2] is string) &&
-        (arr.size() < 4 || arr[3] is string) &&
-        (arr.size() < 5 || arr[4] is string) &&
-        (arr.size() < 6 || arr[5] is string);
+    function checkStrings6(rawArr) {
+      let arr = rawArr;
+      let s = arr.size();
+      return s == 0 || (
+        arr[0] is string &&
+        (s < 2 || (arr[1] is string &&
+        (s < 3 || (arr[2] is string &&
+        (s < 4 || (arr[3] is string &&
+        (s < 5 || (arr[4] is string &&
+        (s < 6 || arr[5] is string)))))))))
+      );
     }
 
-    function isSafeStringList8(arr) {
-      return arr is list && arr.size() <= 8 &&
-        (arr.size() < 1 || arr[0] is string) &&
-        (arr.size() < 2 || arr[1] is string) &&
-        (arr.size() < 3 || arr[2] is string) &&
-        (arr.size() < 4 || arr[3] is string) &&
-        (arr.size() < 5 || arr[4] is string) &&
-        (arr.size() < 6 || arr[5] is string) &&
-        (arr.size() < 7 || arr[6] is string) &&
-        (arr.size() < 8 || arr[7] is string);
+    function isSafeStringList6(rawArr) {
+      let arr = rawArr;
+      return arr is list && arr.size() <= 6 && checkStrings6(arr);
     }
 
-    function isSafePublicPaymentMethods(pm) {
+    function checkStrings8(rawArr) {
+      let arr = rawArr;
+      let s = arr.size();
+      return s == 0 || (
+        arr[0] is string &&
+        (s < 2 || (arr[1] is string &&
+        (s < 3 || (arr[2] is string &&
+        (s < 4 || (arr[3] is string &&
+        (s < 5 || (arr[4] is string &&
+        (s < 6 || (arr[5] is string &&
+        (s < 7 || (arr[6] is string &&
+        (s < 8 || arr[7] is string)))))))))))))
+      );
+    }
+
+    function isSafeStringList8(rawArr) {
+      let arr = rawArr;
+      return arr is list && arr.size() <= 8 && checkStrings8(arr);
+    }
+
+    function isSafePublicPaymentMethods(rawPm) {
+      let pm = rawPm;
       return pm is map &&
         pm.keys().hasOnly(['bankName', 'acceptedChannels', 'instructions']) &&
-        pm.get('bankName', '') is string &&
-        isSafeStringList6(pm.get('acceptedChannels', [])) &&
-        pm.get('instructions', '') is string;
+        (!('bankName' in pm) || pm.bankName is string) &&
+        (!('acceptedChannels' in pm) || isSafeStringList6(pm.acceptedChannels)) &&
+        (!('instructions' in pm) || pm.instructions is string);
     }
 
-    function isSafePublicBranch(b) {
+    function isSafePublicBranch(rawB) {
+      let b = rawB;
       return b is map &&
         b.keys().hasOnly([
           'id', 'institutionId', 'name', 'code', 'phone', 'email',
           'address', 'city', 'province', 'isMainBranch', 'isHeadquarter',
           'status', 'createdAt'
         ]) &&
-        b.get('id', '') is string &&
-        b.get('institutionId', '') is string &&
-        b.get('name', '') is string &&
-        b.get('phone', '') is string &&
-        b.get('email', '') is string &&
-        b.get('isMainBranch', false) is bool &&
-        b.get('status', '') is string;
+        (!('id' in b) || b.id is string) &&
+        (!('institutionId' in b) || b.institutionId is string) &&
+        (!('name' in b) || b.name is string) &&
+        (!('phone' in b) || b.phone is string) &&
+        (!('email' in b) || b.email is string) &&
+        (!('isMainBranch' in b) || b.isMainBranch is bool) &&
+        (!('status' in b) || b.status is string);
     }
 
-    function isSafePublicBranchAt(branches, idx) {
-      return idx >= branches.size() || isSafePublicBranch(branches[idx]);
+    function isSafePublicBranchesRange(rawBranches) {
+      let branches = rawBranches;
+      let s = branches.size();
+      return s == 0 || (
+        isSafePublicBranch(branches[0]) &&
+        (s < 2 || (isSafePublicBranch(branches[1]) &&
+        (s < 3 || (isSafePublicBranch(branches[2]) &&
+        (s < 4 || (isSafePublicBranch(branches[3]) &&
+        (s < 5 || (isSafePublicBranch(branches[4]) &&
+        (s < 6 || isSafePublicBranch(branches[5]))))))))))
+      );
     }
 
-    // Orçamento estrito de expressões CEL (<1000): até 3 polos na escrita directa cliente
+    // Orçamento estrito de expressões CEL (<1000): até 6 polos na escrita directa cliente
     // (portais maiores usam Cloud Function publishPublicInstitutionCallable com Admin SDK)
-    function isSafePublicBranchesList(branches) {
+    function isSafePublicBranchesList(rawBranches) {
+      let branches = rawBranches;
       return branches is list &&
-        branches.size() <= 3 &&
-        isSafePublicBranchAt(branches, 0) &&
-        isSafePublicBranchAt(branches, 1) &&
-        isSafePublicBranchAt(branches, 2);
+        branches.size() <= 6 &&
+        isSafePublicBranchesRange(branches);
     }
 
-    function isSafeOnlineRequiredFields(rf) {
+    function isSafeOnlineRequiredFields(rawRf) {
+      let rf = rawRf;
       return rf is map &&
         rf.keys().hasOnly([
           'email', 'phone', 'documentNumber', 'birthDate', 'gender',
@@ -716,7 +850,8 @@ service cloud.firestore {
         rf.values().hasOnly(['obrigatorio', 'opcional', 'oculto', true, false]);
     }
 
-    function isSafeDocumentRequirements(dr) {
+    function isSafeDocumentRequirements(rawDr) {
+      let dr = rawDr;
       return dr is map &&
         dr.size() <= 30 &&
         dr.keys().hasOnly([
@@ -751,31 +886,38 @@ service cloud.firestore {
         dr.values().hasOnly(['obrigatorio', 'opcional', 'oculto', true, false]);
     }
 
-    function isSafeOnlineCustomQuestion(q) {
+    function isSafeOnlineCustomQuestion(rawQ) {
+      let q = rawQ;
       return q is map &&
         q.keys().hasOnly(['id', 'question', 'type', 'options', 'required', 'active']) &&
-        q.get('id', '') is string &&
-        q.get('question', '') is string &&
-        q.get('type', 'text') in ['text', 'select', 'boolean'] &&
-        isSafeStringList5(q.get('options', [])) &&
-        q.get('required', false) is bool &&
-        q.get('active', true) is bool;
+        (!('id' in q) || q.id is string) &&
+        (!('question' in q) || q.question is string) &&
+        (!('type' in q) || q.type in ['text', 'select', 'boolean']) &&
+        (!('options' in q) || isSafeStringList5(q.options)) &&
+        (!('required' in q) || q.required is bool) &&
+        (!('active' in q) || q.active is bool);
     }
 
-    function isSafeOnlineCustomQuestionAt(questions, idx) {
-      return idx >= questions.size() || isSafeOnlineCustomQuestion(questions[idx]);
+    function isSafeOnlineCustomQuestionsRange(rawQuestions) {
+      let questions = rawQuestions;
+      let s = questions.size();
+      return s == 0 || (
+        isSafeOnlineCustomQuestion(questions[0]) &&
+        (s < 2 || (isSafeOnlineCustomQuestion(questions[1]) &&
+        (s < 3 || (isSafeOnlineCustomQuestion(questions[2]) &&
+        (s < 4 || isSafeOnlineCustomQuestion(questions[3]))))))
+      );
     }
 
-    function isSafeOnlineCustomQuestionsList(questions) {
+    function isSafeOnlineCustomQuestionsList(rawQuestions) {
+      let questions = rawQuestions;
       return questions is list &&
         questions.size() <= 4 &&
-        isSafeOnlineCustomQuestionAt(questions, 0) &&
-        isSafeOnlineCustomQuestionAt(questions, 1) &&
-        isSafeOnlineCustomQuestionAt(questions, 2) &&
-        isSafeOnlineCustomQuestionAt(questions, 3);
+        isSafeOnlineCustomQuestionsRange(questions);
     }
 
-    function isSafeOnlineCourseConfig(c) {
+    function isSafeOnlineCourseConfig(rawC) {
+      let c = rawC;
       return c is map &&
         c.keys().hasOnly([
           'courseId', 'courseName', 'category', 'active', 'price', 'monthlyFee',
@@ -784,36 +926,49 @@ service cloud.firestore {
         ]) &&
         ('courseId' in c) && c.courseId is string &&
         ('courseName' in c) && c.courseName is string &&
-        c.get('category', '') is string &&
-        c.get('active', true) is bool &&
-        c.get('price', 0) is number &&
-        c.get('monthlyFee', 0) is number &&
-        c.get('duration', '') is string &&
-        c.get('vacancies', 0) is number &&
-        c.get('filledVacancies', 0) is number &&
-        isSafeStringList3(c.get('requirements', [])) &&
+        (!('category' in c) || c.category is string) &&
+        (!('active' in c) || c.active is bool) &&
+        (!('price' in c) || c.price is number) &&
+        (!('monthlyFee' in c) || c.monthlyFee is number) &&
+        (!('duration' in c) || c.duration is string) &&
+        (!('vacancies' in c) || c.vacancies is number) &&
+        (!('filledVacancies' in c) || c.filledVacancies is number) &&
+        (!('requirements' in c) || isSafeStringList5(c.requirements)) &&
         (!('regimes' in c) || (c.regimes is list && c.regimes.size() <= 6 && c.regimes.hasOnly([
           'Laboral', 'Pós-Laboral', 'Online EAD', 'Híbrido', 'Presencial', 'Semi-presencial', 'Integral'
         ]))) &&
-        isSafeStringList3(c.get('shifts', [])) &&
-        isSafeStringList3(c.get('documents', []));
+        (!('shifts' in c) || isSafeStringList5(c.shifts)) &&
+        (!('documents' in c) || isSafeStringList5(c.documents));
     }
 
-    function isSafeOnlineCourseAt(courses, idx) {
-      return idx >= courses.size() || isSafeOnlineCourseConfig(courses[idx]);
+    function isSafeOnlineCoursesRange(rawCourses) {
+      let courses = rawCourses;
+      let s = courses.size();
+      return s == 0 || (
+        isSafeOnlineCourseConfig(courses[0]) &&
+        (s < 2 || (isSafeOnlineCourseConfig(courses[1]) &&
+        (s < 3 || (isSafeOnlineCourseConfig(courses[2]) &&
+        (s < 4 || (isSafeOnlineCourseConfig(courses[3]) &&
+        (s < 5 || (isSafeOnlineCourseConfig(courses[4]) &&
+        (s < 6 || (isSafeOnlineCourseConfig(courses[5]) &&
+        (s < 7 || (isSafeOnlineCourseConfig(courses[6]) &&
+        (s < 8 || (isSafeOnlineCourseConfig(courses[7]) &&
+        (s < 9 || (isSafeOnlineCourseConfig(courses[8]) &&
+        (s < 10 || (isSafeOnlineCourseConfig(courses[9]) &&
+        (s < 11 || (isSafeOnlineCourseConfig(courses[10]) &&
+        (s < 12 || isSafeOnlineCourseConfig(courses[11]))))))))))))))))))))))
+      );
     }
 
-    function isSafeOnlineCoursesList(courses) {
+    function isSafeOnlineCoursesList(rawCourses) {
+      let courses = rawCourses;
       return courses is list &&
-        courses.size() <= 5 &&
-        isSafeOnlineCourseAt(courses, 0) &&
-        isSafeOnlineCourseAt(courses, 1) &&
-        isSafeOnlineCourseAt(courses, 2) &&
-        isSafeOnlineCourseAt(courses, 3) &&
-        isSafeOnlineCourseAt(courses, 4);
+        courses.size() <= 12 &&
+        isSafeOnlineCoursesRange(courses);
     }
 
-    function isSafeOnlineRegistrationConfig(cfg, expectedInstId) {
+    function isSafeOnlineRegistrationConfig(rawCfg, expectedInstId) {
+      let cfg = rawCfg;
       return cfg is map &&
         cfg.keys().hasOnly([
           'institutionId', 'isOpen', 'title', 'description', 'startDate', 'endDate',
@@ -824,28 +979,29 @@ service cloud.firestore {
           'contactPhone', 'contactWhatsapp', 'contactEmail'
         ]) &&
         (!('institutionId' in cfg) || (cfg.institutionId is string && cfg.institutionId == expectedInstId)) &&
-        cfg.get('isOpen', true) is bool &&
-        cfg.get('title', '') is string &&
-        cfg.get('description', '') is string &&
-        cfg.get('startDate', '') is string &&
-        cfg.get('endDate', '') is string &&
-        cfg.get('academicYear', '') is string &&
-        cfg.get('semester', '') is string &&
+        (!('isOpen' in cfg) || cfg.isOpen is bool) &&
+        (!('title' in cfg) || cfg.title is string) &&
+        (!('description' in cfg) || cfg.description is string) &&
+        (!('startDate' in cfg) || cfg.startDate is string) &&
+        (!('endDate' in cfg) || cfg.endDate is string) &&
+        (!('academicYear' in cfg) || cfg.academicYear is string) &&
+        (!('semester' in cfg) || cfg.semester is string) &&
         (!('requiredFields' in cfg) || isSafeOnlineRequiredFields(cfg.requiredFields)) &&
-        isSafeStringList8(cfg.get('requiredDocuments', [])) &&
+        (!('requiredDocuments' in cfg) || isSafeStringList8(cfg.requiredDocuments)) &&
         (!('documentRequirements' in cfg) || isSafeDocumentRequirements(cfg.documentRequirements)) &&
         (!('customQuestions' in cfg) || isSafeOnlineCustomQuestionsList(cfg.customQuestions)) &&
         (!('coursesConfig' in cfg) || isSafeOnlineCoursesList(cfg.coursesConfig)) &&
-        cfg.get('autoApproveOnPayment', false) is bool &&
-        cfg.get('confirmationMessageTemplate', '') is string &&
-        cfg.get('termsAndConditions', '') is string &&
-        cfg.get('privacyPolicy', '') is string &&
-        cfg.get('contactPhone', '') is string &&
-        cfg.get('contactWhatsapp', '') is string &&
-        cfg.get('contactEmail', '') is string;
+        (!('autoApproveOnPayment' in cfg) || cfg.autoApproveOnPayment is bool) &&
+        (!('confirmationMessageTemplate' in cfg) || cfg.confirmationMessageTemplate is string) &&
+        (!('termsAndConditions' in cfg) || cfg.termsAndConditions is string) &&
+        (!('privacyPolicy' in cfg) || cfg.privacyPolicy is string) &&
+        (!('contactPhone' in cfg) || cfg.contactPhone is string) &&
+        (!('contactWhatsapp' in cfg) || cfg.contactWhatsapp is string) &&
+        (!('contactEmail' in cfg) || cfg.contactEmail is string);
     }
 
-    function isSafePublicInstitutionPayload(d, slug) {
+    function isSafePublicInstitutionPayload(rawD, slug) {
+      let d = rawD;
       return d is map &&
         d.keys().hasOnly([
           'id', 'institutionId', 'slug', 'slugAliases', 'name', 'code', 'sigla', 'type',
@@ -860,33 +1016,33 @@ service cloud.firestore {
         ('slug' in d) &&
         d.slug == slug &&
         (!('id' in d) || d.id == slug) &&
-        isSafeStringList6(d.get('slugAliases', [])) &&
-        d.get('name', '') is string &&
-        d.get('code', '') is string &&
-        d.get('sigla', '') is string &&
-        d.get('type', '') is string &&
-        d.get('nuit', '') is string &&
-        d.get('licenseNumber', '') is string &&
-        d.get('phone', '') is string &&
-        d.get('phoneAlt', '') is string &&
-        d.get('email', '') is string &&
-        d.get('whatsapp', '') is string &&
-        d.get('address', '') is string &&
-        d.get('city', '') is string &&
-        d.get('province', '') is string &&
-        d.get('logoUrl', '') is string &&
-        d.get('emblemUrl', '') is string &&
-        d.get('faviconUrl', '') is string &&
-        d.get('slogan', '') is string &&
-        d.get('primaryColor', '') is string &&
-        d.get('accentColor', '') is string &&
+        (!('slugAliases' in d) || isSafeStringList8(d.slugAliases)) &&
+        (!('name' in d) || d.name is string) &&
+        (!('code' in d) || d.code is string) &&
+        (!('sigla' in d) || d.sigla is string) &&
+        (!('type' in d) || d.type is string) &&
+        (!('nuit' in d) || d.nuit is string) &&
+        (!('licenseNumber' in d) || d.licenseNumber is string) &&
+        (!('phone' in d) || d.phone is string) &&
+        (!('phoneAlt' in d) || d.phoneAlt is string) &&
+        (!('email' in d) || d.email is string) &&
+        (!('whatsapp' in d) || d.whatsapp is string) &&
+        (!('address' in d) || d.address is string) &&
+        (!('city' in d) || d.city is string) &&
+        (!('province' in d) || d.province is string) &&
+        (!('logoUrl' in d) || d.logoUrl is string) &&
+        (!('emblemUrl' in d) || d.emblemUrl is string) &&
+        (!('faviconUrl' in d) || d.faviconUrl is string) &&
+        (!('slogan' in d) || d.slogan is string) &&
+        (!('primaryColor' in d) || d.primaryColor is string) &&
+        (!('accentColor' in d) || d.accentColor is string) &&
         (!('branches' in d) || isSafePublicBranchesList(d.branches)) &&
         (!('onlineRegistrationConfig' in d) || isSafeOnlineRegistrationConfig(d.onlineRegistrationConfig, d.institutionId)) &&
-        isSafeStringList6(d.get('acceptedChannels', [])) &&
+        (!('acceptedChannels' in d) || isSafeStringList6(d.acceptedChannels)) &&
         (!('paymentMethods' in d) || isSafePublicPaymentMethods(d.paymentMethods)) &&
-        d.get('termsAndConditions', '') is string &&
-        d.get('privacyPolicy', '') is string &&
-        d.get('updatedAt', '') is string;
+        (!('termsAndConditions' in d) || d.termsAndConditions is string) &&
+        (!('privacyPolicy' in d) || d.privacyPolicy is string) &&
+        (!('updatedAt' in d) || d.updatedAt is string);
     }
 
     function isValidPublicSlugId(slug) {
@@ -909,7 +1065,7 @@ service cloud.firestore {
         ('institutionId' in pubData) &&
         pubData.institutionId is string &&
         isValidId(pubData.institutionId) &&
-        isInstAdmin(pubData.institutionId);
+        canPublishPublicPortal(pubData.institutionId);
     }
 
     function isValidTenantAdminPublicIndexCreate(newSlugs) {
@@ -975,7 +1131,7 @@ service cloud.firestore {
       allow create: if isSignedIn() &&
         isValidPublicSlugId(slug) &&
         isSafePublicInstitutionPayload(request.resource.data, slug) &&
-        isInstAdmin(request.resource.data.institutionId);
+        canPublishPublicPortal(request.resource.data.institutionId);
       allow update: if isSignedIn() &&
         isValidPublicSlugId(slug) &&
         resource != null &&
@@ -1104,11 +1260,11 @@ service cloud.firestore {
       allow get, list: if resource != null && isTenantUser(resource.data.institutionId);
       allow create: if isValidId(courseId) &&
         ('institutionId' in request.resource.data) &&
-        isInstAdmin(request.resource.data.institutionId);
+        canManageCourses(request.resource.data.institutionId);
       allow update: if isValidId(courseId) &&
         resource != null &&
         request.resource.data.institutionId == resource.data.institutionId && (
-          isInstAdmin(resource.data.institutionId) || (
+          canManageCourses(resource.data.institutionId) || (
             isSecretaria(resource.data.institutionId) &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['filledVacancies', 'updatedAt']) &&
             ('filledVacancies' in request.resource.data) &&
@@ -1374,7 +1530,11 @@ service cloud.firestore {
           isCourseOpenAndAvailableAt(pub.onlineRegistrationConfig.coursesConfig, 4, targetCourseId) ||
           isCourseOpenAndAvailableAt(pub.onlineRegistrationConfig.coursesConfig, 5, targetCourseId) ||
           isCourseOpenAndAvailableAt(pub.onlineRegistrationConfig.coursesConfig, 6, targetCourseId) ||
-          isCourseOpenAndAvailableAt(pub.onlineRegistrationConfig.coursesConfig, 7, targetCourseId)
+          isCourseOpenAndAvailableAt(pub.onlineRegistrationConfig.coursesConfig, 7, targetCourseId) ||
+          isCourseOpenAndAvailableAt(pub.onlineRegistrationConfig.coursesConfig, 8, targetCourseId) ||
+          isCourseOpenAndAvailableAt(pub.onlineRegistrationConfig.coursesConfig, 9, targetCourseId) ||
+          isCourseOpenAndAvailableAt(pub.onlineRegistrationConfig.coursesConfig, 10, targetCourseId) ||
+          isCourseOpenAndAvailableAt(pub.onlineRegistrationConfig.coursesConfig, 11, targetCourseId)
         );
     }
 

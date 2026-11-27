@@ -808,12 +808,12 @@ export function buildPublicInstitutionFromModel(inst: Institution): PublicInstit
         : [];
 
   const aliases = Array.from(new Set([
-    ...(inst.slugAliases || []).map(a => normalizeSlug(a)).filter(a => isValidPublicInstitutionSlug(a)),
-    ...extraKnownAliases,
     primarySlug,
+    ...extraKnownAliases,
+    ...(inst.slugAliases || []).map(a => normalizeSlug(a)).filter(a => isValidPublicInstitutionSlug(a)),
     ...(inst.code ? [normalizeSlug(inst.code)] : []),
     ...(inst.id ? [normalizeSlug(inst.id)] : [])
-  ].filter(a => isValidPublicInstitutionSlug(a))));
+  ].filter(a => isValidPublicInstitutionSlug(a)))).slice(0, 8);
 
   const neutralFallback = createEmptyOnlineRegistrationConfig(inst);
   const existingCfg = inst.onlineRegistrationConfig;
@@ -895,6 +895,100 @@ interface AdminAuthCheckResult {
   error?: string;
 }
 
+export const PUBLIC_PORTAL_SECRETARIA_PERMISSIONS = [
+  'candidatos.config',
+  'cursos.create',
+  'cursos.edit'
+] as const;
+
+const INACTIVE_USER_STATUSES = new Set([
+  'inativo',
+  'inactivo',
+  'suspenso',
+  'suspensa',
+  'revogado',
+  'revogada',
+  'bloqueado',
+  'bloqueada'
+]);
+
+export function canUserManagePublicPortalProfile(
+  profile: Record<string, any> | null | undefined,
+  isSuperAdmin: boolean,
+  institutionId?: string,
+  tokenInstId?: string
+): { allowed: boolean; reason?: string } {
+  if (isSuperAdmin) {
+    return { allowed: true };
+  }
+
+  if (!profile) {
+    return {
+      allowed: false,
+      reason: 'Perfil administrativo SIGAR não encontrado para o utilizador autenticado.'
+    };
+  }
+
+  const rawStatus = String(profile.status || '').trim().toLowerCase();
+  const rawEstado = String(profile.estado || '').trim().toLowerCase();
+  if (
+    profile.disabled === true ||
+    INACTIVE_USER_STATUSES.has(rawStatus) ||
+    INACTIVE_USER_STATUSES.has(rawEstado) ||
+    rawEstado === 'pendente'
+  ) {
+    return {
+      allowed: false,
+      reason: 'Conta administrativa suspensa, inactiva ou revogada não pode publicar ou alterar o portal público.'
+    };
+  }
+
+  if (institutionId) {
+    const belongsToInst =
+      profile.institutionId === institutionId ||
+      (Array.isArray(profile.institutionIds) && profile.institutionIds.includes(institutionId)) ||
+      (Array.isArray(profile.ownedInstitutions) && profile.ownedInstitutions.includes(institutionId)) ||
+      (typeof tokenInstId === 'string' && tokenInstId === institutionId);
+
+    if (!belongsToInst) {
+      return {
+        allowed: false,
+        reason: `O utilizador autenticado não pertence à administração da instituição "${institutionId}".`
+      };
+    }
+  }
+
+  const canonicalRole = toCanonicalRole(String(profile.role || ''));
+  const isAdminRole =
+    canonicalRole === 'ADMIN_INSTITUICAO' ||
+    canonicalRole === 'DIRETOR' ||
+    canonicalRole === 'CEO';
+
+  if (isAdminRole) {
+    return { allowed: true };
+  }
+
+  if (canonicalRole === 'SECRETARIA') {
+    const perms = Array.isArray(profile.permissions) ? profile.permissions : [];
+    const hasExplicitPermission = PUBLIC_PORTAL_SECRETARIA_PERMISSIONS.some((perm) =>
+      perms.includes(perm)
+    );
+    if (hasExplicitPermission) {
+      return { allowed: true };
+    }
+    return {
+      allowed: false,
+      reason:
+        'Perfil "SECRETARIA" requer permissão explícita (candidatos.config, cursos.create ou cursos.edit) para publicar ou sincronizar o portal público.'
+    };
+  }
+
+  return {
+    allowed: false,
+    reason: `Perfil "${canonicalRole}" não possui autorização administrativa para publicar ou remover portais públicos.`
+  };
+}
+
 /**
  * Verifica autorização administrativa real para publicar/despublicar o portal público.
  * Nunca trata `auth.currentUser` isoladamente como prova de autorização administrativa.
@@ -937,19 +1031,6 @@ async function verifyPublicInstitutionAdminAuthorization(institutionId: string):
     }
 
     const profile = userSnap.data() || {};
-    const canonicalRole = toCanonicalRole(String(profile.role || ''));
-    const isAdminRole =
-      canonicalRole === 'ADMIN_INSTITUICAO' ||
-      canonicalRole === 'DIRETOR' ||
-      canonicalRole === 'CEO';
-
-    if (!isAdminRole) {
-      return {
-        authorized: false,
-        status: 'error',
-        error: `Perfil "${canonicalRole}" não possui autorização administrativa para publicar ou remover portais públicos.`
-      };
-    }
 
     let tokenInstId = '';
     try {
@@ -961,17 +1042,12 @@ async function verifyPublicInstitutionAdminAuthorization(institutionId: string):
       // ignore token inspection errors and rely on Firestore profile + Rules
     }
 
-    const belongsToInst =
-      profile.institutionId === institutionId ||
-      (Array.isArray(profile.institutionIds) && profile.institutionIds.includes(institutionId)) ||
-      (Array.isArray(profile.ownedInstitutions) && profile.ownedInstitutions.includes(institutionId)) ||
-      tokenInstId === institutionId;
-
-    if (!belongsToInst) {
+    const check = canUserManagePublicPortalProfile(profile, false, institutionId, tokenInstId);
+    if (!check.allowed) {
       return {
         authorized: false,
         status: 'error',
-        error: `O utilizador autenticado não pertence à administração da instituição "${institutionId}".`
+        error: check.reason || 'Autorização administrativa insuficiente.'
       };
     }
 
@@ -1282,8 +1358,8 @@ function createFirestoreTxAdapter(transaction: any): PublicInstitutionTxAdapter 
 
 export function getClientDirectWriteOverflowReasons(publicData: PublicInstitution): string[] {
   const reasons: string[] = [];
-  if (Array.isArray(publicData.slugAliases) && publicData.slugAliases.length > 6) {
-    reasons.push(`slugAliases (${publicData.slugAliases.length} > 6)`);
+  if (Array.isArray(publicData.slugAliases) && publicData.slugAliases.length > 8) {
+    reasons.push(`slugAliases (${publicData.slugAliases.length} > 8)`);
   }
   if (Array.isArray(publicData.acceptedChannels) && publicData.acceptedChannels.length > 6) {
     reasons.push(`acceptedChannels (${publicData.acceptedChannels.length} > 6)`);
@@ -1291,30 +1367,40 @@ export function getClientDirectWriteOverflowReasons(publicData: PublicInstitutio
   if (Array.isArray(publicData.paymentMethods?.acceptedChannels) && publicData.paymentMethods!.acceptedChannels.length > 6) {
     reasons.push(`paymentMethods.acceptedChannels (${publicData.paymentMethods!.acceptedChannels.length} > 6)`);
   }
-  if (Array.isArray(publicData.branches) && publicData.branches.length > 3) {
-    reasons.push(`branches (${publicData.branches.length} > 3)`);
+  if (Array.isArray(publicData.branches) && publicData.branches.length > 6) {
+    reasons.push(`branches (${publicData.branches.length} > 6)`);
   }
   const cfg = publicData.onlineRegistrationConfig;
   if (cfg) {
     if (Array.isArray(cfg.requiredDocuments) && cfg.requiredDocuments.length > 8) {
       reasons.push(`requiredDocuments (${cfg.requiredDocuments.length} > 8)`);
     }
-    if (Array.isArray(cfg.customQuestions) && cfg.customQuestions.length > 4) {
-      reasons.push(`customQuestions (${cfg.customQuestions.length} > 4)`);
+    if (Array.isArray(cfg.customQuestions)) {
+      if (cfg.customQuestions.length > 4) {
+        reasons.push(`customQuestions (${cfg.customQuestions.length} > 4)`);
+      }
+      for (const q of cfg.customQuestions) {
+        if (Array.isArray(q.options) && q.options.length > 5) {
+          reasons.push(`customQuestion(${q.id}).options (${q.options.length} > 5)`);
+        }
+      }
     }
     if (Array.isArray(cfg.coursesConfig)) {
-      if (cfg.coursesConfig.length > 5) {
-        reasons.push(`coursesConfig (${cfg.coursesConfig.length} > 5)`);
+      if (cfg.coursesConfig.length > 12) {
+        reasons.push(`coursesConfig (${cfg.coursesConfig.length} > 12)`);
       }
       for (const c of cfg.coursesConfig) {
-        if (Array.isArray(c.requirements) && c.requirements.length > 3) {
-          reasons.push(`course(${c.courseId}).requirements (${c.requirements.length} > 3)`);
+        if (Array.isArray(c.requirements) && c.requirements.length > 5) {
+          reasons.push(`course(${c.courseId}).requirements (${c.requirements.length} > 5)`);
         }
-        if (Array.isArray(c.shifts) && c.shifts.length > 3) {
-          reasons.push(`course(${c.courseId}).shifts (${c.shifts.length} > 3)`);
+        if (Array.isArray(c.regimes) && c.regimes.length > 6) {
+          reasons.push(`course(${c.courseId}).regimes (${c.regimes.length} > 6)`);
         }
-        if (Array.isArray(c.documents) && c.documents.length > 3) {
-          reasons.push(`course(${c.courseId}).documents (${c.documents.length} > 3)`);
+        if (Array.isArray(c.shifts) && c.shifts.length > 5) {
+          reasons.push(`course(${c.courseId}).shifts (${c.shifts.length} > 5)`);
+        }
+        if (Array.isArray(c.documents) && c.documents.length > 5) {
+          reasons.push(`course(${c.courseId}).documents (${c.documents.length} > 5)`);
         }
       }
     }

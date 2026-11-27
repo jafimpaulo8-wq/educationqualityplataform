@@ -707,7 +707,24 @@ export const CandidatesManagementView: React.FC = () => {
       privacyPolicy: cfgPrivacyText.trim() || undefined
     };
 
-    await updateOnlineRegistrationConfig(updatedConfig);
+    const syncRes = await updateOnlineRegistrationConfig(updatedConfig);
+    if (syncRes.status === 'success') {
+      const targetSlug = syncRes.slug || resolveInstitutionSlug(activeInstitution);
+      success(
+        'Portal Público Publicado!',
+        `As configurações e cursos da ${activeInstitution.name} foram sincronizados com /i/${targetSlug}.`
+      );
+    } else if (syncRes.status === 'skipped_no_auth') {
+      info(
+        'Sincronização Pública Ignorada',
+        syncRes.reason || 'Autentique-se para publicar alterações no portal público.'
+      );
+    } else {
+      toastError(
+        'Erro ao Sincronizar Portal Público',
+        syncRes.error || 'Não foi possível publicar as configurações no portal público.'
+      );
+    }
   };
 
   // Add Document to Config
@@ -1484,18 +1501,27 @@ export const CandidatesManagementView: React.FC = () => {
                     </div>
 
                     {/* Vacancy Progress Bar */}
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-[10px] text-slate-400">
-                        <span>Preenchimento de Vagas</span>
-                        <span>{course.filledVacancies || 0} / {course.vacancies} ({Math.round(((course.filledVacancies || 0) / course.vacancies) * 100)}%)</span>
-                      </div>
-                      <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-emerald-500 rounded-full"
-                          style={{ width: `${Math.min(100, Math.round(((course.filledVacancies || 0) / course.vacancies) * 100))}%` }}
-                        ></div>
-                      </div>
-                    </div>
+                    {(() => {
+                      const filled = course.filledVacancies || 0;
+                      const total = course.vacancies || 0;
+                      const pct = total > 0 ? Math.min(100, Math.round((filled / total) * 100)) : (filled > 0 ? 100 : 0);
+                      return (
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-[10px] text-slate-400">
+                            <span>Preenchimento de Vagas</span>
+                            <span className="tabular-nums">
+                              {filled} / {total} ({total > 0 ? `${pct}%` : 'Sem vagas'})
+                            </span>
+                          </div>
+                          <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div 
+                              className={`h-full rounded-full ${total === 0 ? 'bg-rose-500' : 'bg-emerald-500'}`}
+                              style={{ width: `${pct}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 ))}
               </div>

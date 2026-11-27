@@ -868,7 +868,12 @@ export const PublicRegistrationView: React.FC = () => {
         throw new Error(`Não foi possível validar o portal público no servidor: ${freshRes.error}`);
       }
       const freshInst = freshRes.institution;
-      if (!freshInst || freshInst.onlineRegistrationConfig?.isOpen === false) {
+      if (!freshInst) {
+        throw new Error(
+          `O portal público "/i/${resolvedPublicInst.slug}" ainda não está publicado no Firestore (publicInstitutions/${resolvedPublicInst.slug}). Publique as configurações na Secretaria antes de submeter candidaturas.`
+        );
+      }
+      if (freshInst.onlineRegistrationConfig?.isOpen === false) {
         throw new Error('As inscrições online desta instituição estão encerradas.');
       }
       const freshCourse = (freshInst.onlineRegistrationConfig?.coursesConfig || []).find(
@@ -1258,15 +1263,48 @@ export const PublicRegistrationView: React.FC = () => {
   // 3. Renderização Principal do Portal Institucional Isolado
   return (
     <div
-      className={`min-h-screen font-sans transition-colors ${
+      className={`min-h-screen font-sans transition-colors relative overflow-x-hidden ${
         isLight
           ? 'bg-slate-50 text-slate-900 selection:bg-emerald-600 selection:text-white'
           : 'bg-slate-950 text-slate-100 selection:bg-emerald-500 selection:text-slate-950'
       }`}
     >
+      {/* Subtle Ambient Animated Background Layer (GPU compositor transforms only) */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden z-0" aria-hidden="true">
+        <div
+          className={`sigar-ambient-float absolute -top-28 -left-24 w-[28rem] h-[28rem] rounded-full blur-3xl ${
+            isLight ? 'bg-emerald-300/25' : 'bg-emerald-500/10'
+          }`}
+        />
+        <div
+          className={`sigar-ambient-drift absolute top-1/3 -right-28 w-[32rem] h-[32rem] rounded-full blur-3xl ${
+            isLight ? 'bg-sky-300/25' : 'bg-sky-500/10'
+          }`}
+        />
+        <div
+          className={`sigar-ambient-float absolute -bottom-32 left-1/4 w-[24rem] h-[24rem] rounded-full blur-3xl ${
+            isLight ? 'bg-indigo-200/20' : 'bg-teal-500/10'
+          }`}
+        />
+        <svg
+          className={`sigar-ambient-drift absolute inset-0 w-full h-full ${
+            isLight ? 'opacity-[0.045] text-slate-800' : 'opacity-[0.04] text-emerald-300'
+          }`}
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <defs>
+            <pattern id="sigar-academic-lattice" width="64" height="64" patternUnits="userSpaceOnUse">
+              <path d="M 64 0 L 0 0 0 64" fill="none" stroke="currentColor" strokeWidth="0.75" />
+              <circle cx="0" cy="0" r="1.5" fill="currentColor" />
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#sigar-academic-lattice)" />
+        </svg>
+      </div>
+
       {/* Top Portal Banner & Institution Branding */}
       <header
-        className={`border-b sticky top-0 z-40 backdrop-blur-md transition-colors ${
+        className={`border-b sticky top-0 z-40 backdrop-blur-md transition-colors relative ${
           isLight ? 'border-slate-200 bg-white/95' : 'border-slate-800/80 bg-slate-900/80'
         }`}
       >
@@ -1346,9 +1384,9 @@ export const PublicRegistrationView: React.FC = () => {
       </header>
 
       {/* Main Container */}
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      <main className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
         {/* Campaign Announcement Card */}
-        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-emerald-950/40 via-slate-900 to-slate-950 border border-emerald-500/30 p-6 sm:p-8 shadow-2xl">
+        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-emerald-950/60 via-slate-900/95 to-slate-950 border border-emerald-500/30 p-6 sm:p-8 shadow-2xl">
           <div className="relative z-10 max-w-2xl space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <span
@@ -1358,7 +1396,7 @@ export const PublicRegistrationView: React.FC = () => {
                     : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
                 }`}
               >
-                <span className={`w-2 h-2 rounded-full ${isOpen ? 'bg-emerald-400 animate-ping' : 'bg-rose-400'}`}></span>
+                <span className={`w-2 h-2 rounded-full ${isOpen ? 'bg-emerald-400' : 'bg-rose-400'}`}></span>
                 {isOpen ? 'Inscrições Abertas' : 'Inscrições Encerradas'}
               </span>
               {(effectiveConfig.academicYear || effectiveConfig.semester) && (
@@ -1701,14 +1739,14 @@ export const PublicRegistrationView: React.FC = () => {
                                 <div className="p-3 rounded-xl bg-slate-900 border border-slate-800/80 space-y-1 text-xs">
                                   <div className="flex justify-between">
                                     <span className="text-slate-400">Taxa de Inscrição:</span>
-                                    <span className="font-bold text-emerald-400 font-mono">
+                                    <span className="font-bold text-emerald-400 font-mono tabular-nums">
                                       {(course.price ?? 0) > 0 ? `${course.price.toLocaleString()} MT` : 'Gratuito'}
                                     </span>
                                   </div>
                                   {(course.monthlyFee ?? 0) > 0 && (
                                     <div className="flex justify-between">
                                       <span className="text-slate-400">Propina Mensal:</span>
-                                      <span className="font-medium text-slate-200 font-mono">
+                                      <span className="font-medium text-slate-200 font-mono tabular-nums">
                                         {course.monthlyFee!.toLocaleString()} MT/mês
                                       </span>
                                     </div>
@@ -1729,7 +1767,7 @@ export const PublicRegistrationView: React.FC = () => {
                               </div>
 
                               <div className="mt-4 pt-3 border-t border-slate-800/80 space-y-2">
-                                <div className="flex justify-between text-[10px] text-slate-400">
+                                <div className="flex justify-between text-[10px] text-slate-400 tabular-nums">
                                   <span>Vagas Totais: {course.vacancies}</span>
                                   <span className={soldOut ? 'text-rose-400 font-bold' : filledPct > 85 ? 'text-amber-400 font-bold' : 'text-emerald-400 font-bold'}>
                                     {soldOut
@@ -1741,7 +1779,7 @@ export const PublicRegistrationView: React.FC = () => {
                                 </div>
                                 <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
                                   <div
-                                    className={`h-full rounded-full ${soldOut ? 'bg-rose-500' : filledPct > 85 ? 'bg-amber-400' : 'bg-emerald-500'}`}
+                                    className={`h-full rounded-full transition-all duration-300 ${soldOut ? 'bg-rose-500' : filledPct > 85 ? 'bg-amber-400' : 'bg-emerald-500'}`}
                                     style={{ width: `${soldOut ? 100 : filledPct}%` }}
                                   ></div>
                                 </div>
@@ -1751,10 +1789,10 @@ export const PublicRegistrationView: React.FC = () => {
                                       type="button"
                                       onClick={e => {
                                         e.stopPropagation();
-                                        const msg = encodeURIComponent(
+                                        openWhatsAppMessage(
+                                          validatedWhatsAppNumber,
                                           `Olá ${resolvedPublicInst.name}! Gostaria de saber mais informações sobre "${course.courseName}".`
                                         );
-                                        window.open(`https://wa.me/${validatedWhatsAppNumber}?text=${msg}`, '_blank');
                                       }}
                                       className="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
                                     >

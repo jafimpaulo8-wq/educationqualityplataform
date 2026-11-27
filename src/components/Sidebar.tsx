@@ -142,6 +142,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onCloseMobile }) =
       case 'SECRETARIA':
         return [
           { label: 'Início', route: 'experiencia_secretaria', icon: <ClipboardList className="w-4 h-4 text-white" /> },
+          { label: 'Cursos', route: 'cursos_gestao', icon: <BookOpen className="w-4 h-4 text-emerald-200" /> },
+          { label: 'Inscrições & Candidaturas', route: 'candidatos_gestao', icon: <ClipboardList className="w-4 h-4 text-sky-300" /> },
           { label: 'Alunos', route: 'alunos_list', icon: <Users className="w-4 h-4 text-emerald-200" /> },
           { label: 'Professores', route: 'professores_gestao', icon: <School className="w-4 h-4 text-emerald-200" /> },
           { label: 'Turmas', route: 'turmas_gestao', icon: <Layers className="w-4 h-4 text-emerald-200" /> },

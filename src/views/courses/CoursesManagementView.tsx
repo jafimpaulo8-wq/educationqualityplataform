@@ -64,7 +64,7 @@ export const CoursesManagementView: React.FC = () => {
   const [courseToEdit, setCourseToEdit] = useState<Course | null>(null);
   const [selectedCourseForCurriculum, setSelectedCourseForCurriculum] = useState<Course | null>(null);
 
-  const { success, error: toastError } = useToast();
+  const { success, error: toastError, info } = useToast();
   const [viewingCourse, setViewingCourse] = useState<Course | null>(null);
   const [historyCourse, setHistoryCourse] = useState<Course | null>(null);
   const [courseToDelete, setCourseToDelete] = useState<Course | null>(null);
@@ -710,9 +710,22 @@ export const CoursesManagementView: React.FC = () => {
               const syncRes = await updateCourse(courseToEdit.id, courseData);
               if (syncRes.status === 'success') {
                 success('Curso Atualizado', `O curso "${courseData.name}" foi atualizado e sincronizado com sucesso.`);
+              } else if (syncRes.status === 'skipped_no_auth') {
+                info('Sincronização Pública Ignorada', syncRes.reason || 'Sessão não autenticada para sincronizar o portal público.');
+              } else {
+                const msg = syncRes.error || 'Permissões insuficientes ou erro ao actualizar o curso.';
+                toastError('Falha ao Actualizar Curso', msg);
+                throw new Error(msg);
               }
             } else {
-              addCourse(courseData);
+              const syncRes = await addCourse(courseData);
+              if (syncRes.status === 'skipped_no_auth') {
+                info('Sincronização Pública Pendente', syncRes.reason || 'Curso salvo localmente; autentique-se para publicar no portal público.');
+              } else if (syncRes.status === 'error') {
+                const msg = syncRes.error || 'Permissões insuficientes ou erro ao cadastrar o curso.';
+                toastError('Falha ao Cadastrar Curso', msg);
+                throw new Error(msg);
+              }
             }
           }}
         />

@@ -5,8 +5,7 @@
  * project: siverc-94da3 (SIVERC)
  */
 
-import { app, db, auth, OperationType, handleFirestoreError } from '../services/firebase';
-import firebaseConfig from '../../firebase-applet-config.json';
+import { app, db, auth, OperationType, handleFirestoreError, effectiveFirebaseConfig, isFirebaseEmulatorMode } from '../services/firebase';
 
 export interface FirebaseConnectionStatus {
   isConfigured: boolean;
@@ -58,10 +57,10 @@ export class FirebaseClientManager {
     }
 
     return {
-      isConfigured: Boolean(firebaseConfig.projectId && firebaseConfig.apiKey),
-      projectId: firebaseConfig.projectId,
-      databaseId: firebaseConfig.firestoreDatabaseId,
-      authDomain: firebaseConfig.authDomain,
+      isConfigured: Boolean(effectiveFirebaseConfig.projectId && effectiveFirebaseConfig.apiKey),
+      projectId: String(effectiveFirebaseConfig.projectId || ''),
+      databaseId: isFirebaseEmulatorMode ? '(default)' : '(default)',
+      authDomain: String(effectiveFirebaseConfig.authDomain || ''),
       hasOfflineSupport: true,
       status,
       latencyMs: latency

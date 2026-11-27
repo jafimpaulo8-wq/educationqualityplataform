@@ -9,6 +9,7 @@ import {
   query, 
   where, 
   onSnapshot,
+  runTransaction,
   serverTimestamp
 } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from './firebase';
@@ -191,6 +192,37 @@ export async function saveInstitutionToFirestore(institution: Institution): Prom
   }
 }
 
+export async function saveInstitutionPublicConfigToFirestore(
+  institutionId: string,
+  patch: {
+    onlineRegistrationConfig?: Institution['onlineRegistrationConfig'];
+    phone?: string;
+    whatsapp?: string;
+    email?: string;
+    publicPortalPublished?: boolean;
+  }
+): Promise<void> {
+  const path = `${COLLECTIONS.INSTITUTIONS}/${institutionId}`;
+  try {
+    const safePatch: Record<string, any> = {
+      updatedAt: new Date().toISOString()
+    };
+    if (patch.onlineRegistrationConfig !== undefined) {
+      safePatch.onlineRegistrationConfig = patch.onlineRegistrationConfig;
+    }
+    if (patch.phone !== undefined) safePatch.phone = patch.phone;
+    if (patch.whatsapp !== undefined) safePatch.whatsapp = patch.whatsapp;
+    if (patch.email !== undefined) safePatch.email = patch.email;
+    if (patch.publicPortalPublished !== undefined) {
+      safePatch.publicPortalPublished = patch.publicPortalPublished;
+    }
+    const cleanPatch = sanitizeFirestoreData(safePatch);
+    await updateDoc(doc(db, COLLECTIONS.INSTITUTIONS, institutionId), cleanPatch);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
 // Students (Filtered strictly by institutionId and branchId) - Real Firestore only
 export async function getStudentsByInstitution(institutionId: string, branchId?: string): Promise<Student[]> {
   try {
@@ -266,13 +298,35 @@ export async function saveCourseToFirestore(course: Course): Promise<void> {
 
 export async function incrementCourseFilledVacancyInFirestore(
   courseId: string,
-  nextFilledVacancies: number
+  _nextFilledVacancies?: number
 ): Promise<void> {
   const path = `${COLLECTIONS.COURSES}/${courseId}`;
+  const courseRef = doc(db, COLLECTIONS.COURSES, courseId);
   try {
-    await updateDoc(doc(db, COLLECTIONS.COURSES, courseId), {
-      filledVacancies: nextFilledVacancies,
-      updatedAt: new Date().toISOString()
+    await runTransaction(db, async (tx) => {
+      const snap = await tx.get(courseRef);
+      if (!snap.exists()) {
+        throw new Error(`Curso "${courseId}" não encontrado no Firestore.`);
+      }
+      const data = snap.data() || {};
+      const currentFilled =
+        typeof data.filledVacancies === 'number' && Number.isFinite(data.filledVacancies)
+          ? data.filledVacancies
+          : 0;
+      const totalVacancies =
+        typeof data.totalVacancies === 'number' && Number.isFinite(data.totalVacancies)
+          ? data.totalVacancies
+          : undefined;
+      if (totalVacancies !== undefined && totalVacancies > 0 && currentFilled >= totalVacancies) {
+        throw new Error('As vagas deste curso encontram-se esgotadas.');
+      }
+      if (totalVacancies === 0) {
+        throw new Error('Este curso não possui vagas disponíveis (totalVacancies = 0).');
+      }
+      tx.update(courseRef, {
+        filledVacancies: currentFilled + 1,
+        updatedAt: new Date().toISOString()
+      });
     });
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);

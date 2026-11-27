@@ -75,6 +75,41 @@
   background-color: var(--theme-accent-hover) !important;
 }
 
+@keyframes sigarAmbientFloat {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(18px, -14px, 0) scale(1.04);
+  }
+}
+
+@keyframes sigarAmbientDrift {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  50% {
+    transform: translate3d(-16px, 12px, 0) rotate(2deg);
+  }
+}
+
+.sigar-ambient-float {
+  animation: sigarAmbientFloat 18s ease-in-out infinite;
+  will-change: transform;
+}
+
+.sigar-ambient-drift {
+  animation: sigarAmbientDrift 24s ease-in-out infinite;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sigar-ambient-float,
+  .sigar-ambient-drift {
+    animation: none !important;
+  }
+}
+
 /* Custom subtle scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
