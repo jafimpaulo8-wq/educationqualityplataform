@@ -1,10 +1,10 @@
 /**
  * Bateria Real de Testes E2E nos Firebase Emulators — SIGAR PRO
- * Projecto: siverc-94da3 | Base: (default)
+ * Projecto: demo-sigar-test | Base: (default)
  *
  * Executar via:
  *   npm run test:emulators
- *   (equivale a: firebase emulators:exec --project siverc-94da3 "npx tsx scripts/test_emulators_e2e.ts")
+ *   (equivale a: firebase emulators:exec --project demo-sigar-test "npx tsx scripts/test_emulators_e2e.ts")
  *
  * Requer Java 17+ e Firebase Emulators (Auth:9099, Functions:5001, Firestore:8080, Storage:9199).
  */
@@ -24,6 +24,35 @@ import {
   updateDoc
 } from 'firebase/firestore';
 import { preparePublicInstitutionsSyncPayloads } from '../src/services/publicInstitutionService';
+
+const EMULATOR_PROJECT_ID = process.env.GCLOUD_PROJECT;
+if (!EMULATOR_PROJECT_ID || EMULATOR_PROJECT_ID === 'siverc-94da3' || EMULATOR_PROJECT_ID !== 'demo-sigar-test') {
+  throw new Error(
+    `[test_emulators_e2e] Abortado: GCLOUD_PROJECT deve ser "demo-sigar-test" (recebido "${String(EMULATOR_PROJECT_ID || '')}").`
+  );
+}
+
+function parseLocalHostPort(rawHostPort: string | undefined, serviceName: string, envKey: string) {
+  if (!rawHostPort) {
+    throw new Error(`[test_emulators_e2e] Abortado: variável de ambiente obrigatória ${envKey} não definida para ${serviceName}.`);
+  }
+  const value = rawHostPort.trim();
+  const match = /^(127\.0\.0\.1|localhost):(\d{1,5})$/.exec(value);
+  if (!match) {
+    throw new Error(
+      `[test_emulators_e2e] Host inválido para ${serviceName}: "${value}". Apenas 127.0.0.1 ou localhost é permitido.`
+    );
+  }
+  const port = Number(match[2]);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`[test_emulators_e2e] Porta inválida para ${serviceName}: "${value}".`);
+  }
+  return { host: match[1], port, hostPort: `${match[1]}:${port}` };
+}
+
+const AUTH_ENDPOINT = parseLocalHostPort(process.env.FIREBASE_AUTH_EMULATOR_HOST, 'Auth', 'FIREBASE_AUTH_EMULATOR_HOST');
+const FIRESTORE_ENDPOINT = parseLocalHostPort(process.env.FIRESTORE_EMULATOR_HOST, 'Firestore', 'FIRESTORE_EMULATOR_HOST');
+const FUNCTIONS_ENDPOINT = parseLocalHostPort(process.env.FUNCTIONS_EMULATOR_HOST, 'Functions', 'FUNCTIONS_EMULATOR_HOST');
 
 interface TestCase {
   id: number;
@@ -57,7 +86,7 @@ async function createEmulatorUserAndGetToken(params: {
   password: string;
   emailVerified: boolean;
 }): Promise<{ localId: string; idToken: string }> {
-  const authHost = process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099';
+  const authHost = AUTH_ENDPOINT.hostPort;
   const signUpRes = await fetch(
     `http://${authHost}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=fake-api-key`,
     {
@@ -114,8 +143,7 @@ async function callFunctionEmulator<T = any>(
   data: Record<string, any>,
   idToken?: string
 ): Promise<{ ok: boolean; status: number; body: any }> {
-  const fnHost = process.env.FUNCTIONS_EMULATOR_HOST || '127.0.0.1:5001';
-  const url = `http://${fnHost}/siverc-94da3/us-central1/${functionName}`;
+  const url = `http://${FUNCTIONS_ENDPOINT.hostPort}/${EMULATOR_PROJECT_ID}/us-central1/${functionName}`;
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (idToken) headers.Authorization = `Bearer ${idToken}`;
 
@@ -128,21 +156,60 @@ async function callFunctionEmulator<T = any>(
   return { ok: res.ok && !json.error, status: res.status, body: json };
 }
 
+async function assertEmulatorsAvailableForScript(): Promise<void> {
+  const fetchJson = async (url: string) => {
+    const res = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(3000) });
+    const ct = String(res.headers.get('content-type') || '').toLowerCase();
+    if (!ct.includes('application/json')) {
+      throw new Error(`Resposta não-JSON em ${url} (HTTP ${res.status}, content-type=${ct})`);
+    }
+    return { res, body: (await res.json()) as any };
+  };
+
+  const authCheck = await fetchJson(`http://${AUTH_ENDPOINT.hostPort}/emulator/v1/projects/${EMULATOR_PROJECT_ID}/config`);
+  if (!authCheck.res.ok || !authCheck.body?.signIn || typeof authCheck.body.signIn !== 'object') {
+    throw new Error(`[test_emulators_e2e] Auth Emulator indisponível/inválido em http://${AUTH_ENDPOINT.hostPort}`);
+  }
+
+  const fsCheck = await fetchJson(
+    `http://${FIRESTORE_ENDPOINT.hostPort}/v1/projects/${EMULATOR_PROJECT_ID}/databases/(default)/documents/emulatorHealthProbe/probe`
+  );
+  const fsStatus = fsCheck.body?.error?.status;
+  if (!(fsCheck.res.ok || fsStatus === 'PERMISSION_DENIED' || fsStatus === 'NOT_FOUND')) {
+    throw new Error(`[test_emulators_e2e] Firestore Emulator indisponível/inválido em http://${FIRESTORE_ENDPOINT.hostPort}`);
+  }
+
+  const fnCheck = await fetchJson(`http://${FUNCTIONS_ENDPOINT.hostPort}/backends`);
+  const hasTriggers =
+    Array.isArray(fnCheck.body?.backends) &&
+    fnCheck.body.backends.length > 0 &&
+    fnCheck.body.backends.some((b: any) => Array.isArray(b?.functionTriggers) && b.functionTriggers.length > 0);
+  if (!fnCheck.res.ok || !hasTriggers) {
+    throw new Error(`[test_emulators_e2e] Functions Emulator indisponível ou sem triggers em http://${FUNCTIONS_ENDPOINT.hostPort}`);
+  }
+}
+
 async function main() {
+  await assertEmulatorsAvailableForScript();
+
   const firestoreRules = readFileSync('firestore.rules', 'utf8');
   const storageRules = readFileSync('firebase/storage.rules', 'utf8');
 
+  const stEndpoint = process.env.FIREBASE_STORAGE_EMULATOR_HOST
+    ? parseLocalHostPort(process.env.FIREBASE_STORAGE_EMULATOR_HOST, 'Storage', 'FIREBASE_STORAGE_EMULATOR_HOST')
+    : { host: '127.0.0.1', port: 9199, hostPort: '127.0.0.1:9199' };
+
   const testEnv: RulesTestEnvironment = await initializeTestEnvironment({
-    projectId: 'siverc-94da3',
+    projectId: EMULATOR_PROJECT_ID,
     firestore: {
       rules: firestoreRules,
-      host: '127.0.0.1',
-      port: 8080
+      host: FIRESTORE_ENDPOINT.host,
+      port: FIRESTORE_ENDPOINT.port
     },
     storage: {
       rules: storageRules,
-      host: '127.0.0.1',
-      port: 9199
+      host: stEndpoint.host,
+      port: stEndpoint.port
     }
   });
 

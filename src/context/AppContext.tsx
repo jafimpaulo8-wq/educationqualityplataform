@@ -174,7 +174,15 @@ import {
 import { INITIAL_ANNOUNCEMENTS } from '../data/announcementsData';
 import { soundManager } from '../utils/audio';
 import { httpsCallable } from 'firebase/functions';
-import { auth, functions, signInWithGoogle, signOutUser, testConnection } from '../services/firebase';
+import {
+  assertEmulatorsAvailable,
+  auth,
+  functions,
+  isFirebaseEmulatorMode,
+  signInWithGoogle,
+  signOutUser,
+  testConnection
+} from '../services/firebase';
 import { 
   getInstitutions, 
   getInstitutionById,
@@ -1671,11 +1679,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Initialize Firebase connection and data sync
   useEffect(() => {
-    testConnection().then(connected => {
-      setIsFirebaseConnected(connected);
-    });
+    let cancelled = false;
+    let unsubscribeAuth: (() => void) | null = null;
+    let unsubscribeAuthService: (() => void) | null = null;
 
-    const unsubscribe = auth.onAuthStateChanged(async (user) => {
+    const startFirebaseSync = () => {
+      if (cancelled) return;
+
+      testConnection().then(connected => {
+        if (!cancelled) {
+          setIsFirebaseConnected(connected);
+        }
+      });
+
+      unsubscribeAuth = auth.onAuthStateChanged(async (user) => {
       setFirebaseUser(user);
       if (user) {
         setAuthLoadingPhase('verificando_sessao');
@@ -1869,26 +1886,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     });
 
-    const unsubAuthService = authService.subscribe((authUser) => {
-      if (authUser) {
-        const superBySession =
-          toCanonicalRole(activeRoleRef.current) === 'SUPER_ADMIN' ||
-          authorizedRolesRef.current.some(r => toCanonicalRole(r) === 'SUPER_ADMIN');
-        if (authUser.role && !superBySession) setActiveRoleState(authUser.role);
-        if (authUser.roles && !superBySession) setAuthorizedRoles(authUser.roles);
-        // Never overwrite an active Super Admin institution selection from background profile snapshots
-        if (authUser.institutionId && !superBySession && !activeInstitutionIdRef.current) {
-          setActiveInstitutionId(authUser.institutionId);
+      unsubscribeAuthService = authService.subscribe((authUser) => {
+        if (authUser) {
+          const superBySession =
+            toCanonicalRole(activeRoleRef.current) === 'SUPER_ADMIN' ||
+            authorizedRolesRef.current.some(r => toCanonicalRole(r) === 'SUPER_ADMIN');
+          if (authUser.role && !superBySession) setActiveRoleState(authUser.role);
+          if (authUser.roles && !superBySession) setAuthorizedRoles(authUser.roles);
+          // Never overwrite an active Super Admin institution selection from background profile snapshots
+          if (authUser.institutionId && !superBySession && !activeInstitutionIdRef.current) {
+            setActiveInstitutionId(authUser.institutionId);
+          }
+          if (authUser.branchId && !superBySession) {
+            setActiveBranchId(authUser.branchId);
+          }
         }
-        if (authUser.branchId && !superBySession) {
-          setActiveBranchId(authUser.branchId);
+      });
+    };
+
+    if (isFirebaseEmulatorMode) {
+      void (async () => {
+        try {
+          await assertEmulatorsAvailable();
+          startFirebaseSync();
+        } catch (err) {
+          if (cancelled) return;
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(message);
+          setIsFirebaseConnected(false);
+          setAuthLoadingPhase('idle');
+          addNotification({
+            title: 'Firebase Emulators Indisponíveis',
+            message,
+            type: 'warning'
+          });
         }
-      }
-    });
+      })();
+    } else {
+      startFirebaseSync();
+    }
 
     return () => {
-      unsubscribe();
-      unsubAuthService();
+      cancelled = true;
+      unsubscribeAuth?.();
+      unsubscribeAuthService?.();
     };
   }, []);
 

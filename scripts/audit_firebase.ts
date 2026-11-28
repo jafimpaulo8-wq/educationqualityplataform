@@ -3,6 +3,19 @@ import { getFirestore, collection, getDocs, doc, getDoc, terminate } from 'fireb
 import firebaseConfig from '../firebase-applet-config.json';
 
 async function main() {
+  if (
+    process.env.VITE_USE_FIREBASE_EMULATORS === 'true' ||
+    process.env.VITE_USE_FIREBASE_EMULATOR === 'true' ||
+    process.env.FIRESTORE_EMULATOR_HOST ||
+    process.env.FIREBASE_AUTH_EMULATOR_HOST
+  ) {
+    throw new Error('[PROD GUARD] audit_firebase.ts bloqueado em ambiente Emulator.');
+  }
+  if (process.env.SIGAR_ALLOW_PROD_SCRIPT !== 'CONFIRM_SIVERC_94DA3') {
+    throw new Error(
+      '[PROD GUARD] Execução bloqueada: defina SIGAR_ALLOW_PROD_SCRIPT=CONFIRM_SIVERC_94DA3 para confirmar acesso a siverc-94da3.'
+    );
+  }
   console.log('AUDIT_START: Connecting to project:', firebaseConfig.projectId);
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);

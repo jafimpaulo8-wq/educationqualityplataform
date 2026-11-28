@@ -3,6 +3,19 @@ import { getFirestore, doc, setDoc, getDoc, terminate, serverTimestamp } from 'f
 import firebaseConfig from '../firebase-applet-config.json';
 
 async function main() {
+  if (
+    process.env.VITE_USE_FIREBASE_EMULATORS === 'true' ||
+    process.env.VITE_USE_FIREBASE_EMULATOR === 'true' ||
+    process.env.FIRESTORE_EMULATOR_HOST ||
+    process.env.FIREBASE_AUTH_EMULATOR_HOST
+  ) {
+    throw new Error('[PROD GUARD] seed_ceu_azul.ts bloqueado em ambiente Emulator.');
+  }
+  if (process.env.SIGAR_ALLOW_PROD_SCRIPT !== 'CONFIRM_SIVERC_94DA3') {
+    throw new Error(
+      '[PROD GUARD] Execução bloqueada: defina SIGAR_ALLOW_PROD_SCRIPT=CONFIRM_SIVERC_94DA3 para confirmar escrita em siverc-94da3.'
+    );
+  }
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
 

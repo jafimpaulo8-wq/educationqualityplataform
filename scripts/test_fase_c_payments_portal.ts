@@ -21,10 +21,29 @@ import {
   where
 } from 'firebase/firestore';
 
-const PROJECT_ID = 'siverc-94da3';
-const AUTH_EMULATOR_URL = 'http://127.0.0.1:9099';
-const FIRESTORE_HOST = '127.0.0.1';
-const FIRESTORE_PORT = 8080;
+const PROJECT_ID = process.env.GCLOUD_PROJECT || '';
+if (!PROJECT_ID || PROJECT_ID === 'siverc-94da3' || PROJECT_ID !== 'demo-sigar-test') {
+  throw new Error(
+    `[test_fase_c_payments_portal] Abortado: GCLOUD_PROJECT deve ser "demo-sigar-test" (recebido "${PROJECT_ID}").`
+  );
+}
+
+function parseLocalEndpoint(envKey: string, label: string) {
+  const raw = process.env[envKey];
+  if (!raw) throw new Error(`[test_fase_c_payments_portal] Abortado: ${envKey} obrigatório para ${label}.`);
+  const match = /^(127\.0\.0\.1|localhost):(\d{1,5})$/.exec(raw.trim());
+  const port = match ? Number(match[2]) : NaN;
+  if (!match || !Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`[test_fase_c_payments_portal] Abortado: ${envKey} inválido "${raw}".`);
+  }
+  return { host: match[1], port, url: `http://${match[1]}:${port}` };
+}
+
+const AUTH_ENDPOINT = parseLocalEndpoint('FIREBASE_AUTH_EMULATOR_HOST', 'Auth');
+const FIRESTORE_ENDPOINT = parseLocalEndpoint('FIRESTORE_EMULATOR_HOST', 'Firestore');
+const AUTH_EMULATOR_URL = AUTH_ENDPOINT.url;
+const FIRESTORE_HOST = FIRESTORE_ENDPOINT.host;
+const FIRESTORE_PORT = FIRESTORE_ENDPOINT.port;
 const TEST_PASS = 'SigarFaseC#2026';
 
 interface CheckResult {
@@ -148,8 +167,29 @@ async function ensureUser(auth: ReturnType<typeof getAuth>, email: string, verif
   }
 }
 
+async function assertEmulatorsReady(): Promise<void> {
+  const authRes = await fetch(`${AUTH_EMULATOR_URL}/emulator/v1/projects/${PROJECT_ID}/config`, {
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(3000)
+  });
+  const authBody = (await authRes.json().catch(() => null)) as any;
+  if (!authRes.ok || !authBody?.signIn || typeof authBody.signIn !== 'object') {
+    throw new Error(`[test_fase_c_payments_portal] Auth Emulator indisponível em ${AUTH_EMULATOR_URL}`);
+  }
+  const fsRes = await fetch(
+    `http://${FIRESTORE_HOST}:${FIRESTORE_PORT}/v1/projects/${PROJECT_ID}/databases/(default)/documents/emulatorHealthProbe/probe`,
+    { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(3000) }
+  );
+  const fsBody = (await fsRes.json().catch(() => null)) as any;
+  const fsStatus = fsBody?.error?.status;
+  if (!(fsRes.ok || fsStatus === 'PERMISSION_DENIED' || fsStatus === 'NOT_FOUND')) {
+    throw new Error(`[test_fase_c_payments_portal] Firestore Emulator indisponível em http://${FIRESTORE_HOST}:${FIRESTORE_PORT}`);
+  }
+}
+
 async function main() {
-  const app = initializeApp({ apiKey: 'fake-api-key', projectId: PROJECT_ID }, `fase-c-test-${Date.now()}`);
+  await assertEmulatorsReady();
+  const app = initializeApp({ apiKey: 'fake-api-key', authDomain: '127.0.0.1', projectId: PROJECT_ID }, `fase-c-test-${Date.now()}`);
   const auth = getAuth(app);
   const db = getFirestore(app);
   connectAuthEmulator(auth, AUTH_EMULATOR_URL, { disableWarnings: true });

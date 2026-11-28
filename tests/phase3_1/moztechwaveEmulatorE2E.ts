@@ -19,20 +19,32 @@ const { chromium } = require('/usr/local/share/bun-global/node_modules/playwrigh
 
 const FIRESTORE_HOST = process.env.FIRESTORE_EMULATOR_HOST;
 const AUTH_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST;
-const FUNCTIONS_HOST = process.env.FUNCTIONS_EMULATOR_HOST || '127.0.0.1:5001';
+const FUNCTIONS_HOST = process.env.FUNCTIONS_EMULATOR_HOST;
 const PROJECT_ID = process.env.GCLOUD_PROJECT || 'demo-sigar-test';
 const PORT = 3099;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 
-if (!FIRESTORE_HOST || !AUTH_HOST) {
+if (!FIRESTORE_HOST || !AUTH_HOST || !FUNCTIONS_HOST) {
   console.error('ABORTADO: Execute via `firebase emulators:exec --only auth,firestore,functions --project demo-sigar-test ...`');
   process.exit(2);
 }
 
-if (PROJECT_ID === 'siverc-94da3') {
-  console.error('ABORTADO: O modo Emulator nunca pode apontar para siverc-94da3.');
+if (PROJECT_ID === 'siverc-94da3' || PROJECT_ID !== 'demo-sigar-test') {
+  console.error(`ABORTADO: O modo Emulator exige GCLOUD_PROJECT=demo-sigar-test (recebido "${PROJECT_ID}").`);
   process.exit(2);
 }
+
+function assertLocalHostPort(label: string, value: string): void {
+  const match = /^(127\.0\.0\.1|localhost):(\d{1,5})$/.exec(value.trim());
+  if (!match || Number(match[2]) < 1 || Number(match[2]) > 65535) {
+    console.error(`ABORTADO: Host local inválido para ${label}: "${value}".`);
+    process.exit(2);
+  }
+}
+
+assertLocalHostPort('FIRESTORE_EMULATOR_HOST', FIRESTORE_HOST);
+assertLocalHostPort('FIREBASE_AUTH_EMULATOR_HOST', AUTH_HOST);
+assertLocalHostPort('FUNCTIONS_EMULATOR_HOST', FUNCTIONS_HOST);
 
 function toFirestoreValue(val: any): any {
   if (val === null) return { nullValue: null };
@@ -161,17 +173,20 @@ async function signInAuthUser(email: string, password: string) {
 }
 
 async function startViteEmulatorServer(): Promise<ChildProcess> {
+  const childEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    VITE_USE_FIREBASE_EMULATORS: 'true',
+    VITE_FIREBASE_EMULATOR_PROJECT_ID: PROJECT_ID,
+    VITE_FIREBASE_AUTH_EMULATOR_HOST: AUTH_HOST,
+    VITE_FIRESTORE_EMULATOR_HOST: FIRESTORE_HOST,
+    VITE_FIREBASE_FUNCTIONS_EMULATOR_HOST: FUNCTIONS_HOST,
+    DISABLE_HMR: 'true'
+  };
+  delete childEnv.VITE_USE_FIREBASE_EMULATOR;
+
   const proc = spawn('npx', ['vite', '--port', String(PORT), '--host', '127.0.0.1'], {
     cwd: process.cwd(),
-    env: {
-      ...process.env,
-      VITE_USE_FIREBASE_EMULATOR: 'true',
-      VITE_FIREBASE_EMULATOR_PROJECT_ID: PROJECT_ID,
-      VITE_FIREBASE_AUTH_EMULATOR_HOST: AUTH_HOST,
-      VITE_FIRESTORE_EMULATOR_HOST: FIRESTORE_HOST,
-      VITE_FIREBASE_FUNCTIONS_EMULATOR_HOST: FUNCTIONS_HOST,
-      DISABLE_HMR: 'true'
-    },
+    env: childEnv,
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
@@ -224,7 +239,42 @@ async function attachRemoteFirewall(page: any, violations: string[], emulatorCal
   });
 }
 
+async function assertIsolatedEmulatorsAvailable(): Promise<void> {
+  const fetchJson = async (url: string) => {
+    const res = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(3000) });
+    const ct = String(res.headers.get('content-type') || '').toLowerCase();
+    if (!ct.includes('application/json')) {
+      throw new Error(`Resposta não-JSON em ${url} (HTTP ${res.status}, content-type=${ct})`);
+    }
+    return { res, body: (await res.json()) as any };
+  };
+
+  const authCheck = await fetchJson(`http://${AUTH_HOST}/emulator/v1/projects/${PROJECT_ID}/config`);
+  if (!authCheck.res.ok || !authCheck.body?.signIn || typeof authCheck.body.signIn !== 'object') {
+    throw new Error(`Auth Emulator indisponível/inválido em http://${AUTH_HOST}`);
+  }
+
+  const fsCheck = await fetchJson(
+    `http://${FIRESTORE_HOST}/v1/projects/${PROJECT_ID}/databases/(default)/documents/emulatorHealthProbe/probe`
+  );
+  const fsStatus = fsCheck.body?.error?.status;
+  if (!(fsCheck.res.ok || fsStatus === 'PERMISSION_DENIED' || fsStatus === 'NOT_FOUND')) {
+    throw new Error(`Firestore Emulator indisponível/inválido em http://${FIRESTORE_HOST}`);
+  }
+
+  const fnCheck = await fetchJson(`http://${FUNCTIONS_HOST}/backends`);
+  const hasTriggers =
+    Array.isArray(fnCheck.body?.backends) &&
+    fnCheck.body.backends.length > 0 &&
+    fnCheck.body.backends.some((b: any) => Array.isArray(b?.functionTriggers) && b.functionTriggers.length > 0);
+  if (!fnCheck.res.ok || !hasTriggers) {
+    throw new Error(`Functions Emulator indisponível ou sem triggers em http://${FUNCTIONS_HOST}`);
+  }
+}
+
 async function main() {
+  await assertIsolatedEmulatorsAvailable();
+
   // Limpar Firestore Emulator antes do teste
   await fetch(
     `http://${FIRESTORE_HOST}/emulator/v1/projects/${PROJECT_ID}/databases/(default)/documents`,

@@ -42,15 +42,50 @@ async function runCase(name: string, fn: () => Promise<void>) {
   }
 }
 
+async function assertFirestoreEmulatorReady(projectId: string, host: string, port: number): Promise<void> {
+  const res = await fetch(
+    `http://${host}:${port}/v1/projects/${projectId}/databases/(default)/documents/emulatorHealthProbe/probe`,
+    { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(3000) }
+  );
+  const ct = String(res.headers.get('content-type') || '').toLowerCase();
+  if (!ct.includes('application/json')) {
+    throw new Error(`[test_fase_a_rules] Resposta não-JSON do Firestore Emulator em http://${host}:${port}`);
+  }
+  const body = (await res.json()) as any;
+  const fsStatus = body?.error?.status;
+  if (!(res.ok || fsStatus === 'PERMISSION_DENIED' || fsStatus === 'NOT_FOUND')) {
+    throw new Error(`[test_fase_a_rules] Firestore Emulator inválido em http://${host}:${port}`);
+  }
+}
+
 async function main() {
+  const projectId = process.env.GCLOUD_PROJECT;
+  if (!projectId || projectId === 'siverc-94da3' || projectId !== 'demo-sigar-test') {
+    throw new Error(
+      `[test_fase_a_rules] Abortado: GCLOUD_PROJECT deve ser "demo-sigar-test" (recebido "${String(projectId || '')}").`
+    );
+  }
+  const rawFsHost = process.env.FIRESTORE_EMULATOR_HOST;
+  if (!rawFsHost) {
+    throw new Error('[test_fase_a_rules] Abortado: FIRESTORE_EMULATOR_HOST é obrigatório.');
+  }
+  const match = /^(127\.0\.0\.1|localhost):(\d{1,5})$/.exec(rawFsHost.trim());
+  const fsPort = match ? Number(match[2]) : NaN;
+  if (!match || !Number.isInteger(fsPort) || fsPort < 1 || fsPort > 65535) {
+    throw new Error(`[test_fase_a_rules] Abortado: FIRESTORE_EMULATOR_HOST inválido "${rawFsHost}".`);
+  }
+  const fsHost = match[1];
+
+  await assertFirestoreEmulatorReady(projectId, fsHost, fsPort);
+
   const rules = readFileSync(process.env.RULES_FILE || 'firestore.rules', 'utf8');
 
   const testEnv: RulesTestEnvironment = await initializeTestEnvironment({
-    projectId: 'siverc-94da3',
+    projectId,
     firestore: {
       rules,
-      host: '127.0.0.1',
-      port: 8080,
+      host: fsHost,
+      port: fsPort,
     },
   });
 
